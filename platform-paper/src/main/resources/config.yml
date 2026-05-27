@@ -1,28 +1,77 @@
 config-version: '2.0'
+
+# This filter controls only which targets RaycastedAntiESP manages.
+# It does not affect real server-side spawning, AI, ticking, farms, villagers,
+# trades, breeding, or Bukkit spawn events. Non-allowlisted targets are sent
+# normally and are not inserted into the anti-ESP visibility views.
+target-filter:
+    enabled: true
+    mode: ALLOWLIST
+
+    # Entries may be written as villager or minecraft:villager.
+    # Missing types on the current server version are warned and skipped.
+    entities:
+        - minecraft:villager
+        - minecraft:copper_golem
+        - minecraft:armadillo
+        - minecraft:wolf
+        - minecraft:cat
+        - minecraft:ocelot
+        - minecraft:allay
+        - minecraft:bee
+        - minecraft:iron_golem
+        - minecraft:snow_golem
+        - minecraft:item_frame
+        - minecraft:glow_item_frame
+        - minecraft:armor_stand
+        - minecraft:painting
+
+    # These are block material keys. The filter expands them to all matching
+    # block states so chunk data can be rewritten before the client sees it.
+    block-entities:
+        - minecraft:campfire
+        - minecraft:soul_campfire
+        - minecraft:decorated_pot
+        - minecraft:bell
+        - minecraft:jukebox
+        - minecraft:conduit
+        - minecraft:beacon
+
+    # Groups are expanded from the server material registry where possible,
+    # so new colors or wood types in later 1.21.x versions are picked up.
+    block-entity-groups:
+        - shulker_boxes
+        - signs
+        - hanging_signs
+        - banners
+        - wall_banners
+        - beds
+        - heads_and_skulls
+
 checks:
     player:
-        enabled: true
-        hide-sounds-when-hidden: true
+        enabled: false
+        hide-sounds-when-hidden: false
         max-occluding-count: 3
-        always-show-radius: 8
-        raycast-radius: 64
-        hide-on-spawn-distance: 32
-        visible-recheck-interval-ticks: 5
+        always-show-radius: 24
+        raycast-radius: 48
+        hide-on-spawn-distance: 0
+        visible-recheck-interval-ticks: 10
     entity:
         enabled: true
-        hide-sounds-when-hidden: true
+        hide-sounds-when-hidden: false
         max-occluding-count: 3
-        always-show-radius: 8
+        always-show-radius: 24
         raycast-radius: 48
-        hide-on-spawn-distance: 32
-        visible-recheck-interval-ticks: 5
+        hide-on-spawn-distance: 0
+        visible-recheck-interval-ticks: 10
     tile-entity:
         enabled: true
         max-occluding-count: 3
-        always-show-radius: 8
+        always-show-radius: 24
         raycast-radius: 48
-        hide-on-spawn-distance: 32
-        visible-recheck-interval-ticks: -1
+        hide-on-spawn-distance: 0
+        visible-recheck-interval-ticks: 20
     sound-effects:
         enabled: true
         max-occluding-count: 3
