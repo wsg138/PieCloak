@@ -166,6 +166,10 @@ public class ConfigManager {
         return activeConfig.checksConfig().tileEntityConfig();
     }
 
+    public TargetFilterConfig getTargetFilterConfig() {
+        return activeConfig.targetFilterConfig();
+    }
+
     public DebugConfig getDebugConfig() {
         RootConfig current = activeConfig;
         return current == null ? null : current.debugConfig();
@@ -200,6 +204,7 @@ public class ConfigManager {
         }
 
         ChecksConfig checksConfig = ChecksConfig.load(loaded);
+        TargetFilterConfig targetFilterConfig = TargetFilterConfig.load(loaded);
         EngineConfig engineConfig = EngineConfig.load(loaded);
         BlockProcessorConfig blockProcessorConfig = BlockProcessorConfig.load(loaded);
         DebugConfig debugConfig = DebugConfig.load(loaded);
@@ -212,7 +217,7 @@ public class ConfigManager {
             throw new ConfigLoadException("checks.chunk-section.enabled must be false when block-processor.track-all-blocks is false");
         }
 
-        return new RootConfig(version, checksConfig, engineConfig, blockProcessorConfig, debugConfig, Map.copyOf(extensionConfigs));
+        return new RootConfig(version, checksConfig, targetFilterConfig, engineConfig, blockProcessorConfig, debugConfig, Map.copyOf(extensionConfigs));
     }
 
     private void validateReload(RootConfig next) {
