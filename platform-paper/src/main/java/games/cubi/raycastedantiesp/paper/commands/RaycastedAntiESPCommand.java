@@ -2,6 +2,7 @@ package games.cubi.raycastedantiesp.paper.commands;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
+import games.cubi.locatables.BlockLocatable;
 import games.cubi.locatables.Locatable;
 import games.cubi.locatables.MutableLocatable;
 import games.cubi.locatables.implementations.MutableLocatableImpl;
@@ -11,9 +12,11 @@ import games.cubi.raycastedantiesp.core.locatables.EntityLocatable;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
+import games.cubi.raycastedantiesp.core.stats.VisibilityStats;
 import games.cubi.raycastedantiesp.core.view.AbstractBlockView;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import games.cubi.raycastedantiesp.paper.UpdateChecker;
+import games.cubi.raycastedantiesp.paper.target.PaperTargetFilterService;
 import games.cubi.raycastedantiesp.paper.staging.PacketEventsPaperBlockInfoResolver;
 
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
@@ -32,6 +35,10 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collection;
+import java.util.Locale;
+import java.util.UUID;
+
 // Credit to Strokkur for making StrokkCommands, a non-hideous way to use the power of brigadier.
 
 @Command("raycastedantiesp")
@@ -48,12 +55,16 @@ public class RaycastedAntiESPCommand {
         sender.sendRichMessage("<green>/raycastedantiesp set <key> <value> <gray>- Sets a config value");
         sender.sendRichMessage("<green>/raycastedantiesp add <key> <value> <gray>- Adds a value to a list config");
         sender.sendRichMessage("<green>/raycastedantiesp remove <key> <value> <gray>- Removes a value from a list config");
+        sender.sendRichMessage("<green>/raycastedantiesp stats <gray>- Shows target filter and visibility stats");
+        sender.sendRichMessage("<green>/raycastedantiesp debugplayer <player> <gray>- Shows tracked visibility state for a player");
+        sender.sendRichMessage("<green>/raycastedantiesp benchmark <radius> <samples> <gray>- Benchmarks raycasts around you");
     }
 
     @Executes("reload")
     void reloadCommand(CommandSender sender) {
         try {
             ConfigManager.get().load();
+            RaycastedAntiESP.getTargetFilter().refresh();
             sender.sendMessage("[RaycastedAntiESP] Config reloaded.");
         } catch (RuntimeException e) {
             sender.sendRichMessage("<red>[RaycastedAntiESP] Config reload rejected: <white>" + e.getMessage());
@@ -99,6 +110,80 @@ public class RaycastedAntiESPCommand {
         UpdateChecker.checkForUpdates(RaycastedAntiESP.get(), sender);
     }
 
+    @Executes("stats")
+    void statsCommand(CommandSender sender) {
+        VisibilityTotals totals = collectVisibilityTotals(null);
+        VisibilityStats.Snapshot stats = VisibilityStats.get().snapshot();
+        PaperTargetFilterService.DebugSnapshot filter = RaycastedAntiESP.getTargetFilter().snapshot();
+
+        sender.sendRichMessage("<white>[RaycastedAntiESP] Target filter: <green>" + (filter.enabled() ? "enabled" : "disabled")
+                + "<gray>, entities=<white>" + filter.entityTypeCount()
+                + "<gray>, block-materials=<white>" + filter.blockMaterialCount()
+                + "<gray>, block-states=<white>" + filter.blockStateCount()
+                + "<gray>, safe-block-entity-types=<white>" + filter.safeBlockEntityTypeCount());
+        sender.sendRichMessage("<white>[RaycastedAntiESP] Managed targets: <gray>entities=<white>" + totals.entities()
+                + " <gray>(visible=<white>" + totals.visibleEntities() + "<gray>, hidden=<white>" + totals.hiddenEntities() + "<gray>)"
+                + " block-entities=<white>" + totals.blockEntities()
+                + " <gray>(visible=<white>" + totals.visibleBlockEntities() + "<gray>, hidden=<white>" + totals.hiddenBlockEntities() + "<gray>)");
+        sender.sendRichMessage("<white>[RaycastedAntiESP] Visibility pass: <gray>last=<white>" + formatMillis(stats.lastNanos())
+                + "ms <gray>avg=<white>" + formatMillis(stats.averageNanos())
+                + "ms <gray>max=<white>" + formatMillis(stats.maxNanos())
+                + "ms <gray>last-raycasts=<white>" + stats.lastRaycastChecks()
+                + " <gray>total-raycasts=<white>" + stats.totalRaycastChecks());
+        if (!filter.invalidEntries().isEmpty()) {
+            sender.sendRichMessage("<yellow>[RaycastedAntiESP] Skipped invalid target-filter entries: <white>" + filter.invalidEntries().size());
+            filter.invalidEntries().stream().limit(8).forEach(entry -> sender.sendRichMessage("<gray>- <white>" + entry));
+        }
+    }
+
+    @Executes("debugplayer")
+    void debugPlayerCommand(@StringArg(StringArgType.STRING) String playerName, CommandSender sender) {
+        Player target = Bukkit.getPlayerExact(playerName);
+        if (target == null) {
+            sender.sendRichMessage("<red>Player not found: <white>" + playerName);
+            return;
+        }
+        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(target.getUniqueId());
+        if (playerData == null) {
+            sender.sendRichMessage("<red>No RaycastedAntiESP player data is registered for <white>" + target.getName());
+            return;
+        }
+
+        VisibilityTotals totals = collectVisibilityTotals(playerData);
+        sender.sendRichMessage("<white>[RaycastedAntiESP] Player <green>" + target.getName()
+                + "<gray>: managed-entities=<white>" + totals.entities()
+                + " <gray>(visible=<white>" + totals.visibleEntities() + "<gray>, hidden=<white>" + totals.hiddenEntities() + "<gray>)"
+                + " managed-block-entities=<white>" + totals.blockEntities()
+                + " <gray>(visible=<white>" + totals.visibleBlockEntities() + "<gray>, hidden=<white>" + totals.hiddenBlockEntities() + "<gray>)");
+        if (playerData.blockView() instanceof AbstractBlockView<?> blockView) {
+            sender.sendRichMessage("<gray>Tracked occlusion chunk sections: <white>" + blockView.loadedChunkCount());
+        }
+    }
+
+    @Executes("benchmark")
+    void benchmarkCommand(int radius, int samples, Player player) throws CommandSyntaxException {
+        int clampedRadius = Math.max(1, Math.min(radius, 512));
+        int clampedSamples = Math.max(1, Math.min(samples, 100000));
+        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+        if (playerData == null || playerData.ownLocation() == null) {
+            player.sendRichMessage("<red>No RaycastedAntiESP player data is available yet.");
+            return;
+        }
+
+        Locatable[] locatables = randomLocatablesAround(playerData.ownLocation(), clampedRadius, clampedSamples);
+        Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> {
+            long startTime = System.nanoTime();
+            for (Locatable locatable : locatables) {
+                RaycastUtil.raycast(playerData, playerData.ownLocation(), locatable, 3, 0, clampedRadius, false, playerData.blockView(), 1, null);
+            }
+            long duration = System.nanoTime() - startTime;
+            player.sendRichMessage("<white>Raycast benchmark: <green>" + clampedSamples
+                    + " <gray>samples within <green>" + clampedRadius
+                    + " <gray>blocks, avg=<white>" + formatNanos(duration / clampedSamples)
+                    + "ns <gray>total=<white>" + formatMillis(duration) + "ms");
+        });
+    }
+
     @Executes("print-block-ids")
     void printBlockIDsCommand() {
         PacketEventsPaperBlockInfoResolver.get.iterateBlockIDs(true);
@@ -112,7 +197,74 @@ public class RaycastedAntiESPCommand {
         sender.sendRichMessage("<white>" + action + " <green>" + value + "<white> for <green>" + key);
         if (result.restartRequired()) {
             sender.sendRichMessage("<yellow>This change was saved but requires a restart: <white>" + result.message());
+        } else if (RaycastedAntiESP.getTargetFilter() != null) {
+            RaycastedAntiESP.getTargetFilter().refresh();
         }
+    }
+
+    private VisibilityTotals collectVisibilityTotals(PlayerData onlyPlayer) {
+        int entities = 0;
+        int visibleEntities = 0;
+        int hiddenEntities = 0;
+        int blockEntities = 0;
+        int visibleBlockEntities = 0;
+        int hiddenBlockEntities = 0;
+
+        Collection<PlayerData> playerData = onlyPlayer == null
+                ? PlayerRegistry.getInstance().getAllPlayerData()
+                : java.util.List.of(onlyPlayer);
+        int currentTick = RaycastedAntiESP.getCurrentTick();
+        for (PlayerData player : playerData) {
+            for (UUID entityUUID : player.entityView().getKnownEntities()) {
+                entities++;
+                if (player.entityView().isVisible(entityUUID)) {
+                    visibleEntities++;
+                } else {
+                    hiddenEntities++;
+                }
+            }
+            for (BlockLocatable location : player.blockView().getKnownTileEntities()) {
+                blockEntities++;
+                if (player.blockView().isVisible(location, currentTick)) {
+                    visibleBlockEntities++;
+                } else {
+                    hiddenBlockEntities++;
+                }
+            }
+        }
+        return new VisibilityTotals(entities, visibleEntities, hiddenEntities, blockEntities, visibleBlockEntities, hiddenBlockEntities);
+    }
+
+    private Locatable[] randomLocatablesAround(Locatable origin, int radius, int samples) {
+        Locatable[] locatables = new Locatable[samples];
+        MutableLocatable unitDirection = new MutableLocatableImpl(origin.world(), 0, 0, 0);
+        for (int i = 0; i < locatables.length; i++) {
+            unitDirection.setX(Math.random() - 0.5);
+            unitDirection.setY(Math.random() - 0.5);
+            unitDirection.setZ(Math.random() - 0.5);
+            unitDirection.normalize();
+            unitDirection.scalarMultiply(Math.random() * radius);
+            locatables[i] = origin.clonePlainAndCentreIfBlockLocation().add(unitDirection);
+        }
+        return locatables;
+    }
+
+    private String formatMillis(long nanos) {
+        return String.format(Locale.ROOT, "%.3f", nanos / 1_000_000.0);
+    }
+
+    private String formatNanos(long nanos) {
+        return String.format(Locale.ROOT, "%,d", nanos);
+    }
+
+    private record VisibilityTotals(
+            int entities,
+            int visibleEntities,
+            int hiddenEntities,
+            int blockEntities,
+            int visibleBlockEntities,
+            int hiddenBlockEntities
+    ) {
     }
 
     @Subcommand("test")

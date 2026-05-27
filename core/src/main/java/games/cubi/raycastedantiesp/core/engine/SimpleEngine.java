@@ -12,6 +12,7 @@ import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.raycast.ParticleSpawner;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
+import games.cubi.raycastedantiesp.core.stats.VisibilityStats;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 
@@ -29,6 +30,7 @@ public class SimpleEngine implements Engine {
     private final IntSupplier currentTickSupplier;
     private final AtomicInteger tickThreadsRunning = new AtomicInteger(0);
     private final AtomicLong tickNanos = new AtomicLong(0);
+    private final AtomicLong tickRaycastChecks = new AtomicLong(0);
     private final AsyncRunner asyncRunner;
 
     public SimpleEngine(ConfigManager config, ParticleSpawner particleSpawner, IntSupplier currentTickSupplier, AsyncRunner asyncRunner) {
@@ -51,6 +53,7 @@ public class SimpleEngine implements Engine {
         boolean handedOffToSubTick = false;
         try {
             tickNanos.set(System.nanoTime());
+            tickRaycastChecks.set(0);
 
             final int currentTick = currentTickSupplier.getAsInt();
             Collection<PlayerData> allPlayers = PlayerRegistry.getInstance().getAllPlayerData();
@@ -111,10 +114,12 @@ public class SimpleEngine implements Engine {
     }
 
     private void subTick(List<PlayerData> batch, EntityConfig entityConfig, PlayerConfig playerConfig, TileEntityConfig tileEntityConfig, DebugConfig debugConfig, int currentTick) {
+        long raycastChecks = 0;
         try {
-            processTickForPlayers(batch, entityConfig, playerConfig, tileEntityConfig, debugConfig.showDebugParticles(), currentTick);
+            raycastChecks = processTickForPlayers(batch, entityConfig, tileEntityConfig, debugConfig.showDebugParticles(), currentTick);
         }
         finally {
+            tickRaycastChecks.addAndGet(raycastChecks);
             int threadsRemaining = tickThreadsRunning.decrementAndGet();
             if (threadsRemaining < 0) {
                 Logger.warning("tickThreadsRunning went below 0! This should never happen. Resetting to 0 to avoid further issues.", 2, SimpleEngine.class);
@@ -122,6 +127,7 @@ public class SimpleEngine implements Engine {
             }
             if (threadsRemaining == 0) {
                 long elapsedNanos = System.nanoTime() - tickNanos.get();
+                VisibilityStats.get().recordVisibilityPass(elapsedNanos, tickRaycastChecks.get());
                 if (elapsedNanos > 40 * 1000000) {//40 ms
                     Logger.warning("Tick completed in " + (elapsedNanos / 1_000_000.0) + " ms. If you see this warning frequently, consider reducing the raycasting load by adjusting the configuration.", 5, SimpleEngine.class);
                 }
@@ -129,8 +135,9 @@ public class SimpleEngine implements Engine {
         }
     }
 
-    private void processTickForPlayers(List<PlayerData> playerDataList, EntityConfig entityConfig, PlayerConfig playerConfig, TileEntityConfig tileEntityConfig,
+    private long processTickForPlayers(List<PlayerData> playerDataList, EntityConfig entityConfig, TileEntityConfig tileEntityConfig,
                                        boolean debugParticles, int currentTick) {
+        long raycastChecks = 0;
 
         for (PlayerData playerData : playerDataList) {
             if (playerData.hasBypassPermission()) continue;
@@ -142,14 +149,15 @@ public class SimpleEngine implements Engine {
                 continue;
             }
 
-            if (entityConfig.enabled()) checkEntities(playerData, playerLocation, entityConfig, debugParticles, blockView, currentTick);
-            if (playerConfig.enabled()) checkPlayers(playerData, playerLocation, playerConfig, debugParticles, blockView, currentTick);
-            if (tileEntityConfig.enabled()) checkTileEntities(playerData, playerLocation, tileEntityConfig, debugParticles, blockView, currentTick);
+            if (entityConfig.enabled()) raycastChecks += checkEntities(playerData, playerLocation, entityConfig, debugParticles, blockView, currentTick);
+            if (tileEntityConfig.enabled()) raycastChecks += checkTileEntities(playerData, playerLocation, tileEntityConfig, debugParticles, blockView, currentTick);
         }
+        return raycastChecks;
     }
 
-    private void checkEntities(PlayerData player, Locatable playerLocation, EntityConfig entityConfig, boolean debugParticles, BlockView blockView, int currentTick) {
+    private long checkEntities(PlayerData player, Locatable playerLocation, EntityConfig entityConfig, boolean debugParticles, BlockView blockView, int currentTick) {
         EntityView<?> entityView = player.entityView();
+        long raycastChecks = 0;
 
         for (UUID entityUUID : entityView.getNeedingRecheck(entityConfig.getVisibleRecheckIntervalTicks(), currentTick)) {
             boolean wasVisible = entityView.isVisible(entityUUID, currentTick);
@@ -161,9 +169,11 @@ public class SimpleEngine implements Engine {
                         + " tick=" + currentTick);
                 continue;
             }
+            raycastChecks++;
             boolean canSee = RaycastUtil.raycast(player, playerLocation, entityLocation, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
             entityView.setVisibility(entityUUID, canSee, currentTick);
         }
+        return raycastChecks;
     }
 
     private void checkPlayers(PlayerData player, Locatable playerLocation, PlayerConfig playerConfig, boolean debugParticles, BlockView blockView, int currentTick) {
@@ -184,7 +194,8 @@ public class SimpleEngine implements Engine {
         }
     }
 
-    private void checkTileEntities(PlayerData player, Locatable playerLocation, TileEntityConfig tileEntityConfig, boolean debugParticles, BlockView blockView, int currentTick) {
+    private long checkTileEntities(PlayerData player, Locatable playerLocation, TileEntityConfig tileEntityConfig, boolean debugParticles, BlockView blockView, int currentTick) {
+        long raycastChecks = 0;
         for (BlockLocatable tileEntityLocation : blockView.getNeedingRecheck(tileEntityConfig.getVisibleRecheckIntervalTicks(), currentTick)) {
             if (tileEntityLocation.world() == null || !tileEntityLocation.world().equals(playerLocation.world())) {
                 continue;
@@ -194,8 +205,10 @@ public class SimpleEngine implements Engine {
                 blockView.setVisibility(tileEntityLocation, false, currentTick);
                 continue;
             }
+            raycastChecks++;
             boolean canSee = RaycastUtil.raycast(player, playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
             blockView.setVisibility(tileEntityLocation, canSee, currentTick);
         }
+        return raycastChecks;
     }
 }
