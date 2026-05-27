@@ -171,6 +171,7 @@ public class SimpleEngine implements Engine {
                 continue;
             }
             raycastChecks++;
+<<<<<<< HEAD
             boolean canSee;
             if (VisibilityTraceService.get().isTracingEntity(player.getPlayerUUID(), entityUUID)) {
                 RaycastUtil.RaycastDetails details = RaycastUtil.raycastDetailed(player, playerLocation, entityLocation, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
@@ -179,6 +180,9 @@ public class SimpleEngine implements Engine {
             } else {
                 canSee = RaycastUtil.raycast(player, playerLocation, entityLocation, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
             }
+=======
+            boolean canSee = RaycastUtil.raycast(player, playerLocation, entityLocation, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
+>>>>>>> cd76ff6 (Add PieCloak diagnostics commands)
             entityView.setVisibility(entityUUID, canSee, currentTick);
         }
         return raycastChecks;
@@ -220,6 +224,7 @@ public class SimpleEngine implements Engine {
                 continue;
             }
             raycastChecks++;
+<<<<<<< HEAD
             boolean canSee;
             if (VisibilityTraceService.get().isTracingBlock(player.getPlayerUUID(), tileEntityLocation)) {
                 RaycastUtil.RaycastDetails details = RaycastUtil.raycastDetailed(player, playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
@@ -229,6 +234,9 @@ public class SimpleEngine implements Engine {
             } else {
                 canSee = RaycastUtil.raycast(player, playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
             }
+=======
+            boolean canSee = RaycastUtil.raycast(player, playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
+>>>>>>> cd76ff6 (Add PieCloak diagnostics commands)
             blockView.setVisibility(tileEntityLocation, canSee, currentTick);
         }
         return raycastChecks;
