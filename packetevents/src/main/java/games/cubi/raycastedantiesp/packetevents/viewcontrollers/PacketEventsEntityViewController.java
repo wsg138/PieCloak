@@ -25,6 +25,7 @@ import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
 import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewController;
 import games.cubi.raycastedantiesp.packetevents.locatables.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
+import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,9 +41,11 @@ import static games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable.N
 public abstract class PacketEventsEntityViewController extends PacketEntityViewController<PacketWrapper<?>> implements PacketListener {
     private final IntSupplier currentTickSupplier;
     private final PacketEventsCommonViewController common;
+    private final PacketEventsTargetFilter targetFilter;
 
-    protected PacketEventsEntityViewController(IntSupplier currentTickSupplier) {
+    protected PacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
         this.currentTickSupplier = currentTickSupplier;
+        this.targetFilter = targetFilter == null ? PacketEventsTargetFilter.DISABLED : targetFilter;
         common = PacketEventsCommonViewController.get(currentTickSupplier);
     }
 
@@ -114,20 +117,25 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             }
             case PacketType.Play.Server.SPAWN_ENTITY -> {
                 WrapperPlayServerSpawnEntity packet = new WrapperPlayServerSpawnEntity(event);
-                Logger.debug("Spawning entity for player " + viewer.getUUID() + " entity #" + packet.getEntityId() + " tick=" + currentTick + " type=" + packet.getEntityType().getName());
-                if (handleEntitySpawn(packet, packet.getEntityType().isInstanceOf(EntityTypes.PLAYER), playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                boolean isPlayer = packet.getEntityType().isInstanceOf(EntityTypes.PLAYER);
+                boolean shouldCullEntity = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
+                Logger.debug("Spawning entity for player " + viewer.getUUID() + " entity #" + packet.getEntityId() + " tick=" + currentTick + " type=" + packet.getEntityType().getName() + " managed=" + shouldCullEntity);
+                if (handleEntitySpawn(packet, isPlayer, shouldCullEntity, playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_ANIMATION -> {
-                if (handleEntityAnimation(new WrapperPlayServerEntityAnimation(event).getEntityId(), playerData) == REQUIRE_EVENT_CANCELLATION)
+                int entityID = new WrapperPlayServerEntityAnimation(event).getEntityId();
+                if (isManagedEntity(entityID, playerData) && handleEntityAnimation(entityID, playerData) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_STATUS -> {
-                if (handleEntityEvent(new WrapperPlayServerEntityStatus(event).getEntityId(), playerData) == REQUIRE_EVENT_CANCELLATION)
+                int entityID = new WrapperPlayServerEntityStatus(event).getEntityId();
+                if (isManagedEntity(entityID, playerData) && handleEntityEvent(entityID, playerData) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.HURT_ANIMATION -> {
-                if (handleHurtAnimation(new WrapperPlayServerHurtAnimation(event).getEntityId(), playerData) == REQUIRE_EVENT_CANCELLATION)
+                int entityID = new WrapperPlayServerHurtAnimation(event).getEntityId();
+                if (isManagedEntity(entityID, playerData) && handleHurtAnimation(entityID, playerData) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.SPAWN_PAINTING -> {
@@ -142,57 +150,63 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 //    event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_RELATIVE_MOVE -> {
-                if (handleRelativeMove(new WrapperPlayServerEntityRelativeMove(event), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                WrapperPlayServerEntityRelativeMove packet = new WrapperPlayServerEntityRelativeMove(event);
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleRelativeMove(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION -> {
-                if (handleRelativeMoveAndRotation(new WrapperPlayServerEntityRelativeMoveAndRotation(event), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                WrapperPlayServerEntityRelativeMoveAndRotation packet = new WrapperPlayServerEntityRelativeMoveAndRotation(event);
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleRelativeMoveAndRotation(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_TELEPORT -> {
-                if (handleTeleport(new WrapperPlayServerEntityTeleport(event), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                WrapperPlayServerEntityTeleport packet = new WrapperPlayServerEntityTeleport(event);
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleTeleport(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_POSITION_SYNC -> {
-                if (handlePositionSync(new WrapperPlayServerEntityPositionSync(event), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                WrapperPlayServerEntityPositionSync packet = new WrapperPlayServerEntityPositionSync(event);
+                if (isManagedEntity(packet.getId(), playerData) && handlePositionSync(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_ROTATION -> {
-                if (handleEntityRotation(new WrapperPlayServerEntityRotation(event), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                WrapperPlayServerEntityRotation packet = new WrapperPlayServerEntityRotation(event);
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleEntityRotation(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_HEAD_LOOK -> {
-                if (handleEntityHeadLook(new WrapperPlayServerEntityHeadLook(event), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                WrapperPlayServerEntityHeadLook packet = new WrapperPlayServerEntityHeadLook(event);
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleEntityHeadLook(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_METADATA -> {
                 WrapperPlayServerEntityMetadata packet = new WrapperPlayServerEntityMetadata(event);
-                if (handleEntityMetadata(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleEntityMetadata(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.REMOVE_ENTITY_EFFECT -> {
                 WrapperPlayServerRemoveEntityEffect packet = new WrapperPlayServerRemoveEntityEffect(event);
-                if (handleRemoveEntityEffect(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleRemoveEntityEffect(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_EQUIPMENT -> {
                 WrapperPlayServerEntityEquipment packet = new WrapperPlayServerEntityEquipment(event);
-                if (handleEntityEquipment(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleEntityEquipment(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_VELOCITY -> {
                 WrapperPlayServerEntityVelocity packet = new WrapperPlayServerEntityVelocity(event);
-                if (handleEntityVelocity(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleEntityVelocity(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_EFFECT -> {
                 WrapperPlayServerEntityEffect packet = new WrapperPlayServerEntityEffect(event);
-                if (handleEntityEffect(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (isManagedEntity(packet.getEntityId(), playerData) && handleEntityEffect(packet, packet.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.SET_PASSENGERS -> {
                 WrapperPlayServerSetPassengers packet = new WrapperPlayServerSetPassengers(event);
-                if (handleEntityPassengers(packet.getEntityId(), packet.getPassengers(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (hasManagedEntity(packet.getEntityId(), packet.getPassengers(), playerData) && handleEntityPassengers(packet.getEntityId(), packet.getPassengers(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.DESTROY_ENTITIES -> {
@@ -200,16 +214,31 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             }
             case PacketType.Play.Server.UPDATE_ATTRIBUTES -> {
                 WrapperPlayServerUpdateAttributes wrapper = new WrapperPlayServerUpdateAttributes(event);
-                if (handleAttributeUpdate(wrapper, wrapper.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (isManagedEntity(wrapper.getEntityId(), playerData) && handleAttributeUpdate(wrapper, wrapper.getEntityId(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ATTACH_ENTITY -> {
                 WrapperPlayServerAttachEntity wrapper = new WrapperPlayServerAttachEntity(event);
-                if (handleLeashEntity(wrapper.getAttachedId(), wrapper.getHoldingId(), playerData) == REQUIRE_EVENT_CANCELLATION)
+                if ((isManagedEntity(wrapper.getAttachedId(), playerData) || isManagedEntity(wrapper.getHoldingId(), playerData)) && handleLeashEntity(wrapper.getAttachedId(), wrapper.getHoldingId(), playerData) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             default -> {}
         }
+    }
+
+    private boolean hasManagedEntity(int entityID, int[] relatedEntityIDs, PlayerData playerData) {
+        if (isManagedEntity(entityID, playerData)) {
+            return true;
+        }
+        if (relatedEntityIDs == null) {
+            return false;
+        }
+        for (int relatedEntityID : relatedEntityIDs) {
+            if (isManagedEntity(relatedEntityID, playerData)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected NettyEntityLocatable<?,?> createSelfEntity(PlayerData ownData, int entityID, UUID playerUUID) {

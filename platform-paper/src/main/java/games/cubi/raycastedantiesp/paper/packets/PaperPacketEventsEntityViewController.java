@@ -4,6 +4,7 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.protocol.player.User;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
+import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.Bukkit;
@@ -24,8 +25,8 @@ import java.util.function.IntSupplier;
 public class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController implements Listener {
     private final Map<NamespacedKey, UUID> worldIdByWorldKey = new ConcurrentHashMap<>();
 
-    public PaperPacketEventsEntityViewController(IntSupplier currentTickSupplier) {
-        super(currentTickSupplier);
+    public PaperPacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+        super(currentTickSupplier, targetFilter);
         Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
         Bukkit.getWorlds().forEach(this::registerWorld);
         PacketEvents.getAPI().getEventManager().registerListener(this, PacketListenerPriority.HIGHEST);

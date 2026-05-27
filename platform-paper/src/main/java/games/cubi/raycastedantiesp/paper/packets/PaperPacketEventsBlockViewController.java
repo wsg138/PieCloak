@@ -3,6 +3,7 @@ package games.cubi.raycastedantiesp.paper.packets;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.protocol.player.User;
+import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsBlockViewController;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import games.cubi.raycastedantiesp.paper.staging.PacketEventsPaperBlockInfoResolver;
@@ -26,8 +27,8 @@ public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewC
     private final int stoneBlockId = SpigotConversionUtil.fromBukkitBlockData(Material.STONE.createBlockData()).getGlobalId();
     private final int deepslateBlockId = SpigotConversionUtil.fromBukkitBlockData(Material.DEEPSLATE.createBlockData()).getGlobalId();
 
-    public PaperPacketEventsBlockViewController(IntSupplier currentTickSupplier) {
-        super(new PacketEventsPaperBlockInfoResolver(), currentTickSupplier);
+    public PaperPacketEventsBlockViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+        super(new PacketEventsPaperBlockInfoResolver(), targetFilter, currentTickSupplier);
         Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
         Bukkit.getWorlds().forEach(this::registerWorld);
         PacketEvents.getAPI().getEventManager().registerListener(this, PacketListenerPriority.HIGHEST);

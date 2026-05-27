@@ -70,32 +70,40 @@ public abstract class PacketEntityViewController<P> {
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.
      */
     @Packet(Packet.Packets.SPAWN_ENTITY)
-    protected boolean handleEntitySpawn(P packet, boolean isPlayer, PlayerData playerData, UUID world, int currentTick) {
+    protected boolean handleEntitySpawn(P packet, boolean isPlayer, boolean shouldCullEntity, PlayerData playerData, UUID world, int currentTick) {
         if (world == null) {
             Logger.error(new RuntimeException("World null when handling spawn entity packet, uuid=" + playerData.getPlayerUUID() + " tick=" + currentTick), 2, PacketEntityViewController.class);
             return false;
         }
 
         NettyEntityLocatable<?,?> entity = processEntitySpawn(playerData, packet, world, currentTick);
+        if (entity == null) {
+            return false;
+        }
 
-        if ((!isPlayer && entityConfig.enabled()) || isPlayer && playerConfig.enabled()) {
+        if (isPlayer) {
+            entity.setVisible(true);
+            entity.setClientVisible(true);
+            insertEntityToPlayerView(entity, playerData);
+            return false;
+        }
+
+        if (!shouldCullEntity) {
+            entity.setVisible(true);
+            entity.setClientVisible(true);
+            return false;
+        }
+
+        if (entityConfig.enabled()) {
             double distanceSquared = playerData.ownLocation().distanceSquared(entity);
-            if (distanceSquared > (isPlayer ? hideOnSpawnPlayerDistanceSquared : hideOnSpawnEntityDistanceSquared)) {
+            if (distanceSquared > hideOnSpawnEntityDistanceSquared) {
                 entity.setVisible(false);
                 entity.setClientVisible(false);
-                if (isPlayer) {
-                    insertEntityToPlayerView(entity, playerData);
-                    return true;
-                }
                 insertEntityToEntityView(entity, playerData);
                 return true;
             }
         } else {
             entity.setClientVisible(true);
-        }
-        if (isPlayer) {
-            insertEntityToPlayerView(entity, playerData);
-            return false;
         }
         insertEntityToEntityView(entity, playerData);
         return false;
@@ -207,6 +215,9 @@ public abstract class PacketEntityViewController<P> {
     private boolean handleEntityPassengers(int entityID, int[] passengers, PlayerData playerData, int currentTick, int retriesRemaining) {
         NettyEntityLocatable<?,?> entity = playerData.entityFromID(entityID);
         if (entity == null) {
+            if (hasManagedEntity(passengers, playerData)) {
+                return false;
+            }
             if (retriesRemaining > 0) {
                 delayPacketHandling(playerData, () -> handleEntityPassengers(entityID, passengers, playerData, currentTick, retriesRemaining - 1));
                 return false;
@@ -278,7 +289,6 @@ public abstract class PacketEntityViewController<P> {
             playerData.nettyData().removeUnresolvedLeashedEntityFromAll(entityID);
             EntityView<?> entityView = playerData.viewFromEntityID(entityID);
             if (entityView == null) {
-                Logger.error("Could not find view for entity when processing destroy packet, id=" + entityID, 2, PacketEntityViewController.class);
                 continue;
             }
             Logger.debug("Removing entity from view due to destroy packet, entityID=" + entityID + " player=" + playerData.getPlayerUUID() + " tick=" + currentTick);
@@ -319,6 +329,9 @@ public abstract class PacketEntityViewController<P> {
         //Note, leashing entity ID will be -1 to unleash. From testing it sometimes seems to be 0?
         NettyEntityLocatable<?,?> leashed = playerData.entityFromID(leashedEntity);
         if (leashed == null) {
+            if (isManagedEntity(leashingEntity, playerData)) {
+                return cancelIfEnabledAndHidden(leashingEntity, playerData);
+            }
             if (retriesRemaining > 0) {
                 delayPacketHandling(playerData, () -> handleLeashEntity(leashedEntity, leashingEntity, playerData, retriesRemaining - 1));
                 return false;
@@ -389,6 +402,22 @@ public abstract class PacketEntityViewController<P> {
         }
 
         return getCorrectConfig(entityView).enabled(); // If this statement is reached, the entity should be hidden, so if the config is enabled it is hidden.
+    }
+
+    protected boolean isManagedEntity(int entityID, PlayerData playerData) {
+        return playerData.viewFromEntityID(entityID) != null;
+    }
+
+    private boolean hasManagedEntity(int[] entityIDs, PlayerData playerData) {
+        if (entityIDs == null) {
+            return false;
+        }
+        for (int entityID : entityIDs) {
+            if (isManagedEntity(entityID, playerData)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
