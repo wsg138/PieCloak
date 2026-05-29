@@ -19,6 +19,11 @@ public class PlayerData {
     private final int joinTick;
     private volatile boolean hasBypassPermission;
     private final ThreadSafeLocatable ownLocation;
+    private volatile float yaw;
+    private volatile float pitch;
+    private volatile double lookX;
+    private volatile double lookY;
+    private volatile double lookZ = 1;
 
     private final BlockView blockView;
     private final EntityView<?> entityView;
@@ -89,9 +94,38 @@ public class PlayerData {
         ownLocation.set(x, y, z, world);
     }
 
+    public void updateOwnLocationAndLook(UUID world, double x, double y, double z, float yaw, float pitch, double lookX, double lookY, double lookZ) {
+        updateOwnLocation(world, x, y, z);
+        this.yaw = yaw;
+        this.pitch = pitch;
+        this.lookX = lookX;
+        this.lookY = lookY;
+        this.lookZ = lookZ;
+    }
+
     public Locatable ownLocation() {
         ThreadSafeLocatable existing = ownLocation;
         return existing == null ? null : existing.clonePlainAndCentreIfBlockLocation();
+    }
+
+    public float yaw() {
+        return yaw;
+    }
+
+    public float pitch() {
+        return pitch;
+    }
+
+    public double lookX() {
+        return lookX;
+    }
+
+    public double lookY() {
+        return lookY;
+    }
+
+    public double lookZ() {
+        return lookZ;
     }
 
     public UUID getPlayerUUID() {

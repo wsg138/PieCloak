@@ -5,10 +5,13 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import games.cubi.locatables.BlockLocatable;
 import games.cubi.locatables.Locatable;
 import games.cubi.locatables.MutableLocatable;
+import games.cubi.locatables.implementations.ImmutableBlockLocatable;
 import games.cubi.locatables.implementations.MutableLocatableImpl;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.config.ConfigManager;
+import games.cubi.raycastedantiesp.core.debug.VisibilityTraceService;
 import games.cubi.raycastedantiesp.core.locatables.EntityLocatable;
+import games.cubi.raycastedantiesp.core.locatables.TileEntityLocatable;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
@@ -30,9 +33,12 @@ import net.strokkur.commands.permission.Permission;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.block.Block;
+import org.bukkit.block.TileState;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.util.RayTraceResult;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
@@ -58,6 +64,7 @@ public class RaycastedAntiESPCommand {
         sender.sendRichMessage("<green>/raycastedantiesp stats <gray>- Shows target filter and visibility stats");
         sender.sendRichMessage("<green>/raycastedantiesp debugplayer <player> <gray>- Shows tracked visibility state for a player");
         sender.sendRichMessage("<green>/raycastedantiesp benchmark <radius> <samples> <gray>- Benchmarks raycasts around you");
+        sender.sendRichMessage("<green>/raycastedantiesp trace <gray>- Tracks one target and writes visibility details to a trace file");
     }
 
     @Executes("reload")
@@ -161,6 +168,15 @@ public class RaycastedAntiESPCommand {
     }
 
     @Executes("benchmark")
+    void benchmarkCommand(int radius, int samples, CommandSender sender) throws CommandSyntaxException {
+        Player player = senderPlayer(sender);
+        if (player == null) {
+            return;
+        }
+        benchmarkCommand(radius, samples, player);
+    }
+
+    @Executes("benchmark")
     void benchmarkCommand(int radius, int samples, Player player) throws CommandSyntaxException {
         int clampedRadius = Math.max(1, Math.min(radius, 512));
         int clampedSamples = Math.max(1, Math.min(samples, 100000));
@@ -171,22 +187,37 @@ public class RaycastedAntiESPCommand {
         }
 
         Locatable[] locatables = randomLocatablesAround(playerData.ownLocation(), clampedRadius, clampedSamples);
+        player.sendRichMessage("<gray>Running raycast benchmark: <white>" + clampedSamples
+                + " <gray>samples within <white>" + clampedRadius + "<gray> blocks...");
         Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> {
             long startTime = System.nanoTime();
             for (Locatable locatable : locatables) {
                 RaycastUtil.raycast(playerData, playerData.ownLocation(), locatable, 3, 0, clampedRadius, false, playerData.blockView(), 1, null);
             }
             long duration = System.nanoTime() - startTime;
-            player.sendRichMessage("<white>Raycast benchmark: <green>" + clampedSamples
+            String result = "<white>Raycast benchmark complete: <green>" + clampedSamples
                     + " <gray>samples within <green>" + clampedRadius
                     + " <gray>blocks, avg=<white>" + formatNanos(duration / clampedSamples)
-                    + "ns <gray>total=<white>" + formatMillis(duration) + "ms");
+                    + "ns <gray>total=<white>" + formatMillis(duration) + "ms";
+            Bukkit.getScheduler().runTask(RaycastedAntiESP.get(), () -> {
+                if (player.isOnline()) {
+                    player.sendRichMessage(result);
+                }
+            });
         });
     }
 
     @Executes("print-block-ids")
     void printBlockIDsCommand() {
         PacketEventsPaperBlockInfoResolver.get.iterateBlockIDs(true);
+    }
+
+    private static Player senderPlayer(CommandSender sender) {
+        if (sender instanceof Player player) {
+            return player;
+        }
+        sender.sendMessage("This command must be run by a player.");
+        return null;
     }
 
     private void sendConfigMutationResult(CommandSender sender, ConfigManager.SetConfigResult result, String action, String key, String value) {
@@ -265,6 +296,248 @@ public class RaycastedAntiESPCommand {
             int visibleBlockEntities,
             int hiddenBlockEntities
     ) {
+    }
+
+    @Subcommand("trace")
+    static class TraceCommands {
+        private static final int TRACE_DISTANCE = 96;
+
+        @Executes("entity")
+        void traceLookedAtEntity(CommandSender sender) {
+            Player player = senderPlayer(sender);
+            if (player == null) {
+                return;
+            }
+            traceLookedAtEntity(player);
+        }
+
+        @Executes("entity")
+        void traceLookedAtEntity(Player player) {
+            PlayerData playerData = playerData(player);
+            if (playerData == null) {
+                return;
+            }
+
+            RayTraceResult result = player.getWorld().rayTraceEntities(
+                    player.getEyeLocation(),
+                    player.getEyeLocation().getDirection(),
+                    TRACE_DISTANCE,
+                    0.75,
+                    entity -> !entity.getUniqueId().equals(player.getUniqueId())
+                            && playerData.entityView().getEntity(entity.getEntityId()) != null
+            );
+            Entity hit = result == null ? null : result.getHitEntity();
+            if (hit == null) {
+                Entity closestAny = closestLookedAtEntity(player);
+                if (closestAny == null) {
+                    player.sendRichMessage("<red>No entity found in your crosshair within <white>" + TRACE_DISTANCE + "<red> blocks.");
+                } else {
+                    player.sendRichMessage("<red>No managed PieCloak entity found in your crosshair.");
+                    player.sendRichMessage("<gray>Closest hit was <white>" + closestAny.getType().getKey()
+                            + " <gray>entityID=<white>" + closestAny.getEntityId()
+                            + " <gray>managed=<white>false");
+                }
+                return;
+            }
+            startEntityTrace(player, playerData, hit.getEntityId(), hit.getType().name());
+        }
+
+        @Executes("entity-id")
+        void traceEntityById(int entityID, CommandSender sender) {
+            Player player = senderPlayer(sender);
+            if (player == null) {
+                return;
+            }
+            traceEntityById(entityID, player);
+        }
+
+        @Executes("entity-id")
+        void traceEntityById(int entityID, Player player) {
+            PlayerData playerData = playerData(player);
+            if (playerData == null) {
+                return;
+            }
+            Entity bukkitEntity = SpigotConversionUtil.getEntityById(player.getWorld(), entityID);
+            String label = bukkitEntity == null ? "entity-id-" + entityID : bukkitEntity.getType().name();
+            startEntityTrace(player, playerData, entityID, label);
+        }
+
+        @Executes("block")
+        void traceLookedAtBlockEntity(CommandSender sender) {
+            Player player = senderPlayer(sender);
+            if (player == null) {
+                return;
+            }
+            traceLookedAtBlockEntity(player);
+        }
+
+        @Executes("block")
+        void traceLookedAtBlockEntity(Player player) {
+            PlayerData playerData = playerData(player);
+            if (playerData == null) {
+                return;
+            }
+
+            Block block = player.getTargetBlockExact(TRACE_DISTANCE);
+            if (block == null) {
+                player.sendRichMessage("<red>No block found in your crosshair within <white>" + TRACE_DISTANCE + "<red> blocks.");
+                return;
+            }
+            if (!(block.getState() instanceof TileState)) {
+                player.sendRichMessage("<yellow>That block is not a Bukkit block entity: <white>" + block.getType().getKey());
+                player.sendRichMessage("<gray>Trace not started. Look at a shulker, sign, bell, beacon, campfire, etc.");
+                return;
+            }
+
+            ImmutableBlockLocatable location = new ImmutableBlockLocatable(
+                    block.getWorld().getUID(),
+                    block.getX(),
+                    block.getY(),
+                    block.getZ()
+            );
+            int blockID = SpigotConversionUtil.fromBukkitBlockData(block.getBlockData()).getGlobalId();
+            TileEntityLocatable<?> tracked = playerData.blockView().getTrackedTileEntity(location);
+            VisibilityTraceService.TraceSession session = VisibilityTraceService.get().startBlockTrace(
+                    player.getUniqueId(),
+                    player.getName(),
+                    location.world(),
+                    location.blockX(),
+                    location.blockY(),
+                    location.blockZ(),
+                    blockID,
+                    block.getType().getKey().toString()
+            );
+            player.sendRichMessage("<green>Started block-entity trace: <white>" + block.getType().getKey());
+            if (tracked == null) {
+                player.sendRichMessage("<yellow>This block entity is not currently managed for you. Logs will start if it becomes a managed target.");
+            } else {
+                player.sendRichMessage("<gray>Current tracked state: visible=<white>" + tracked.visible() + "<gray>, blockID=<white>" + tracked.blockID());
+            }
+            sendTraceFile(player);
+            player.sendMessage(session.describe());
+        }
+
+        @Executes("stop")
+        void stopTrace(CommandSender sender) {
+            Player player = senderPlayer(sender);
+            if (player == null) {
+                return;
+            }
+            VisibilityTraceService.get().stop(player.getUniqueId())
+                    .ifPresentOrElse(
+                            session -> player.sendRichMessage("<green>Stopped trace for <white>" + session.label()),
+                            () -> player.sendRichMessage("<yellow>No trace is active for you.")
+                    );
+        }
+
+        @Executes("status")
+        void traceStatus(CommandSender sender) {
+            Player player = senderPlayer(sender);
+            if (player == null) {
+                return;
+            }
+            VisibilityTraceService.get().session(player.getUniqueId())
+                    .ifPresentOrElse(
+                            session -> player.sendMessage("Active trace: " + session.describe()),
+                            () -> player.sendRichMessage("<yellow>No trace is active for you.")
+                    );
+            sendTraceFile(player);
+        }
+
+        @Executes("file")
+        void traceFile(CommandSender sender) {
+            sendTraceFile(sender);
+        }
+
+        @Executes("dump")
+        void traceDump(CommandSender sender) {
+            java.util.List<String> lines = VisibilityTraceService.get().recentLines();
+            if (lines.isEmpty()) {
+                sender.sendMessage("No visibility trace lines have been recorded yet.");
+                return;
+            }
+            int start = Math.max(0, lines.size() - 20);
+            sender.sendMessage("Last " + (lines.size() - start) + " visibility trace lines:");
+            for (int i = start; i < lines.size(); i++) {
+                sender.sendMessage(lines.get(i));
+            }
+        }
+
+        @Executes("clear")
+        void traceClear(CommandSender sender) {
+            VisibilityTraceService.get().clear();
+            sender.sendMessage("Visibility trace file and recent in-memory trace lines cleared.");
+        }
+
+        @DefaultExecutes
+        void traceHelp(CommandSender sender) {
+            sender.sendRichMessage("<white>Trace commands:");
+            sender.sendRichMessage("<green>/raesp trace entity <gray>- Trace the managed entity you are looking at");
+            sender.sendRichMessage("<green>/raesp trace entity-id <id> <gray>- Trace a managed entity by server entity ID");
+            sender.sendRichMessage("<green>/raesp trace block <gray>- Trace the block entity you are looking at");
+            sender.sendRichMessage("<green>/raesp trace status <gray>- Show your active trace");
+            sender.sendRichMessage("<green>/raesp trace dump <gray>- Print recent trace lines");
+            sender.sendRichMessage("<green>/raesp trace file <gray>- Show the full trace file path");
+            sender.sendRichMessage("<green>/raesp trace stop <gray>- Stop your active trace");
+            sender.sendRichMessage("<green>/raesp trace clear <gray>- Clear the trace file");
+        }
+
+        private static void startEntityTrace(Player player, PlayerData playerData, int entityID, String label) {
+            EntityLocatable<?, ?> tracked = playerData.entityView().getEntity(entityID);
+            if (tracked == null) {
+                player.sendRichMessage("<red>That entity is not currently managed by PieCloak for you.");
+                player.sendRichMessage("<gray>If it should be hidden, make sure it is allowlisted and start the trace while close enough to see it.");
+                return;
+            }
+            VisibilityTraceService.TraceSession session = VisibilityTraceService.get().startEntityTrace(
+                    player.getUniqueId(),
+                    player.getName(),
+                    tracked.entityUUID(),
+                    tracked.entityID(),
+                    label
+            );
+            player.sendRichMessage("<green>Started entity trace: <white>" + label
+                    + " <gray>entityID=<white>" + tracked.entityID()
+                    + " <gray>visible=<white>" + tracked.visible());
+            sendTraceFile(player);
+            player.sendMessage(session.describe());
+        }
+
+        private static PlayerData playerData(Player player) {
+            PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+            if (playerData == null) {
+                player.sendRichMessage("<red>No RaycastedAntiESP player data is available yet. Relog or wait a moment and try again.");
+                return null;
+            }
+            return playerData;
+        }
+
+        private static Player senderPlayer(CommandSender sender) {
+            if (sender instanceof Player player) {
+                return player;
+            }
+            sender.sendMessage("This trace command must be run by a player.");
+            return null;
+        }
+
+        private static void sendTraceFile(CommandSender sender) {
+            if (VisibilityTraceService.get().outputPath() == null) {
+                sender.sendMessage("Trace file path is not initialised yet.");
+                return;
+            }
+            sender.sendMessage("Visibility trace file: " + VisibilityTraceService.get().outputPath().toAbsolutePath());
+        }
+
+        private static Entity closestLookedAtEntity(Player player) {
+            RayTraceResult result = player.getWorld().rayTraceEntities(
+                    player.getEyeLocation(),
+                    player.getEyeLocation().getDirection(),
+                    TRACE_DISTANCE,
+                    0.75,
+                    entity -> !entity.getUniqueId().equals(player.getUniqueId())
+            );
+            return result == null ? null : result.getHitEntity();
+        }
     }
 
     @Subcommand("test")

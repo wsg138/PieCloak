@@ -1,6 +1,7 @@
 package games.cubi.raycastedantiesp.paper;
 
 import games.cubi.raycastedantiesp.core.Core;
+import games.cubi.raycastedantiesp.core.debug.VisibilityTraceService;
 import games.cubi.raycastedantiesp.paper.commands.RaycastedAntiESPCommandBrigadier;
 import games.cubi.raycastedantiesp.paper.engine.PaperSimpleEngine;
 import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
@@ -84,6 +85,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             currentTickSupplier = new PaperTicker();
         }
         ViewRegistry.initialise(PacketEventsBlockView::new, PacketEventsEntityView::createEntityView, PacketEventsEntityView::createPlayerView);
+        VisibilityTraceService.get().setOutputPath(getDataPath().resolve("visibility-trace.log"));
         targetFilter = new PaperTargetFilterService(config);
         packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter);
         new PaperPacketEventsBlockViewController(currentTickSupplier, targetFilter);

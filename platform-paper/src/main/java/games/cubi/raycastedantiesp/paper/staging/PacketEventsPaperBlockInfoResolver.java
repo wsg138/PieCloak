@@ -71,7 +71,7 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
                 }
             }
 
-            occlusion.put(iterator, blockData.getMaterial().isOccluding());
+            occlusion.put(iterator, blockData.isOccluding());
             try {
                 if (blockData.createBlockState() instanceof TileState) {
                     //Logger.debug("tile at" + iterator + " is tile entity" + material.name());

@@ -234,7 +234,6 @@ public abstract class PacketEntityViewController<P> {
                     shouldRetry = true;
                     continue;
                 }
-                Logger.error("Found null passenger when handling entity passengers packet, passengerID=" + passengerID + " for player: " + playerData.getPlayerUUID(), 2, PacketEntityViewController.class);
                 continue;
             }
             passenger.setVehicleID(entityID);
@@ -247,7 +246,7 @@ public abstract class PacketEntityViewController<P> {
         boolean passengersNotVisible = false;
         ArrayList<Integer> visiblePassengers = new ArrayList<>(passengers.length);
         for (int passengerID : passengers) {
-            if (cancelIfEnabledAndHidden(passengerID, playerData)) {
+            if (isManagedEntity(passengerID, playerData) && cancelIfEnabledAndHidden(passengerID, playerData)) {
                 passengersNotVisible = true;
             }
             else {

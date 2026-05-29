@@ -18,6 +18,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.util.Vector;
 
 import java.util.function.IntSupplier;
 
@@ -101,7 +102,18 @@ public class EventListener extends PaperListener {
         if (playerData == null || location == null || location.getWorld() == null) {
             return;
         }
-        playerData.updateOwnLocation(location.getWorld().getUID(), location.getX(), location.getY(), location.getZ());
+        Vector direction = location.getDirection();
+        playerData.updateOwnLocationAndLook(
+                location.getWorld().getUID(),
+                location.getX(),
+                location.getY(),
+                location.getZ(),
+                location.getYaw(),
+                location.getPitch(),
+                direction.getX(),
+                direction.getY(),
+                direction.getZ()
+        );
     }
 
     private void updateOwnLocation(Player player, Location location) {

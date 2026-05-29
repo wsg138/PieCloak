@@ -660,7 +660,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         ArrayList<Integer> visiblePassengerIDs = new ArrayList<>();
         for (int passengerID : passengerIDs) {
             NettyEntityLocatable<?,?> passenger = playerData.entityFromID(passengerID);
-            if (passenger != null && passenger.visible()) {
+            if (passenger == null || passenger.visible()) {
                 visiblePassengerIDs.add(passengerID);
             }
         }

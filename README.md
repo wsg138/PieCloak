@@ -34,6 +34,7 @@ PieCloak changes are intentionally limited to these areas:
 - `/raesp stats`
 - `/raesp debugplayer <player>`
 - `/raesp benchmark <radius> <samples>`
+- `/raesp trace`
 
 ## Build
 
