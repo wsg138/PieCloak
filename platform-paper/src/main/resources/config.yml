@@ -36,6 +36,7 @@ target-filter:
         - minecraft:jukebox
         - minecraft:conduit
         - minecraft:beacon
+        - minecraft:moving_piston
 
     # Groups are expanded from the server material registry where possible,
     # so new colors or wood types in later 1.21.x versions are picked up.

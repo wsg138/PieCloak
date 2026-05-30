@@ -277,6 +277,9 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
         if (material == null || material.isLegacy() || !material.isBlock() || material.isAir()) {
             return false;
         }
+        if (material == Material.MOVING_PISTON) {
+            return true;
+        }
         try {
             return material.createBlockData().createBlockState() instanceof TileState;
         } catch (RuntimeException ignored) {
@@ -304,6 +307,8 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
             typePath = "conduit";
         } else if (path.equals("beacon")) {
             typePath = "beacon";
+        } else if (path.equals("moving_piston")) {
+            typePath = "piston";
         } else if (path.equals("shulker_box") || path.endsWith("_shulker_box")) {
             typePath = "shulker_box";
         } else if (isHangingSignPath(path)) {
