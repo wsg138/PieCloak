@@ -215,14 +215,13 @@ public abstract class PacketEntityViewController<P> {
     private boolean handleEntityPassengers(int entityID, int[] passengers, PlayerData playerData, int currentTick, int retriesRemaining) {
         NettyEntityLocatable<?,?> entity = playerData.entityFromID(entityID);
         if (entity == null) {
-            if (hasManagedEntity(passengers, playerData)) {
+            if (!hasManagedEntity(passengers, playerData)) {
                 return false;
             }
             if (retriesRemaining > 0) {
                 delayPacketHandling(playerData, () -> handleEntityPassengers(entityID, passengers, playerData, currentTick, retriesRemaining - 1));
                 return false;
             }
-            Logger.error("Found null vehicle when handling entity passengers packet, vehicleID=" + entityID + " for player: " + playerData.getPlayerUUID(), 2, PacketEntityViewController.class);
             return false;
         }
         entity.setPassengerIDs(passengers);
@@ -265,7 +264,7 @@ public abstract class PacketEntityViewController<P> {
         if (vehicleID >= 0) {
             NettyEntityLocatable<?,?> vehicle = playerData.entityFromID(vehicleID);
             if (vehicle == null) {
-                Logger.error(new RuntimeException("Found null vehicle when handling entity passengers packet, vehicleID=" + vehicleID + " for player: " + playerData.getPlayerUUID()), 2, PacketEntityViewController.class);
+                entity.setVehicleID(NO_VEHICLE);
                 return;
             }
             if (cancelIfEnabledAndHidden(vehicleID, playerData)) {
