@@ -48,7 +48,7 @@ import java.util.UUID;
 // Credit to Strokkur for making StrokkCommands, a non-hideous way to use the power of brigadier.
 
 @Command("raycastedantiesp")
-@Aliases({"raesp", "antiesp", "reo"})
+@Aliases({"raesp", "antiesp", "reo", "piecloak"})
 @Description("Command for management of the RaycastedAntiESP plugin")
 @Permission("raycastedantiesp.command")
 public class RaycastedAntiESPCommand {
@@ -65,6 +65,13 @@ public class RaycastedAntiESPCommand {
         sender.sendRichMessage("<green>/raycastedantiesp debugplayer <player> <gray>- Shows tracked visibility state for a player");
         sender.sendRichMessage("<green>/raycastedantiesp benchmark <radius> <samples> <gray>- Benchmarks raycasts around you");
         sender.sendRichMessage("<green>/raycastedantiesp trace <gray>- Tracks one target and writes visibility details to a trace file");
+        sender.sendRichMessage("<green>/raycastedantiesp source <gray>- Shows the public source repository");
+    }
+
+    @Executes("source")
+    void sourceCommand(CommandSender sender) {
+        sender.sendMessage("PieCloak source: " + RaycastedAntiESP.SOURCE_URL);
+        sender.sendMessage("Original RaycastedAntiESP: https://github.com/Cubicake/RaycastedAntiESP");
     }
 
     @Executes("reload")

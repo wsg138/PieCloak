@@ -36,6 +36,8 @@ import java.util.function.IntSupplier;
 import java.util.List;
 
 public final class RaycastedAntiESP extends JavaPlugin implements CommandExecutor {
+    public static final String SOURCE_URL = "https://github.com/wsg138/PieCloak";
+
     private static ConfigManager config;
     private static PaperPacketEventsEntityViewController packetEventsController;
     private static PaperSimpleEngine engine;
@@ -86,6 +88,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
         }
         ViewRegistry.initialise(PacketEventsBlockView::new, PacketEventsEntityView::createEntityView, PacketEventsEntityView::createPlayerView);
         VisibilityTraceService.get().setOutputPath(getDataPath().resolve("visibility-trace.log"));
+        Logger.info("PieCloak source: " + SOURCE_URL, 5);
         targetFilter = new PaperTargetFilterService(config);
         packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter);
         new PaperPacketEventsBlockViewController(currentTickSupplier, targetFilter);

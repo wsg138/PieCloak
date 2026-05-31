@@ -1,8 +1,11 @@
 # User-specific stuff
 .idea/
 
-README.md
 *.md
+!README.md
+!CONTRIBUTING.md
+!TESTING.md
+!MAINTAINING.md
 
 *.iml
 *.ipr
