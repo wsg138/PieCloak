@@ -81,8 +81,7 @@ public class PacketEventsEntityView implements EntityView<PacketEventsEntity> {
     @Override
     public boolean isVisible(int entityID) {
         PacketEventsEntity entity = getTrackedEntity(entityID);
-        assert entity != null;
-        return entity.visible();
+        return entity == null || entity.visible();
     }
 
     @Override

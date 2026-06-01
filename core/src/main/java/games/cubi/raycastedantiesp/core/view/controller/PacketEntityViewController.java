@@ -388,10 +388,9 @@ public abstract class PacketEntityViewController<P> {
      * @return True if the packet should be suppressed
      */
     protected boolean cancelIfEnabledAndHidden(int entityID, PlayerData playerData) {
-        EntityView<?> entityView = playerData.viewFromEntityID(entityID);
+        EntityView<?> entityView = trackedViewFromEntityID(entityID, playerData);
 
         if (entityView == null) {
-            Logger.warning("Checked if packet for entity should be cancelled, but entity did not exist. ID: " + entityID + " for player: " + playerData.getPlayerUUID(), 6, PacketEntityViewController.class);
             return false;
         }
 
@@ -403,7 +402,17 @@ public abstract class PacketEntityViewController<P> {
     }
 
     protected boolean isManagedEntity(int entityID, PlayerData playerData) {
-        return playerData.viewFromEntityID(entityID) != null;
+        return trackedViewFromEntityID(entityID, playerData) != null;
+    }
+
+    private EntityView<?> trackedViewFromEntityID(int entityID, PlayerData playerData) {
+        if (playerData.entityView().getEntity(entityID) != null) {
+            return playerData.entityView();
+        }
+        if (playerData.playerView().getEntity(entityID) != null) {
+            return playerData.playerView();
+        }
+        return null;
     }
 
     private boolean hasManagedEntity(int[] entityIDs, PlayerData playerData) {

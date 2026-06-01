@@ -508,7 +508,6 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
         NettyEntityLocatable<?,?> entity = playerData.entityFromID(entityID);
         if (entity == null) {
-            Logger.error("Received position sync packet for unknown entity, id=" + entityID, 2, PacketEventsEntityViewController.class);
             return entityID;
         }
         Vector3d position = packetWrapper.getValues().getPosition();
