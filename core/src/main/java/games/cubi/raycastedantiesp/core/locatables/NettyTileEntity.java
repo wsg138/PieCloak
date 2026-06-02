@@ -8,7 +8,7 @@ import java.util.UUID;
 public abstract class NettyTileEntity<PacketReplayData extends Clearable> implements TileEntityLocatable<PacketReplayData> {
     private volatile boolean visible;
     private volatile int lastChecked;
-    private final int blockID;
+    private volatile int blockID;
     private volatile PacketReplayData extraData;
 
     private final int x, y, z;
@@ -61,6 +61,12 @@ public abstract class NettyTileEntity<PacketReplayData extends Clearable> implem
     @Override
     public int blockID() {
         return blockID;
+    }
+
+    @Override
+    public TileEntityLocatable<PacketReplayData> setBlockID(int blockID) {
+        this.blockID = blockID;
+        return this;
     }
 
     @Override

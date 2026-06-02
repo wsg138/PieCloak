@@ -4,6 +4,7 @@ import games.cubi.locatables.BlockLocatable;
 import games.cubi.locatables.ChunkSectionLocatable;
 import games.cubi.locatables.Locatable;
 import games.cubi.locatables.implementations.ImmutableBlockLocatable;
+import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.locatables.TileEntityLocatable;
 import games.cubi.raycastedantiesp.core.utils.CanonicalSet;
 import games.cubi.raycastedantiesp.core.utils.ConcurrentSelfMap;
@@ -48,14 +49,13 @@ public abstract class AbstractBlockView<T extends TileEntityLocatable<?>> implem
     }
 
     @Override
-    public void insertTileEntityIfAbsent(BlockLocatable location, int blockID, boolean visible) {
-        knownTileEntities.computeIfAbsent(location, ignored -> createTrackedTileEntity(location, blockID, visible));
-    }
-
-    @Override
-    public void insertTileEntity(BlockLocatable location, int blockID, boolean visible) {
-        knownTileEntities.remove(location);
-        knownTileEntities.add(createTrackedTileEntity(location, blockID, visible));
+    public void updateOrInsertTileEntity(BlockLocatable location, int blockID, boolean visibleIfNew) {
+        T tileEntity = knownTileEntities.computeIfAbsent(location, ignored -> createTrackedTileEntity(location, blockID, visibleIfNew));
+        if (tileEntity == null) {
+            Logger.error("Tile entity null when attempting to update or insert", 3, AbstractBlockView.class);
+            return;
+        }
+        tileEntity.setBlockID(blockID);
     }
 
     @Override
