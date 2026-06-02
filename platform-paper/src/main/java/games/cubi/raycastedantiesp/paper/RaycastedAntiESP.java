@@ -93,8 +93,9 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             currentTickSupplier = new PaperTicker();
         }
         ViewRegistry.initialise(PacketEventsBlockView::new, PacketEventsEntityView::createEntityView, PacketEventsEntityView::createPlayerView);
-        packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier, new PaperTargetFilterService(config));
-        new PaperPacketEventsBlockViewController(currentTickSupplier);
+        PaperTargetFilterService targetFilter = new PaperTargetFilterService(config);
+        packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter);
+        new PaperPacketEventsBlockViewController(currentTickSupplier, targetFilter);
 
         engine = new PaperSimpleEngine(this, config, currentTickSupplier);
         UpdateChecker.checkForUpdates(this, Bukkit.getConsoleSender());
