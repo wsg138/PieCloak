@@ -26,6 +26,11 @@ public record TargetFilterConfig(
         );
     }
 
+    public static String normalizeKey(String raw) {
+        String s = raw.trim().toLowerCase();
+        return s.startsWith("minecraft:") ? s.substring("minecraft:".length()) : s;
+    }
+
     public enum Mode implements ConfigEnum {
         ALLOWLIST("ALLOWLIST");
 
