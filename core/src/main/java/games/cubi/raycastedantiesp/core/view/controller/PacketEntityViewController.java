@@ -362,7 +362,17 @@ public abstract class PacketEntityViewController<P> {
     }
 
     protected boolean isManagedEntity(int entityID, PlayerData playerData) {
-        return playerData.viewFromEntityID(entityID) != null;
+        return trackedViewFromEntityID(entityID, playerData) != null;
+    }
+
+    private EntityView<?> trackedViewFromEntityID(int entityID, PlayerData playerData) {
+        if (playerData.entityView().getEntity(entityID) != null) {
+            return playerData.entityView();
+        }
+        if (playerData.playerView().getEntity(entityID) != null) {
+            return playerData.playerView();
+        }
+        return null;
     }
 
     private boolean hasManagedEntity(int[] entityIDs, PlayerData playerData) {
