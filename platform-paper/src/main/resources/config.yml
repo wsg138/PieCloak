@@ -95,6 +95,40 @@ block-processor:
         tile-entity-exempted-ids:
             - 9779
         tile-entity-force-included-ids:
+target-filter:
+    enabled: true
+    mode: ALLOWLIST
+    entities:
+        - minecraft:villager
+        - minecraft:copper_golem
+        - minecraft:armadillo
+        - minecraft:wolf
+        - minecraft:cat
+        - minecraft:ocelot
+        - minecraft:allay
+        - minecraft:bee
+        - minecraft:iron_golem
+        - minecraft:snow_golem
+        - minecraft:item_frame
+        - minecraft:glow_item_frame
+        - minecraft:armor_stand
+        - minecraft:painting
+    block-entities:
+        - minecraft:campfire
+        - minecraft:soul_campfire
+        - minecraft:decorated_pot
+        - minecraft:bell
+        - minecraft:jukebox
+        - minecraft:conduit
+        - minecraft:beacon
+    block-entity-groups:
+        - shulker_boxes
+        - signs
+        - hanging_signs
+        - banners
+        - wall_banners
+        - beds
+        - heads_and_skulls
 debug:
     info-level: 5
     info-exempted-classes:
