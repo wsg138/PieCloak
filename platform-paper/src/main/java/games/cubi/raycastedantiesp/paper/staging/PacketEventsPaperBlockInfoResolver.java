@@ -6,12 +6,15 @@ import games.cubi.raycastedantiesp.packetevents.BlockInfoResolver;
 import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.TileState;
 import org.bukkit.block.data.BlockData;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
     private final boolean[] occlusionArray;
@@ -115,5 +118,19 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
 
     private boolean[] dumpTileEntityArray() {
         return tileEntityArray;
+    }
+
+    @Override
+    public int getCombinedId(int x, int y, int z, UUID world) {
+        World bukkitWorld = Bukkit.getWorld(world);
+        if (bukkitWorld == null) {
+            return -1;
+        }
+        if (!bukkitWorld.isChunkLoaded(x >> 4, z >> 4)) {
+            return -1;
+        }
+        BlockData blockData = bukkitWorld.getBlockAt(x, y, z).getBlockData();
+        WrappedBlockState wrapped = SpigotConversionUtil.fromBukkitBlockData(blockData);
+        return wrapped == null ? -1 : wrapped.getGlobalId();
     }
 }

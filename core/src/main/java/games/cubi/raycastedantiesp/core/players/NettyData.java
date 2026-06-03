@@ -1,17 +1,25 @@
 package games.cubi.raycastedantiesp.core.players;
 
-import games.cubi.raycastedantiesp.core.utils.IntArrayList;
-import games.cubi.raycastedantiesp.core.utils.IntArrayListMarker;
+import games.cubi.logs.Logger;
+import games.cubi.raycastedantiesp.core.utils.*;
+import games.cubi.raycastedantiesp.core.utils.Packet.Packets;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
+
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 
 
 /**
  * Per-player mutable state intended for Netty-side packet tracking and deferred reconciliation.
  */
-public class NettyData {
-    private final Int2ObjectMap<int[]> unresolvedLeashedEntityIDsByHolderID = new Int2ObjectArrayMap<>(16); // shot in the dark guess at capacity here
+public class NettyData  {
+    //
+    // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    // START Leash tracking:
+    //
+    private final Int2ObjectArrayMap<int[]> unresolvedLeashedEntityIDsByHolderID = new Int2ObjectArrayMap<>(16); // shot in the dark guess at capacity here. Can't be the more generic Int2ObjectMap because that doesn't expose a fast iterator.
 
     public void addUnresolvedLeash(int holderEntityID, int leashedEntityID) {
         unresolvedLeashedEntityIDsByHolderID.compute(holderEntityID, (ignored, existing) -> {
@@ -40,7 +48,7 @@ public class NettyData {
     }
 
     public void removeUnresolvedLeashedEntityFromAll(int leashedEntityID) {
-        ObjectIterator<Int2ObjectMap.Entry<int @IntArrayListMarker []>> iterator = unresolvedLeashedEntityIDsByHolderID.int2ObjectEntrySet().iterator();
+        ObjectIterator<Int2ObjectMap.Entry<int @IntArrayListMarker []>> iterator = unresolvedLeashedEntityIDsByHolderID.int2ObjectEntrySet().fastIterator();
         while (iterator.hasNext()) {
             Int2ObjectMap.Entry<int @IntArrayListMarker []> entry = iterator.next();
             int[] existing = entry.getValue();
@@ -55,8 +63,85 @@ public class NettyData {
             entry.setValue(updated);
         }
     }
+    //
+    // END Leash tracking.
+    // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    //
+
+    //
+    // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    // START Netty entity spawn task queue:
+    //
+    private final Int2ObjectArrayMap<EntitySpawnTask> pendingPostEntitySpawnTasksByEntityID = new Int2ObjectArrayMap<>(16); // shot in the dark guess at capacity here. Can't be the more generic Int2ObjectMap because that doesn't expose a fast iterator.
+    private volatile boolean evictPendingPostSpawnTasksOnNextPacket = false;
+    private static final VarHandle EVICT_PENDING_POST_SPAWN_TASKS_ON_NEXT_PACKET_HANDLE; //TBH there is minimal advantage to using a VarHandle over an AtomicBoolean here, just felt like it.
+    static {
+        try {
+            EVICT_PENDING_POST_SPAWN_TASKS_ON_NEXT_PACKET_HANDLE = MethodHandles.lookup().findVarHandle( NettyData.class, "evictPendingPostSpawnTasksOnNextPacket", boolean.class);
+        } catch (ReflectiveOperationException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+    /**
+     * This is intended for reconciliation tasks due to Minecraft sending packets out of order. For example, {@link Packets#ENTITY_EQUIPMENT} is sent before the corresponding {@link Packets#SPAWN_ENTITY} packet, so caching of the equipment packet must await the spawn packet.
+     * @param entityID The entity ID to associate the task with. Immediately after a {@link Packets#SPAWN_ENTITY} packet is processed for this entity ID, the task will be consumed and run.
+     * @param task The task to run.
+     */
+    public void addPostEntitySpawnTask(int entityID, EntitySpawnTask task) {
+        if (task.getNext() != null) {
+            Logger.errorAndReturn(new IllegalArgumentException("Pending netty task was chained before queueing. Task=" + task), 4, NettyData.class);
+        }
+        EntitySpawnTask existing = pendingPostEntitySpawnTasksByEntityID.get(entityID);
+        if (existing == null) {
+            pendingPostEntitySpawnTasksByEntityID.put(entityID, task);
+            return;
+        }
+        existing.appendLinkedTask(task);
+    }
+
+    public void runPendingPostSpawnTaskForEntity(int entityID) {
+        EntitySpawnTask pendingTasks = consumePendingPostSpawnTasksForEntity(entityID);
+        if (pendingTasks != null) {
+            pendingTasks.runLinkedTasks();
+        }
+    }
+
+    public void evictPendingPostSpawnTasksIfRequired(int currentTick) {
+        if (EVICT_PENDING_POST_SPAWN_TASKS_ON_NEXT_PACKET_HANDLE.compareAndSet(this, true, false)) evictOldPendingPostSpawnTasks(currentTick);
+    }
+
+    public void markPendingPostSpawnTasksForEviction() {
+        evictPendingPostSpawnTasksOnNextPacket = true;
+    }
+
+    public EntitySpawnTask consumePendingPostSpawnTasksForEntity(int entityID) {
+        return pendingPostEntitySpawnTasksByEntityID.remove(entityID);
+    }
+
+    public void clearPendingPostSpawnTasksForEntity(int entityID) {
+        pendingPostEntitySpawnTasksByEntityID.remove(entityID);
+    }
+
+    public void evictOldPendingPostSpawnTasks(int currentTick) {
+        ObjectIterator<Int2ObjectMap.Entry<EntitySpawnTask>> iterator = pendingPostEntitySpawnTasksByEntityID.int2ObjectEntrySet().fastIterator();
+        while (iterator.hasNext()) {
+            Int2ObjectMap.Entry<EntitySpawnTask> entry = iterator.next();
+            EntitySpawnTask survivingHead = entry.getValue().trimExpiredTasks(currentTick);
+            if (survivingHead == null) {
+                iterator.remove();
+            } else {
+                entry.setValue(survivingHead);
+            }
+        }
+    }
+
+    //
+    // END Netty entity spawn task queue.
+    // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    //
 
     public void clear() {
         unresolvedLeashedEntityIDsByHolderID.clear();
+        pendingPostEntitySpawnTasksByEntityID.clear();
     }
 }

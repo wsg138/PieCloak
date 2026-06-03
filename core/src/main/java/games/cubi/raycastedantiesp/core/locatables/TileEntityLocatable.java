@@ -13,6 +13,7 @@ public interface TileEntityLocatable<T> extends BlockLocatable, ImmutableLocatab
     TileEntityLocatable<T> setLastChecked(int lastChecked);
 
     int blockID();
+    TileEntityLocatable<T> setBlockID(int blockID);
 
     T extraData();
     TileEntityLocatable<T> setExtraData(T extraData);

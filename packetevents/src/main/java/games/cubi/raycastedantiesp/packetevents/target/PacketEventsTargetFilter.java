@@ -19,6 +19,11 @@ public interface PacketEventsTargetFilter {
         public boolean shouldCullBlockEntity(BlockEntityType blockEntityType) {
             return false;
         }
+
+        @Override
+        public boolean shouldCullTileEntity(int blockStateId) {
+            return false;
+        }
     };
 
     boolean shouldCullEntity(EntityType entityType, boolean isPlayer);
@@ -26,4 +31,6 @@ public interface PacketEventsTargetFilter {
     boolean shouldCullBlockState(int blockStateId);
 
     boolean shouldCullBlockEntity(BlockEntityType blockEntityType);
+
+    boolean shouldCullTileEntity(int blockStateId);
 }

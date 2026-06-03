@@ -63,6 +63,11 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
         return current.safeBlockEntityTypeKeys().contains(normalizeKey(blockEntityType.getName().toString()));
     }
 
+    @Override
+    public boolean shouldCullTileEntity(int blockStateId) {
+        return shouldCullBlockState(blockStateId);
+    }
+
     public DebugSnapshot snapshot() {
         ResolvedTargetFilter current = current();
         return new DebugSnapshot(

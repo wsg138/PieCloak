@@ -28,7 +28,7 @@ public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewC
     private final int deepslateBlockId = SpigotConversionUtil.fromBukkitBlockData(Material.DEEPSLATE.createBlockData()).getGlobalId();
 
     public PaperPacketEventsBlockViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
-        super(new PacketEventsPaperBlockInfoResolver(), targetFilter, currentTickSupplier);
+        super(new PacketEventsPaperBlockInfoResolver(), currentTickSupplier, targetFilter);
         Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
         Bukkit.getWorlds().forEach(this::registerWorld);
         PacketEvents.getAPI().getEventManager().registerListener(this, PacketListenerPriority.HIGHEST);

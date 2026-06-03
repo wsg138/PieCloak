@@ -171,14 +171,7 @@ public class SimpleEngine implements Engine {
                 continue;
             }
             raycastChecks++;
-            boolean canSee;
-            if (VisibilityTraceService.get().isTracingEntity(player.getPlayerUUID(), entityUUID)) {
-                RaycastUtil.RaycastDetails details = RaycastUtil.raycastDetailed(player, playerLocation, entityLocation, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
-                canSee = details.canSee();
-                VisibilityTraceService.get().recordEntityDecision(player, entityUUID, entityView.getEntityID(entityUUID), entityLocation, wasVisible, details, currentTick);
-            } else {
-                canSee = RaycastUtil.raycast(player, playerLocation, entityLocation, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
-            }
+boolean canSee = RaycastUtil.raycast(player, playerLocation, entityLocation, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
             entityView.setVisibility(entityUUID, canSee, currentTick);
         }
         return raycastChecks;
@@ -220,15 +213,7 @@ public class SimpleEngine implements Engine {
                 continue;
             }
             raycastChecks++;
-            boolean canSee;
-            if (VisibilityTraceService.get().isTracingBlock(player.getPlayerUUID(), tileEntityLocation)) {
-                RaycastUtil.RaycastDetails details = RaycastUtil.raycastDetailed(player, playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
-                canSee = details.canSee();
-                int blockID = blockView.getTrackedTileEntity(tileEntityLocation) == null ? -1 : blockView.getTrackedTileEntity(tileEntityLocation).blockID();
-                VisibilityTraceService.get().recordBlockDecision(player, tileEntityLocation, blockID, blockView.isVisible(tileEntityLocation, currentTick), details, currentTick);
-            } else {
-                canSee = RaycastUtil.raycast(player, playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
-            }
+boolean canSee = RaycastUtil.raycast(player, playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
             blockView.setVisibility(tileEntityLocation, canSee, currentTick);
         }
         return raycastChecks;
