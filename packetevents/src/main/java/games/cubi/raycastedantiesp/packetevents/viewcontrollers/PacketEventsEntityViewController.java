@@ -417,6 +417,8 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                     sendEntityShow(viewer, PlayerRegistry.getInstance().getPlayerData(viewerUUID), entity, replayData);
                     entity.setClientVisible(true);
                 }
+                default -> {
+                }
             }
         }
     }

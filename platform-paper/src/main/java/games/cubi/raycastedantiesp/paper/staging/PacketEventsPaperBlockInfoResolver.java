@@ -12,9 +12,9 @@ import org.bukkit.World;
 import org.bukkit.block.TileState;
 import org.bukkit.block.data.BlockData;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
     private final boolean[] occlusionArray;
@@ -52,8 +52,8 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
     private boolean[][] scanBlockIds(boolean materialToIDMode) {
         int airs = 0;
         int lastNonAirID = 0;
-        Map<Integer, Boolean> occlusion = new HashMap<>(111000); //Tests show 30,000 block IDs in 1.21.11, and we scan forwards for 80k air ids just in case, so 111k is enough. This is a pointless micro optimization but why not
-        Map<Integer, Boolean> tileEntity = new HashMap<>(111000);
+        Map<Integer, Boolean> occlusion = new ConcurrentHashMap<>(111000); //Tests show 30,000 block IDs in 1.21.11, and we scan forwards for 80k air ids just in case, so 111k is enough. This is a pointless micro optimization but why not
+        Map<Integer, Boolean> tileEntity = new ConcurrentHashMap<>(111000);
         int iterator = 0;
         while (true) {
             BlockData blockData = SpigotConversionUtil.toBukkitBlockData(WrappedBlockState.getByGlobalId(iterator));
