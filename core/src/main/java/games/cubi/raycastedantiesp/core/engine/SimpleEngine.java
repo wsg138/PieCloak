@@ -60,7 +60,6 @@ public class SimpleEngine implements Engine {
             Collection<PlayerData> allPlayers = PlayerRegistry.getInstance().getAllPlayerData();
 
             EntityConfig entityConfig = config.getEntityConfig();
-            PlayerConfig playerConfig = config.getPlayerConfig();
             TileEntityConfig tileEntityConfig = config.getTileEntityConfig();
             DebugConfig debugConfig = config.getDebugConfig();
             /*
@@ -77,7 +76,7 @@ public class SimpleEngine implements Engine {
             // If only one thread is configured, just use the current async thread to avoid the overhead of scheduling tasks and context switching.
             if (threads == 1) {
                 handedOffToSubTick = true;
-                subTick(new ArrayList<>(allPlayers), entityConfig, playerConfig, tileEntityConfig, debugConfig, currentTick);
+                subTick(new ArrayList<>(allPlayers), entityConfig, tileEntityConfig, debugConfig, currentTick);
                 return;
             }
 
@@ -94,7 +93,7 @@ public class SimpleEngine implements Engine {
             int scheduledBatches = 0;
             try {
                 for (List<PlayerData> batch : batches) {
-                    asyncRunner.runNow(() -> subTick(batch, entityConfig, playerConfig, tileEntityConfig, debugConfig, currentTick));
+                    asyncRunner.runNow(() -> subTick(batch, entityConfig, tileEntityConfig, debugConfig, currentTick));
                     scheduledBatches++;
                 }
                 handedOffToSubTick = true;
@@ -114,7 +113,7 @@ public class SimpleEngine implements Engine {
         }
     }
 
-    private void subTick(List<PlayerData> batch, EntityConfig entityConfig, PlayerConfig playerConfig, TileEntityConfig tileEntityConfig, DebugConfig debugConfig, int currentTick) {
+    private void subTick(List<PlayerData> batch, EntityConfig entityConfig, TileEntityConfig tileEntityConfig, DebugConfig debugConfig, int currentTick) {
         long raycastChecks = 0;
         try {
             raycastChecks = processTickForPlayers(batch, entityConfig, tileEntityConfig, debugConfig.showDebugParticles(), currentTick);
