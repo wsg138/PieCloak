@@ -11,7 +11,7 @@ final class PECacheablePacketReconciliationTask extends BaseEntitySpawnTask {
     private final int entityID;
     private final PacketWrapper<?> packet;
 
-    PECacheablePacketReconciliationTask(PacketEventsEntityViewController controller, PlayerData playerData, int entityID, PacketWrapper<?> packet, int submittedTick) {
+    PECacheablePacketReconciliationTask(PlayerData playerData, int entityID, PacketWrapper<?> packet, int submittedTick) {
         super(submittedTick);
         this.playerData = playerData;
         this.entityID = entityID;

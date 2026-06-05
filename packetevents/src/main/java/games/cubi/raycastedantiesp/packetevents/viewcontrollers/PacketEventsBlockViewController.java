@@ -144,7 +144,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
 
         } else if (event.getPacketType() == PacketType.Play.Server.MAP_CHUNK_BULK) {
             WrapperPlayServerChunkDataBulk packet = new WrapperPlayServerChunkDataBulk(event);
-            throw new RuntimeException("I didn't think this packet existed. Please report this to the developer with details on how to reproduce it so it can be implemented");
+            throw new IllegalStateException("I didn't think this packet existed. Please report this to the developer with details on how to reproduce it so it can be implemented");
         }
     }
 

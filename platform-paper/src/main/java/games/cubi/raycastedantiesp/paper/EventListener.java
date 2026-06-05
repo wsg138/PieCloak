@@ -29,7 +29,7 @@ public class EventListener extends PaperListener {
     private final PaperSimpleEngine engine;
     private final IntSupplier currentTickSupplier;
 
-    private static EventListener instance = null;
+    private static EventListener instance;
 
     private EventListener(RaycastedAntiESP plugin, PaperSimpleEngine engine, IntSupplier currentTickSupplier) {
         this.plugin = plugin;

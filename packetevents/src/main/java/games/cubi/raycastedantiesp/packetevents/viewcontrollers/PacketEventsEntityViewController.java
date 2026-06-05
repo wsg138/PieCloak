@@ -119,7 +119,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         switch (event.getPacketType()) {
             case PacketType.Play.Server.SPAWN_LIVING_ENTITY -> {
                 Logger.error("Received spawn living entity packet. This packet type should not be used in modern Minecraft versions, and its presence likely indicates a protocol mapping issue. Viewer=" + viewer.getUUID() + " tick=" + currentTick, 2, PacketEventsEntityViewController.class);
-                throw new RuntimeException("Spawn Living Entity packet appeared. This shouldn't exist");
+                throw new IllegalStateException("Spawn Living Entity packet appeared. This shouldn't exist");
                 //if (handleLivingEntitySpawn(new WrapperPlayServerSpawnLivingEntity(event), playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
                  //   event.setCancelled(true);
             }
@@ -147,13 +147,13 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.SPAWN_PAINTING -> {
-                throw new RuntimeException("Spawn Painting packet appeared. This shouldn't exist");
+                throw new IllegalStateException("Spawn Painting packet appeared. This shouldn't exist");
                 //if (handlePaintingSpawn(new WrapperPlayServerSpawnPainting(event), playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
                 //    event.setCancelled(true);
             }
             case PacketType.Play.Server.SPAWN_PLAYER -> {
                 Logger.error("Received spawn player entity packet. This packet type should not be used in modern Minecraft versions, and its presence likely indicates a protocol mapping issue. Viewer=" + viewer.getUUID() + " tick=" + currentTick, 2, PacketEventsEntityViewController.class);
-                throw new RuntimeException("Spawn Player packet appeared. This shouldn't exist");
+                throw new IllegalStateException("Spawn Player packet appeared. This shouldn't exist");
                 //if (handlePlayerSpawn(new WrapperPlayServerSpawnPlayer(event), playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
                 //    event.setCancelled(true);
             }
@@ -328,7 +328,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     protected void cachePacket(PacketWrapper<?> packet, int entityID, PlayerData playerData, int currentTick) {
         NettyEntityLocatable<?,?> entity = playerData.trackedEntityFromID(entityID);
         if (entity == null) {
-            playerData.nettyData().addPostEntitySpawnTask(entityID, new PECacheablePacketReconciliationTask(this, playerData, entityID, packet, currentTick));
+            playerData.nettyData().addPostEntitySpawnTask(entityID, new PECacheablePacketReconciliationTask(playerData, entityID, packet, currentTick));
             return;
         }
         ensureReplayData((PacketEventsEntity) entity).addPacket(packet);

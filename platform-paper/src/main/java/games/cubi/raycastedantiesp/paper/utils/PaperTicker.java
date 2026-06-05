@@ -7,7 +7,7 @@ import org.bukkit.event.EventPriority;
 import java.util.function.IntSupplier;
 
 public class PaperTicker extends PaperListener implements IntSupplier {
-    private volatile int currentTick = 0;
+    private volatile int currentTick;
 
     public PaperTicker() {}
 
