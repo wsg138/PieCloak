@@ -63,26 +63,34 @@ public final class ConfigReader {
         if (node.virtual() || node.raw() == null) {
             return List.of();
         }
-        if (node.childrenList().isEmpty()) {
-            Object raw = node.raw();
-            if (raw instanceof List<?> list && list.isEmpty()) {
-                return List.of();
-            }
-            throw invalid(path, "list of integers", raw);
-        }
+        requireListChildren(node, path, "list of integers");
         List<Integer> values = new ArrayList<>();
         for (ConfigurationNode child : node.childrenList()) {
-            Object raw = child.raw();
-            if (!(raw instanceof Number value) || value.doubleValue() % 1 != 0) {
-                throw invalid(path, "list of integers", raw);
-            }
-            int id = value.intValue();
-            if (id < 0) {
-                throw new ConfigLoadException(path + " cannot contain negative block state IDs: " + id);
-            }
-            values.add(id);
+            values.add(nonNegativeInteger(child.raw(), path));
         }
         return List.copyOf(values);
+    }
+
+    private static void requireListChildren(ConfigurationNode node, String path, String expected) {
+        if (!node.childrenList().isEmpty()) {
+            return;
+        }
+        Object raw = node.raw();
+        if (raw instanceof List<?> list && list.isEmpty()) {
+            return;
+        }
+        throw invalid(path, expected, raw);
+    }
+
+    private static int nonNegativeInteger(Object raw, String path) {
+        if (!(raw instanceof Number value) || value.doubleValue() % 1 != 0) {
+            throw invalid(path, "list of integers", raw);
+        }
+        int id = value.intValue();
+        if (id < 0) {
+            throw new ConfigLoadException(path + " cannot contain negative block state IDs: " + id);
+        }
+        return id;
     }
 
     public static Object parseRawValue(String rawValue) {
