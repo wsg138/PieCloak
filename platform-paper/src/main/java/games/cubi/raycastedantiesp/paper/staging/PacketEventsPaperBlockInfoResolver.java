@@ -50,46 +50,31 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
     }
 
     private boolean[][] scanBlockIds(boolean materialToIDMode) {
-        boolean run = true;
         int airs = 0;
         int lastNonAirID = 0;
         Map<Integer, Boolean> occlusion = new HashMap<>(111000); //Tests show 30,000 block IDs in 1.21.11, and we scan forwards for 80k air ids just in case, so 111k is enough. This is a pointless micro optimization but why not
         Map<Integer, Boolean> tileEntity = new HashMap<>(111000);
         int iterator = 0;
-        while (run) {
+        while (true) {
             BlockData blockData = SpigotConversionUtil.toBukkitBlockData(WrappedBlockState.getByGlobalId(iterator));
             if (blockData == null) {
                 Logger.warning("Material for block state ID " + iterator + " is null, stopping iteration. This is not expected to happen.", 5, PacketEventsPaperBlockInfoResolver.class);
-                run = false;
-                continue;
+                break;
             }
             if (blockData.getMaterial() == Material.AIR) {
                 airs++;
                 if (airs > 80000) { // There is a sequence of ~40 air blocks around ID 100, and another of several hundred at ~3000. We scan forwards 80k to future-proof any mojank. Since it runs once at startup, perf is irrelevant here
-                    run = false;
-                    continue;
+                    break;
                 }
             }
             else {
                 airs = 0;
                 lastNonAirID = iterator;
-                if (materialToIDMode) {
-                    Logger.debug(blockData.getAsString() + iterator);
-                }
+                logMaterialIdIfRequested(materialToIDMode, blockData, iterator);
             }
 
             occlusion.put(iterator, blockData.isOccluding());
-            try {
-                if (blockData.createBlockState() instanceof TileState) {
-                    //Logger.debug("tile at" + iterator + " is tile entity" + material.name());
-                    tileEntity.put(iterator, true);
-                } else {
-                    tileEntity.put(iterator, false);
-                }
-            } catch (Exception a) {
-                tileEntity.put(iterator, false);
-                // will sometimes inconsistently happen, just ignore it ig?
-            }
+            tileEntity.put(iterator, isTileEntity(blockData));
             iterator++;
         }
         boolean[][] result = new boolean[2][lastNonAirID + 1];
@@ -98,6 +83,20 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
             result[1][i] = tileEntity.get(i);
         }
         return result;
+    }
+
+    private void logMaterialIdIfRequested(boolean materialToIDMode, BlockData blockData, int iterator) {
+        if (materialToIDMode) {
+            Logger.debug(blockData.getAsString() + iterator);
+        }
+    }
+
+    private boolean isTileEntity(BlockData blockData) {
+        try {
+            return blockData.createBlockState() instanceof TileState;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     @Override
