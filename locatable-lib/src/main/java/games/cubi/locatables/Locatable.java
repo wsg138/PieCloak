@@ -176,9 +176,10 @@ public sealed interface Locatable extends ChunkSectionLocatable, StrictEquality 
             case Immutable, ExternalImmutable -> {
                 return new ImmutableLocatableImpl(world, x, y, z);
             }
-
+            default -> {
+                return null;
+            }
         }
-        return null;
     }
 
     static <T extends Locatable> T create(UUID world, double x, double y, double z, Class<T> type) {

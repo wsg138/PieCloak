@@ -26,6 +26,32 @@ import java.util.Set;
 import java.util.TreeSet;
 
 public class PaperTargetFilterService implements PacketEventsTargetFilter {
+    private static final String MINECRAFT_NAMESPACE = "minecraft:";
+    private static final Set<String> HEAD_OR_SKULL_PATHS = Set.of(
+            "skeleton_skull",
+            "skeleton_wall_skull",
+            "wither_skeleton_skull",
+            "wither_skeleton_wall_skull",
+            "zombie_head",
+            "zombie_wall_head",
+            "player_head",
+            "player_wall_head",
+            "creeper_head",
+            "creeper_wall_head",
+            "dragon_head",
+            "dragon_wall_head",
+            "piglin_head",
+            "piglin_wall_head"
+    );
+    private static final Set<String> DIRECT_BLOCK_ENTITY_TYPE_PATHS = Set.of(
+            "campfire",
+            "decorated_pot",
+            "bell",
+            "jukebox",
+            "conduit",
+            "beacon"
+    );
+
     private final ConfigManager configManager;
     private volatile TargetFilterConfig loadedConfig;
     private volatile ResolvedTargetFilter resolved = ResolvedTargetFilter.disabled();
@@ -164,8 +190,8 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
 
         for (String configuredGroup : config.blockEntityGroups()) {
             String group = configuredGroup == null ? "" : configuredGroup.trim().toLowerCase(Locale.ROOT);
-            if (group.startsWith("minecraft:")) {
-                group = group.substring("minecraft:".length());
+            if (group.startsWith(MINECRAFT_NAMESPACE)) {
+                group = group.substring(MINECRAFT_NAMESPACE.length());
             }
             Set<Material> expanded = expandGroup(group);
             if (expanded == null) {
@@ -262,20 +288,7 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
     }
 
     private boolean isHeadOrSkullPath(String path) {
-        return path.equals("skeleton_skull")
-                || path.equals("skeleton_wall_skull")
-                || path.equals("wither_skeleton_skull")
-                || path.equals("wither_skeleton_wall_skull")
-                || path.equals("zombie_head")
-                || path.equals("zombie_wall_head")
-                || path.equals("player_head")
-                || path.equals("player_wall_head")
-                || path.equals("creeper_head")
-                || path.equals("creeper_wall_head")
-                || path.equals("dragon_head")
-                || path.equals("dragon_wall_head")
-                || path.equals("piglin_head")
-                || path.equals("piglin_wall_head");
+        return HEAD_OR_SKULL_PATHS.contains(path);
     }
 
     private boolean isTileStateMaterial(Material material) {
@@ -300,18 +313,10 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
     private String blockEntityTypeKeyFor(Material material) {
         String path = material.getKey().getKey();
         String typePath;
-        if (path.equals("campfire") || path.equals("soul_campfire")) {
+        if (DIRECT_BLOCK_ENTITY_TYPE_PATHS.contains(path)) {
+            typePath = path;
+        } else if (path.equals("soul_campfire")) {
             typePath = "campfire";
-        } else if (path.equals("decorated_pot")) {
-            typePath = "decorated_pot";
-        } else if (path.equals("bell")) {
-            typePath = "bell";
-        } else if (path.equals("jukebox")) {
-            typePath = "jukebox";
-        } else if (path.equals("conduit")) {
-            typePath = "conduit";
-        } else if (path.equals("beacon")) {
-            typePath = "beacon";
         } else if (path.equals("moving_piston")) {
             typePath = "piston";
         } else if (path.equals("shulker_box") || path.endsWith("_shulker_box")) {
@@ -330,7 +335,7 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
             return null;
         }
 
-        return "minecraft:" + typePath;
+        return MINECRAFT_NAMESPACE + typePath;
     }
 
     private String normalizeConfiguredKey(String configured, String path, List<String> invalidEntries) {
@@ -344,7 +349,7 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
     private static String normalizeKey(String key) {
         String normalized = key.trim().toLowerCase(Locale.ROOT);
         if (!normalized.contains(":")) {
-            normalized = "minecraft:" + normalized;
+            normalized = MINECRAFT_NAMESPACE + normalized;
         }
         return normalized;
     }

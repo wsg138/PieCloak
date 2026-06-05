@@ -37,10 +37,10 @@ public abstract class PacketEntityViewController<P> {
         return SELF;
     }
 
-    protected EntityConfig entityConfig = null;
-    protected PlayerConfig playerConfig = null;
-    protected double hideOnSpawnEntityDistanceSquared = 0;
-    protected double hideOnSpawnPlayerDistanceSquared = 0;
+    protected EntityConfig entityConfig;
+    protected PlayerConfig playerConfig;
+    protected double hideOnSpawnEntityDistanceSquared;
+    protected double hideOnSpawnPlayerDistanceSquared;
 
     protected void handlePlayPhaseLoginPacket(int entityID, UUID playerUUID, int currentTick) {
         PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(playerUUID);
