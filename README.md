@@ -1,5 +1,7 @@
 # PieCloak
 
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/5aa184993c2247ca9df86b95e6b6361f)](https://app.codacy.com/gh/wsg138/PieCloak/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+
 PieCloak is a public modified fork of [RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP) for Paper/Leaf 1.21.x servers.
 
 This fork adds an allowlist-based target filter so packet-level anti-ESP handling only applies to configured entity and block entity clues used for pie-chart/base-finding. Non-allowlisted entities and block entities are sent normally.
