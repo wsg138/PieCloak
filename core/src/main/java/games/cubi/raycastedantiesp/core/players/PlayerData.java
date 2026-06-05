@@ -154,8 +154,26 @@ public class PlayerData {
         return null;
     }
 
+    public EntityView<?> trackedViewFromEntityID(int entityID) {
+        if (entityView.getEntity(entityID) != null) {
+            return entityView;
+        }
+        if (playerView.getEntity(entityID) != null) {
+            return playerView;
+        }
+        return null;
+    }
+
     public NettyEntityLocatable<?,?> entityFromID(int entityID) {
         EntityView<?> entityView = viewFromEntityID(entityID);
+        if (entityView == null) {
+            return null;
+        }
+        return (NettyEntityLocatable<?, ?>) entityView.getEntity(entityID);
+    }
+
+    public NettyEntityLocatable<?,?> trackedEntityFromID(int entityID) {
+        EntityView<?> entityView = trackedViewFromEntityID(entityID);
         if (entityView == null) {
             return null;
         }

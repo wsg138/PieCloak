@@ -358,7 +358,7 @@ public abstract class NettyEntityLocatable<EntityType, PacketReplayData extends 
     private void updatePassengerPositions() {
         if (passengerIDs == null || passengerIDs.length == 0) return;
         for (int passengerID : passengerIDs) {
-            NettyEntityLocatable<?, ?> passenger = owningPlayer.entityFromID(passengerID);
+            NettyEntityLocatable<?, ?> passenger = owningPlayer.trackedEntityFromID(passengerID);
             if (passenger != null) {
                 passenger.setVehicleID(entityID);
                 passenger.setWorld(world);

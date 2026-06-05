@@ -1,6 +1,5 @@
 package games.cubi.raycastedantiesp.core.view.controller;
 
-import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.utils.BaseEntitySpawnTask;
@@ -23,9 +22,8 @@ final class PassengerReconciliationTask extends BaseEntitySpawnTask {
 
     @Override
     public void run() {
-        NettyEntityLocatable<?,?> vehicle = playerData.entityFromID(vehicleEntityId);
+        NettyEntityLocatable<?,?> vehicle = playerData.trackedEntityFromID(vehicleEntityId);
         if (vehicle == null) {
-            Logger.error("Reconciliation fail: Attempted to reconcile passengers for unknown vehicle, queuedEntityId=" + queuedEntityId + " vehicleEntityId=" + vehicleEntityId, 3, this.getClass());
             return;
         }
         PacketEntityViewController.get().handleEntityPassengersNow(vehicle, passengerIds, playerData, submittedTick);
