@@ -24,7 +24,7 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
 
     public PacketEventsPaperBlockInfoResolver() {
         get = this;
-        boolean[][] result = iterateBlockIDs(false);
+        boolean[][] result = scanBlockIds(false);
         occlusionArray = result[0];
         tileEntityArray = result[1];
         PacketEventsBlockProcessorConfig config = RaycastedAntiESP.getConfigManager().getExtensionConfig(PacketEventsBlockProcessorConfig.class);
@@ -46,6 +46,10 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
      * @return Boolean array with two nested boolean arrays. <code>boolean[0]</code> returns the occlusion status array, <code>boolean[1]</code> returns the tile entity status array. Both arrays are indexed by block state ID. Air blocks and invalid IDs are treated as non-occluding and non-tile-entity, and trailing air IDs are ignored to save memory.
      */
     public boolean[][] iterateBlockIDs(boolean materialToIDMode) {
+        return scanBlockIds(materialToIDMode);
+    }
+
+    private boolean[][] scanBlockIds(boolean materialToIDMode) {
         boolean run = true;
         int airs = 0;
         int lastNonAirID = 0;

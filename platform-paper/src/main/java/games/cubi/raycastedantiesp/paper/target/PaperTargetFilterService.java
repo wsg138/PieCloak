@@ -32,7 +32,7 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
 
     public PaperTargetFilterService(ConfigManager configManager) {
         this.configManager = configManager;
-        refresh();
+        refresh(configManager.getTargetFilterConfig());
     }
 
     public void refresh() {

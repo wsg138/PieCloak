@@ -293,11 +293,10 @@ public class ConfigManager {
     }
 
     private ConfigurationNode loadBundledDefaults() {
-        InputStream resource = resourceSupplier.get();
-        if (resource == null) {
-            return null;
-        }
-        try (resource) {
+        try (InputStream resource = resourceSupplier.get()) {
+            if (resource == null) {
+                return null;
+            }
             return YamlConfigurationLoader.builder()
                     .source(() -> new BufferedReader(new InputStreamReader(resource)))
                     .build()

@@ -3,6 +3,7 @@ package games.cubi.raycastedantiesp.core.config;
 import org.spongepowered.configurate.ConfigurationNode;
 
 import java.util.List;
+import java.util.Locale;
 
 public record TargetFilterConfig(
         boolean enabled,
@@ -27,7 +28,7 @@ public record TargetFilterConfig(
     }
 
     public static String normalizeKey(String raw) {
-        String s = raw.trim().toLowerCase();
+        String s = raw.trim().toLowerCase(Locale.ROOT);
         return s.startsWith("minecraft:") ? s.substring("minecraft:".length()) : s;
     }
 

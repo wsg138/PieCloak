@@ -17,7 +17,7 @@ public record BuildProperties(String gitHashLong, String gitHashShort, String bu
     public static final BuildProperties LOCATABLES = fromResource("build-properties/locatable-lib.yml");
 
     public static BuildProperties fromResource(String resourcePath) {
-        try (InputStream inputStream = BuildProperties.class.getClassLoader().getResourceAsStream(resourcePath)) {
+        try (InputStream inputStream = classLoader().getResourceAsStream(resourcePath)) {
             if (inputStream == null) {
                 Logger.error(new IllegalArgumentException("BuildProperties resource not found: " + resourcePath), 2, BuildProperties.class);
                 return error();
@@ -66,6 +66,11 @@ public record BuildProperties(String gitHashLong, String gitHashShort, String bu
 
     private static BuildProperties error() {
         return new BuildProperties("unknown", "unknown", "unknown", new Version(-1, -1, -1, true));
+    }
+
+    private static ClassLoader classLoader() {
+        ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+        return contextClassLoader == null ? BuildProperties.class.getClassLoader() : contextClassLoader;
     }
 
     record Version(short major, short minor, short patch, boolean snapshot) {

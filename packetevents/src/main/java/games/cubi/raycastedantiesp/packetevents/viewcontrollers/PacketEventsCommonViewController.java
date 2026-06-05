@@ -8,7 +8,7 @@ import com.github.retrooper.packetevents.wrapper.PacketWrapper;
 import java.util.function.IntSupplier;
 
 public class PacketEventsCommonViewController {
-    private static PacketEventsCommonViewController INSTANCE;
+    private static volatile PacketEventsCommonViewController INSTANCE;
     private final  IntSupplier currentTickSupplier;
     public final boolean v_1_21_5_orAbove = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21_5);
 
@@ -16,7 +16,7 @@ public class PacketEventsCommonViewController {
         this.currentTickSupplier = currentTick;
     }
 
-    public static PacketEventsCommonViewController get(IntSupplier currentTick) {
+    public static synchronized PacketEventsCommonViewController get(IntSupplier currentTick) {
         if (INSTANCE == null) {
             INSTANCE = new PacketEventsCommonViewController(currentTick);
         }
