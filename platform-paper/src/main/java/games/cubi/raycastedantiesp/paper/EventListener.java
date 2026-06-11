@@ -65,6 +65,9 @@ public class EventListener extends PaperListener {
         }
         playerData.setBypassPermission(hasBypassPermission);
         updateOwnLocation(playerData, player.getEyeLocation());
+        if (hasBypassPermission) {
+            RaycastedAntiESP.getPacketEventsController().enableBypass(playerData, currentTickSupplier.getAsInt());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

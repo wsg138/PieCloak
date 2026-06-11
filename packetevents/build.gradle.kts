@@ -18,7 +18,12 @@ dependencies {
 
     compileOnly("com.github.retrooper:packetevents-api:2.12.0")
     compileOnly("org.spongepowered:configurate-core:4.2.0")
+    testImplementation("com.github.retrooper:packetevents-api:2.12.0")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
+
+tasks.test { useJUnitPlatform() }
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)

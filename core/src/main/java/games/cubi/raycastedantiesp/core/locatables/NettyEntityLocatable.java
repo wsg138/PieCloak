@@ -45,6 +45,7 @@ public abstract class NettyEntityLocatable<EntityType, PacketReplayData extends 
     // mutatable by several threads (engine and netty), may need to investigate atomic updates for thread safety
     private volatile int lastChecked;
     private volatile boolean clientVisible = true;
+    private volatile boolean cullTarget = true;
 
     // engine thread mutable, reads from netty and engine.
     private volatile boolean visible;
@@ -122,6 +123,17 @@ public abstract class NettyEntityLocatable<EntityType, PacketReplayData extends 
     @Override
     public EntityLocatable<?, ?> setClientVisible(boolean clientVisible) {
         this.clientVisible = clientVisible;
+        return this;
+    }
+
+    @Override
+    public boolean cullTarget() {
+        return cullTarget;
+    }
+
+    @Override
+    public EntityLocatable<?, ?> setCullTarget(boolean cullTarget) {
+        this.cullTarget = cullTarget;
         return this;
     }
 
@@ -373,7 +385,9 @@ public abstract class NettyEntityLocatable<EntityType, PacketReplayData extends 
     @Override
     public void clear() {
         world = null;
-        packetReplayData.clear();
+        if (packetReplayData != null) {
+            packetReplayData.clear();
+        }
         packetReplayData = null;
 
         vehicleID = NO_VEHICLE;
@@ -410,6 +424,7 @@ public abstract class NettyEntityLocatable<EntityType, PacketReplayData extends 
                 ", velocityY=" + velocityY +
                 ", velocityZ=" + velocityZ +
                 ", onGround=" + onGround +
+                ", cullTarget=" + cullTarget +
                 ", leashedIDs=" + (leashedIDs == null ? null : IntArrayList.toString(leashedIDs)) +
                 ", leasherID=" + leasherID +
                 ", passengerIDs=" + (passengerIDs == null ? null : IntArrayList.toString(passengerIDs)) +

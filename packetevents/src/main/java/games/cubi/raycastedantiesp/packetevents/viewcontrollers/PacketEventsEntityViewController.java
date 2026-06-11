@@ -3,11 +3,9 @@ package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListener;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.Equipment;
 import com.github.retrooper.packetevents.protocol.player.User;
 import com.github.retrooper.packetevents.protocol.teleport.RelativeFlag;
 import com.github.retrooper.packetevents.util.Vector3d;
@@ -26,6 +24,7 @@ import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewControll
 import games.cubi.raycastedantiesp.packetevents.locatables.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
+import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -88,6 +87,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         if (ConfigManager.get().getEntityConfig() != entityConfig) {
             entityConfig = ConfigManager.get().getEntityConfig();
             hideOnSpawnEntityDistanceSquared = entityConfig.hideOnSpawnDistance() * entityConfig.hideOnSpawnDistance();
+            alwaysShowEntityDistanceSquared = entityConfig.getAlwaysShowRadius() * entityConfig.getAlwaysShowRadius();
         }
 
         if (ConfigManager.get().getPlayerConfig() != playerConfig) {
@@ -99,18 +99,34 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         UUID world = ownLocation != null ? ownLocation.world() : resolveWorldUUID(event.getUser());
         int currentTick = CURRENT_TICK_SUPPLIER.getAsInt();
 
-        handleEntityPackets(event, event.getUser(), playerData, world, currentTick);
+        if (playerData.hasBypassPermission()) {
+            handleBypassPacketLifecycle(event, playerData, currentTick);
+        } else {
+            handleEntityPackets(event, event.getUser(), playerData, world, currentTick);
+        }
 
         if (playerData.entityView().hasPendingTransitions()) {
-            processEntityTransitions(viewerUUID, event.getUser(), cast(playerData.entityView()));
+            processEntityTransitions(viewerUUID, event.getUser(), cast(playerData.entityView()), playerData);
         }
 
         if (playerData.playerView().hasPendingTransitions()) {
-            processEntityTransitions(viewerUUID, event.getUser(), cast(playerData.playerView()));
+            processEntityTransitions(viewerUUID, event.getUser(), cast(playerData.playerView()), playerData);
         }
         
         event.getUser().flushPackets();
         playerData.nettyData().evictPendingPostSpawnTasksIfRequired(currentTick);
+    }
+
+    public void enableBypass(PlayerData playerData, int currentTick) {
+        for (UUID entityUUID : playerData.entityView().getKnownEntities()) {
+            playerData.entityView().setVisibility(entityUUID, true, currentTick);
+        }
+    }
+
+    private void handleBypassPacketLifecycle(PacketSendEvent event, PlayerData playerData, int currentTick) {
+        if (event.getPacketType() == PacketType.Play.Server.DESTROY_ENTITIES) {
+            handleDestroyEntities(new WrapperPlayServerDestroyEntities(event).getEntityIds(), playerData, currentTick);
+        }
     }
 
     private void handleEntityPackets(PacketSendEvent event, User viewer, PlayerData playerData, UUID world, int currentTick) {
@@ -128,7 +144,8 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 Logger.debug("Spawning entity for player " + viewer.getUUID() + " entity #" + packet.getEntityId() + " tick=" + currentTick + " type=" + packet.getEntityType().getName());
                 boolean isPlayer = packet.getEntityType().isInstanceOf(EntityTypes.PLAYER);
                 boolean shouldCullEntity = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
-                if (handleEntitySpawn(packet, packet.getEntityId(), isPlayer, shouldCullEntity, playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                boolean shouldTrackEntity = shouldCullEntity || isMinecartLike(packet.getEntityType());
+                if (handleEntitySpawn(packet, packet.getEntityId(), isPlayer, shouldCullEntity, shouldTrackEntity, playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_ANIMATION -> {
@@ -214,7 +231,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             }
             case PacketType.Play.Server.SET_PASSENGERS -> {
                 WrapperPlayServerSetPassengers packet = new WrapperPlayServerSetPassengers(event);
-                if (hasManagedEntity(packet.getEntityId(), packet.getPassengers(), playerData) && handleEntityPassengers(packet.getEntityId(), packet.getPassengers(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (handleEntityPassengers(packet.getEntityId(), packet.getPassengers(), playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.DESTROY_ENTITIES -> {
@@ -378,10 +395,6 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     @Override
     protected void sendEntityPassengerPacket(int vehicle, ArrayList<Integer> passengers, PlayerData playerData) {
-        NettyEntityLocatable<?,?> entity = playerData.trackedEntityFromID(vehicle);
-        if (entity == null) {
-            return;
-        }
         WrapperPlayServerSetPassengers packet = new WrapperPlayServerSetPassengers(vehicle, passengers.stream().mapToInt(Integer::intValue).toArray());
         Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
         PacketEvents.getAPI().getProtocolManager().getUser(channel).writePacketSilently(packet);
@@ -394,33 +407,63 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         return entity;
     }
 
-    private void processEntityTransitions(UUID viewerUUID, User viewer, EntityView<PacketEventsEntity> entityView) {
+    private void processEntityTransitions(UUID viewerUUID, User viewer, PacketEventsEntityView entityView, PlayerData playerData) {
         for (EntityViewTransition transition : entityView.drainTransitions()) {
             PacketEventsEntity entity = getTrackedEntity(entityView, transition.targetUUID());
-
-            switch (transition.type()) {
-                case HIDE -> {
-                    if (entity != null && entity.clientVisible() && entity.entityID() >= 0) {
-                        viewer.writePacketSilently(new WrapperPlayServerDestroyEntities(entity.entityID()));
-                        entity.setClientVisible(false);
+            if (entity == null || entity.isSelfEntity() || isStaleTransition(entity, transition)) {
+                continue;
+            }
+            try {
+                switch (transition.type()) {
+                    case HIDE -> hideMountGroup(viewer, entityView.getMountGroup(entity.entityUUID()));
+                    case SHOW -> showMountGroup(viewer, playerData, entityView.getMountGroup(entity.entityUUID()));
+                    default -> {
                     }
                 }
-                case SHOW -> {
-                    if (entity == null || entity.isSelfEntity()) {
-                        Logger.info("PacketEvents.processEntityTransitions show-skipped viewer=" + viewerUUID
-                                + " target=" + transition.targetUUID()
-                                + " reason="
-                                + (entity == null ? "missing-entity" : "self-entity"), 2, PacketEventsEntityViewController.class);
-                        continue;
-                    }
-                    PacketEventsEntityReplayData replayData = ensureReplayData(entity);
-                    sendEntityShow(viewer, PlayerRegistry.getInstance().getPlayerData(viewerUUID), entity, replayData);
-                    entity.setClientVisible(true);
-                }
-                default -> {
+            } catch (Exception exception) {
+                EntityViewTransition retry = transition.retry();
+                entityView.requeueTransition(retry);
+                if (retry.attempts() == 1 || retry.attempts() % 20 == 0) {
+                    Logger.error("Entity visibility transition failed and was queued for retry. viewer=" + viewerUUID
+                            + " entityUUID=" + entity.entityUUID()
+                            + " entityID=" + entity.entityID()
+                            + " entityType=" + entityTypeName(entity)
+                            + " transition=" + transition.type()
+                            + " attempts=" + retry.attempts(), exception, 1, PacketEventsEntityViewController.class);
                 }
             }
         }
+    }
+
+    private boolean isStaleTransition(PacketEventsEntity entity, EntityViewTransition transition) {
+        return (transition.type() == EntityViewTransition.Type.SHOW && !entity.visible())
+                || (transition.type() == EntityViewTransition.Type.HIDE && entity.visible());
+    }
+
+    private void hideMountGroup(User viewer, List<PacketEventsEntity> mountGroup) {
+        int[] entityIDs = mountGroup.stream()
+                .filter(PacketEventsEntity::clientVisible)
+                .mapToInt(PacketEventsEntity::entityID)
+                .filter(entityID -> entityID >= 0)
+                .toArray();
+        if (entityIDs.length == 0) {
+            return;
+        }
+        viewer.writePacketSilently(new WrapperPlayServerDestroyEntities(entityIDs));
+        for (PacketEventsEntity member : mountGroup) {
+            member.setClientVisible(false);
+        }
+    }
+
+    private void showMountGroup(User viewer, PlayerData playerData, List<PacketEventsEntity> mountGroup) {
+        for (PacketEventsEntity member : mountGroup) {
+            if (member.isSelfEntity() || member.clientVisible()) {
+                continue;
+            }
+            sendEntityShow(viewer, playerData, member, ensureReplayData(member));
+            member.setClientVisible(true);
+        }
+        replayPassengerState(viewer, playerData, mountGroup);
     }
 
     private PacketWrapper<?> buildSpawnPacket(PacketEventsEntity entity) {
@@ -441,22 +484,19 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             );
     }
 
-    private WrapperPlayServerSetPassengers buildPassengersPacket(@Nullable NettyEntityLocatable<?,?> entity, PlayerData playerData) {
-        if (entity == null) {
-            return null;
-        }
-        int[] passengerIDs = entity.passengerIDs();
-        if (passengerIDs == null || passengerIDs.length == 0) {
+    private WrapperPlayServerSetPassengers buildPassengersPacket(int vehicleID, PlayerData playerData) {
+        int[] passengerIDs = playerData.nettyData().passengerIDs(vehicleID);
+        if (passengerIDs.length == 0) {
             return null;
         }
         ArrayList<Integer> visiblePassengerIDs = new ArrayList<>();
         for (int passengerID : passengerIDs) {
             NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
-            if (passenger != null && passenger.visible()) {
+            if (passenger == null || passenger.clientVisible()) {
                 visiblePassengerIDs.add(passengerID);
             }
         }
-        return new WrapperPlayServerSetPassengers(entity.entityID(), visiblePassengerIDs.stream().mapToInt(Integer::intValue).toArray());
+        return new WrapperPlayServerSetPassengers(vehicleID, visiblePassengerIDs.stream().mapToInt(Integer::intValue).toArray());
     }
 
     private @Nullable WrapperPlayServerAttachEntity[] buildLeashPackets(PacketEventsEntity entity, PlayerData playerData) {
@@ -488,68 +528,6 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         return packets;
     }
 
-    private WrapperPlayServerEntityEffect copyEffectPacket(WrapperPlayServerEntityEffect effect) {
-        WrapperPlayServerEntityEffect copy = new WrapperPlayServerEntityEffect(
-                effect.getEntityId(),
-                effect.getPotionType(),
-                effect.getEffectAmplifier(),
-                effect.getEffectDurationTicks(),
-                buildEffectFlags(effect.isAmbient(), effect.isVisible(), effect.isShowIcon())
-        );
-        copy.setFactorData(effect.getFactorData());
-        return copy;
-    }
-
-    private WrapperPlayServerEntityMetadata copyEntityMetadataPacket(WrapperPlayServerEntityMetadata packet) {
-        return new WrapperPlayServerEntityMetadata(
-                packet.getEntityId(),
-                copyEntityMetadata(packet.getEntityMetadata())
-        );
-    }
-
-    private WrapperPlayServerEntityEquipment copyEntityEquipmentPacket(WrapperPlayServerEntityEquipment packet) {
-        return new WrapperPlayServerEntityEquipment(
-                packet.getEntityId(),
-                copyEquipment(packet.getEquipment())
-        );
-    }
-
-    private WrapperPlayServerEntityVelocity copyEntityVelocityPacket(WrapperPlayServerEntityVelocity packet) {
-        return new WrapperPlayServerEntityVelocity(
-                packet.getEntityId(),
-                new Vector3d(packet.getVelocity().getX(), packet.getVelocity().getY(), packet.getVelocity().getZ())
-        );
-    }
-
-    private WrapperPlayServerRemoveEntityEffect copyRemoveEntityEffectPacket(WrapperPlayServerRemoveEntityEffect packet) {
-        return new WrapperPlayServerRemoveEntityEffect(
-                packet.getEntityId(),
-                packet.getPotionType()
-        );
-    }
-
-    private List<EntityData<?>> copyEntityMetadata(List<EntityData<?>> metadata) {
-        return metadata == null ? List.of() : List.copyOf(metadata);
-    }
-
-    private List<Equipment> copyEquipment(List<Equipment> equipment) {
-        return equipment == null ? List.of() : List.copyOf(equipment);
-    }
-
-    private byte buildEffectFlags(boolean ambient, boolean visible, boolean showIcon) {
-        byte flags = 0;
-        if (ambient) {
-            flags |= 1;
-        }
-        if (visible) {
-            flags |= 2;
-        }
-        if (showIcon) {
-            flags |= 4;
-        }
-        return flags;
-    }
-    
     @SuppressWarnings("unchecked")
     public  <T> T cast(Object value) {
         return (T) value;
@@ -576,33 +554,8 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         viewer.writePacketSilently(buildSpawnPacket(entity));
         sendEntityAbsoluteCorrection(viewer, entity);
 
-        for (PacketWrapper<?> cachedPacket : replayData.getPackets()) {
-
-            if (cachedPacket.getClass() == WrapperPlayServerEntityMetadata.class) {
-                WrapperPlayServerEntityMetadata metadataPacket = copyEntityMetadataPacket((WrapperPlayServerEntityMetadata) cachedPacket);
-                viewer.writePacketSilently(metadataPacket);
-            } else if (cachedPacket.getClass() == WrapperPlayServerEntityEquipment.class) {
-                WrapperPlayServerEntityEquipment equipmentPacket = copyEntityEquipmentPacket((WrapperPlayServerEntityEquipment) cachedPacket);
-                viewer.writePacketSilently(equipmentPacket);
-            } else if (cachedPacket.getClass() == WrapperPlayServerEntityVelocity.class) {
-                WrapperPlayServerEntityVelocity velocityPacket = copyEntityVelocityPacket((WrapperPlayServerEntityVelocity) cachedPacket);
-                viewer.writePacketSilently(velocityPacket);
-            } else if (cachedPacket.getClass() == WrapperPlayServerEntityEffect.class) {
-                viewer.writePacketSilently(copyEffectPacket((WrapperPlayServerEntityEffect) cachedPacket));
-            } else if (cachedPacket.getClass() == WrapperPlayServerRemoveEntityEffect.class) {
-                viewer.writePacketSilently(copyRemoveEntityEffectPacket((WrapperPlayServerRemoveEntityEffect) cachedPacket));
-            } else if (cachedPacket.getClass() == WrapperPlayServerUpdateAttributes.class) {
-                WrapperPlayServerUpdateAttributes existing = (WrapperPlayServerUpdateAttributes) cachedPacket;
-                WrapperPlayServerUpdateAttributes copy = new WrapperPlayServerUpdateAttributes(existing.getEntityId(), existing.getProperties());
-                viewer.writePacketSilently(copy);
-            }
-            else {
-                Logger.warning("Unsupported cached packet type for replay: " + cachedPacket.getClass().getName(), 2, PacketEventsEntityViewController.class);
-            }
-        }
-        COMMON.writeIfPresent(viewer, buildPassengersPacket(entity, data));
-        if (entity.vehicleID() != NO_VEHICLE) {
-            COMMON.writeIfPresent(viewer, buildPassengersPacket(data.trackedEntityFromID(entity.vehicleID()), data));
+        for (PacketWrapper<?> cachedPacket : replayData.snapshotPackets(entity.entityID())) {
+            viewer.writePacketSilently(cachedPacket);
         }
         WrapperPlayServerAttachEntity[] leashPackets = buildLeashPackets(entity, data);
         if (leashPackets == null) return;
@@ -610,6 +563,15 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             if (leashPacket != null) {
                 viewer.writePacketSilently(leashPacket);
             }
+        }
+    }
+
+    private void replayPassengerState(User viewer, PlayerData playerData, List<PacketEventsEntity> mountGroup) {
+        for (PacketEventsEntity member : mountGroup) {
+            COMMON.writeIfPresent(viewer, buildPassengersPacket(member.entityID(), playerData));
+        }
+        if (!mountGroup.isEmpty() && mountGroup.getFirst().vehicleID() != NO_VEHICLE) {
+            COMMON.writeIfPresent(viewer, buildPassengersPacket(mountGroup.getFirst().vehicleID(), playerData));
         }
     }
 
@@ -665,5 +627,13 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 viewer.writePacketSilently(leashPacket);
             }
         }
+    }
+
+    private boolean isMinecartLike(EntityType entityType) {
+        return entityType != null && entityType.isInstanceOf(EntityTypes.MINECART_ABSTRACT);
+    }
+
+    private String entityTypeName(PacketEventsEntity entity) {
+        return entity.entityType() == null ? "unknown" : "" + entity.entityType().getName();
     }
 }

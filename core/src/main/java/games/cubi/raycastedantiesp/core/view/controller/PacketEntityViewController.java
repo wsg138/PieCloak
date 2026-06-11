@@ -7,6 +7,7 @@ import games.cubi.raycastedantiesp.core.config.raycast.RaycastConfig;
 import games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.players.NettyData;
 import games.cubi.raycastedantiesp.core.utils.IntArrayList;
 import games.cubi.raycastedantiesp.core.utils.Packet;
 import games.cubi.raycastedantiesp.core.view.EntityView;
@@ -41,6 +42,7 @@ public abstract class PacketEntityViewController<P> {
     protected PlayerConfig playerConfig;
     protected double hideOnSpawnEntityDistanceSquared;
     protected double hideOnSpawnPlayerDistanceSquared;
+    protected double alwaysShowEntityDistanceSquared;
 
     protected void handlePlayPhaseLoginPacket(int entityID, UUID playerUUID, int currentTick) {
         PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(playerUUID);
@@ -57,13 +59,13 @@ public abstract class PacketEntityViewController<P> {
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.
      */
     @Packet(Packet.Packets.SPAWN_ENTITY)
-    protected boolean handleEntitySpawn(P packet, int entityID, boolean isPlayer, boolean shouldCullEntity, PlayerData playerData, UUID world, int currentTick) {
-        boolean returnValue = handleEntitySpawn0(packet, isPlayer, shouldCullEntity, playerData, world, currentTick);
+    protected boolean handleEntitySpawn(P packet, int entityID, boolean isPlayer, boolean shouldCullEntity, boolean shouldTrackEntity, PlayerData playerData, UUID world, int currentTick) {
+        boolean returnValue = handleEntitySpawn0(packet, isPlayer, shouldCullEntity, shouldTrackEntity, playerData, world, currentTick);
         playerData.nettyData().runPendingPostSpawnTaskForEntity(entityID);
         return returnValue;
     }
 
-    protected boolean handleEntitySpawn0(P packet, boolean isPlayer, boolean shouldCullEntity, PlayerData playerData, UUID world, int currentTick) {
+    protected boolean handleEntitySpawn0(P packet, boolean isPlayer, boolean shouldCullEntity, boolean shouldTrackEntity, PlayerData playerData, UUID world, int currentTick) {
         if (world == null) {
             Logger.error(new RuntimeException("World null when handling spawn entity packet, uuid=" + playerData.getPlayerUUID() + " tick=" + currentTick), 2, PacketEntityViewController.class);
             return false;
@@ -72,20 +74,31 @@ public abstract class PacketEntityViewController<P> {
         if (entity == null) {
             return false;
         }
+        entity.setCullTarget(shouldCullEntity);
+        reconcileEntityRelationships(entity, playerData);
         if (isPlayer) {
             entity.setVisible(true);
             entity.setClientVisible(true);
             insertEntityToPlayerView(entity, playerData);
             return false;
         }
-        if (!shouldCullEntity) {
+        if (!shouldCullEntity && !shouldTrackEntity) {
             entity.setVisible(true);
             entity.setClientVisible(true);
             return false;
         }
-        if (entityConfig.enabled()) {
+        if (!shouldCullEntity || playerData.hasBypassPermission() || shouldForceEntityVisible(entity, playerData)) {
+            entity.setVisible(true);
+            entity.setClientVisible(true);
+        } else if (entityConfig.enabled()) {
+            if (!hasUsableViewerLocation(playerData, entity)) {
+                entity.setVisible(true);
+                entity.setClientVisible(true);
+                insertEntityToEntityView(entity, playerData);
+                return false;
+            }
             double distanceSquared = playerData.ownLocation().distanceSquared(entity);
-            if (distanceSquared > hideOnSpawnEntityDistanceSquared) {
+            if (distanceSquared > alwaysShowEntityDistanceSquared && distanceSquared > hideOnSpawnEntityDistanceSquared) {
                 entity.setVisible(false);
                 entity.setClientVisible(false);
                 insertEntityToEntityView(entity, playerData);
@@ -96,6 +109,13 @@ public abstract class PacketEntityViewController<P> {
         }
         insertEntityToEntityView(entity, playerData);
         return false;
+    }
+
+    private boolean hasUsableViewerLocation(PlayerData playerData, NettyEntityLocatable<?,?> entity) {
+        if (playerData.ownLocation() == null || playerData.ownLocation().world() == null || entity.world() == null) {
+            return false;
+        }
+        return playerData.ownLocation().world().equals(entity.world());
     }
 
     @Packet(Packet.Packets.ENTITY_ANIMATION)
@@ -198,10 +218,11 @@ public abstract class PacketEntityViewController<P> {
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.
      */
     protected boolean handleEntityPassengers(int entityID, int[] passengers, PlayerData playerData, int currentTick) {
+        int[] previousPassengers = playerData.nettyData().updatePassengers(entityID, passengers);
+        clearRemovedPassengers(entityID, previousPassengers, passengers, playerData);
         NettyEntityLocatable<?,?> entity = playerData.trackedEntityFromID(entityID);
         if (entity == null) {
-            if (hasManagedEntity(passengers, playerData)) return false;
-            queuePassengerRetry(playerData, entityID, entityID, passengers, currentTick);
+            forceManagedPassengersVisibleOnUntrackedVehicle(passengers, playerData, currentTick);
             return false;
         }
         return handleEntityPassengersNow(entity, passengers, playerData, currentTick);
@@ -211,66 +232,37 @@ public abstract class PacketEntityViewController<P> {
     boolean handleEntityPassengersNow(NettyEntityLocatable<?,?> entity, int[] passengers, PlayerData playerData, int currentTick) {
         int entityID = entity.entityID();
         entity.setPassengerIDs(passengers);
-        int blockingEntityID = NO_VEHICLE;
+        for (int passengerID : passengers) {
+            NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
+            if (passenger != null) {
+                passenger.setVehicleID(entityID);
+            }
+        }
+
+        boolean hasCullTarget = entity.cullTarget();
+        boolean incompleteGroup = false;
         for (int passengerID : passengers) {
             NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
             if (passenger == null) {
-                if (blockingEntityID == NO_VEHICLE) {
-                    blockingEntityID = passengerID;
-                }
-                continue;
-            }
-            passenger.setVehicleID(entityID);
-        }
-        if (blockingEntityID != NO_VEHICLE) {
-            queuePassengerRetry(playerData, blockingEntityID, entityID, passengers, currentTick);
-        }
-        checkVehicle(entity, playerData);
-        if (cancelIfEnabledAndHidden(entityID, playerData)) return true;
-        boolean passengersNotVisible = false;
-        ArrayList<Integer> visiblePassengers = new ArrayList<>(passengers.length);
-        for (int passengerID : passengers) {
-            if (cancelIfEnabledAndHidden(passengerID, playerData)) {
-                passengersNotVisible = true;
-            }
-            else {
-                visiblePassengers.add(passengerID);
+                incompleteGroup = true;
+            } else if (passenger.cullTarget()) {
+                hasCullTarget = true;
             }
         }
-        if (passengersNotVisible) {
-            //some passengers are hidden but others aren't. Cancel this packet and send another silently with just the visible passengers.
-            sendEntityPassengerPacket(entityID, visiblePassengers, playerData);
-        }
-        return passengersNotVisible;
-    }
 
-    private void queuePassengerRetry(PlayerData playerData, int queueEntityID, int vehicleEntityID, int[] passengers, int submittedTick) {
-        playerData.nettyData().addPostEntitySpawnTask(queueEntityID, new PassengerReconciliationTask(playerData, queueEntityID, vehicleEntityID, passengers, submittedTick));
-    }
-
-    private void checkVehicle(NettyEntityLocatable<?,?> entity, PlayerData playerData) {
-        int vehicleID = entity.vehicleID();
-        if (vehicleID >= 0) {
-            NettyEntityLocatable<?,?> vehicle = playerData.trackedEntityFromID(vehicleID);
-            if (vehicle == null) {
-                return;
-            }
-            if (cancelIfEnabledAndHidden(vehicleID, playerData)) {
-                //Vehicle is hidden, so this entity should be hidden as well. No need to check passengers.
-                return;
-            }
-            //Vehicle is visible, but this entity may not be.
-            if (cancelIfEnabledAndHidden(entity.entityID(), playerData)) {
-                return;
-            }
-            ArrayList<Integer> passengers = new ArrayList<>();
-            passengers.add(entity.entityID());
-            sendEntityPassengerPacket(vehicleID, passengers, playerData);
+        if (hasCullTarget && incompleteGroup) {
+            forceMountGroupVisible(entity, playerData, currentTick);
+        } else if (hasCullTarget && hasMixedClientVisibility(entity, passengers, playerData)) {
+            forceMountGroupVisible(entity, playerData, currentTick);
+        } else if (!hasCullTarget && !entity.cullTarget()) {
+            playerData.entityView().setVisibility(entity.entityUUID(), true, currentTick);
         }
+        return cancelIfEnabledAndHidden(entityID, playerData) || hasHiddenPassenger(passengers, playerData);
     }
 
     protected void handleDestroyEntities(int[] entityIDs, PlayerData playerData, int currentTick) {
         for (int entityID : entityIDs) {
+            clearMountRelationships(entityID, playerData, currentTick);
             clearPendingHolderReference(entityID, playerData);
             playerData.nettyData().removeUnresolvedLeashedEntityFromAll(entityID);
             playerData.nettyData().clearPendingPostSpawnTasksForEntity(entityID);
@@ -391,13 +383,17 @@ public abstract class PacketEntityViewController<P> {
      * @return True if the packet should be suppressed
      */
     protected boolean cancelIfEnabledAndHidden(int entityID, PlayerData playerData) {
+        if (playerData.hasBypassPermission()) {
+            return false;
+        }
         EntityView<?> entityView = trackedViewFromEntityID(entityID, playerData);
 
         if (entityView == null) {
             return false;
         }
 
-        if (entityView.isVisible(entityID)) {
+        NettyEntityLocatable<?,?> entity = playerData.trackedEntityFromID(entityID);
+        if (entity == null || entity.clientVisible()) {
             return false;
         }
 
@@ -408,7 +404,7 @@ public abstract class PacketEntityViewController<P> {
      * @return True if the packet should be suppressed
      */
     protected boolean cancelIfEnabledAndHidden(NettyEntityLocatable<?,?> entity, PlayerData playerData) {
-        if (entity.visible()) {
+        if (playerData.hasBypassPermission() || entity.clientVisible()) {
             return false;
         }
 
@@ -434,6 +430,23 @@ public abstract class PacketEntityViewController<P> {
     protected abstract int processPositionSyncPacket(P packet, PlayerData playerData, int currentTick);
 
     protected abstract void cachePacket(P packet, int entityID, PlayerData playerData, int currentTick);
+
+    protected void reconcileEntityRelationships(NettyEntityLocatable<?,?> entity, PlayerData playerData) {
+        entity.setVehicleID(playerData.nettyData().vehicleID(entity.entityID()));
+        entity.setPassengerIDs(playerData.nettyData().passengerIDs(entity.entityID()));
+    }
+
+    protected boolean shouldForceEntityVisible(NettyEntityLocatable<?,?> entity, PlayerData playerData) {
+        if (entity.vehicleID() != NO_VEHICLE && playerData.trackedEntityFromID(entity.vehicleID()) == null) {
+            return true;
+        }
+        for (int passengerID : playerData.nettyData().passengerIDs(entity.entityID())) {
+            if (playerData.trackedEntityFromID(passengerID) == null) {
+                return true;
+            }
+        }
+        return false;
+    }
     /**   @return The entity ID of the entity   */
     protected abstract int processRotationPacket(P packet, PlayerData playerData, int currentTick);
 
@@ -449,4 +462,103 @@ public abstract class PacketEntityViewController<P> {
     protected abstract void insertEntityToPlayerView(NettyEntityLocatable<?,?> entity, PlayerData playerData);
 
     protected abstract void insertEntityToEntityView(NettyEntityLocatable<?,?> entity, PlayerData playerData);
+
+    private void clearRemovedPassengers(int vehicleID, int[] previousPassengers, int[] passengers, PlayerData playerData) {
+        for (int previousPassengerID : previousPassengers) {
+            if (contains(passengers, previousPassengerID)) {
+                continue;
+            }
+            NettyEntityLocatable<?,?> previousPassenger = playerData.trackedEntityFromID(previousPassengerID);
+            if (previousPassenger != null && previousPassenger.vehicleID() == vehicleID) {
+                previousPassenger.setVehicleID(NO_VEHICLE);
+            }
+        }
+    }
+
+    private void forceManagedPassengersVisibleOnUntrackedVehicle(int[] passengers, PlayerData playerData, int currentTick) {
+        for (int passengerID : passengers) {
+            NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
+            if (passenger == null) {
+                continue;
+            }
+            passenger.setVehicleID(playerData.nettyData().vehicleID(passengerID));
+            if (passenger.cullTarget()) {
+                playerData.entityView().setVisibility(passenger.entityUUID(), true, currentTick);
+            }
+        }
+    }
+
+    private void forceMountGroupVisible(NettyEntityLocatable<?,?> entity, PlayerData playerData, int currentTick) {
+        playerData.entityView().setVisibility(entity.entityUUID(), true, currentTick);
+    }
+
+    private boolean hasMixedClientVisibility(NettyEntityLocatable<?,?> vehicle, int[] passengers, PlayerData playerData) {
+        boolean clientVisible = vehicle.clientVisible();
+        for (int passengerID : passengers) {
+            NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
+            if (passenger != null && passenger.clientVisible() != clientVisible) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasHiddenPassenger(int[] passengers, PlayerData playerData) {
+        for (int passengerID : passengers) {
+            NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
+            if (passenger != null && !passenger.clientVisible()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void clearMountRelationships(int entityID, PlayerData playerData, int currentTick) {
+        NettyData.MountRelationships relationships = playerData.nettyData().removeEntityRelationships(entityID);
+        for (int passengerID : relationships.passengerIDs()) {
+            NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
+            if (passenger != null && passenger.vehicleID() == entityID) {
+                passenger.setVehicleID(NO_VEHICLE);
+                if (passenger.cullTarget()) {
+                    playerData.entityView().setVisibility(passenger.entityUUID(), true, currentTick);
+                }
+            }
+        }
+        if (relationships.vehicleID() == NO_VEHICLE) {
+            return;
+        }
+        NettyEntityLocatable<?,?> vehicle = playerData.trackedEntityFromID(relationships.vehicleID());
+        if (vehicle != null) {
+            vehicle.setPassengerIDs(playerData.nettyData().passengerIDs(relationships.vehicleID()));
+            if (!vehicle.cullTarget() && !hasCullTargetPassenger(vehicle, playerData)) {
+                playerData.entityView().setVisibility(vehicle.entityUUID(), true, currentTick);
+            }
+        }
+    }
+
+    private boolean hasCullTargetPassenger(NettyEntityLocatable<?,?> vehicle, PlayerData playerData) {
+        int[] passengerIDs = vehicle.passengerIDs();
+        if (passengerIDs == null) {
+            return false;
+        }
+        for (int passengerID : passengerIDs) {
+            NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
+            if (passenger != null && passenger.cullTarget()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean contains(int[] values, int target) {
+        if (values == null) {
+            return false;
+        }
+        for (int value : values) {
+            if (value == target) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

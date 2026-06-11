@@ -10,6 +10,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import static games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable.NO_VEHICLE;
+
 public class PacketEventsEntityView implements EntityView<PacketEventsEntity> {
     private final Map<UUID, PacketEventsEntity> entitiesByUUID = new ConcurrentHashMap<>();
     private final Map<Integer, UUID> entityUUIDsByID = new ConcurrentHashMap<>();
@@ -120,15 +122,27 @@ public class PacketEventsEntityView implements EntityView<PacketEventsEntity> {
             return;
         }
         if (existing.isSelfEntity()) return;
-        if (existing.visible() != visible) {
+
+        List<PacketEventsEntity> mountGroup = getMountGroup(existing);
+        if (!visible && !isCompleteMountGroup(mountGroup)) {
+            visible = true;
+        }
+
+        boolean changed = false;
+        for (PacketEventsEntity member : mountGroup) {
+            if (member.visible() != visible) {
+                changed = true;
+            }
+            member.setVisible(visible);
+            member.setLastChecked(currentTick);
+        }
+        if (changed) {
             transitions.add(new EntityViewTransition(
                     visible ? EntityViewTransition.Type.SHOW : EntityViewTransition.Type.HIDE,
-                    existing.entityUUID(),
-                    existing.entityID()
+                    mountGroup.getFirst().entityUUID(),
+                    mountGroup.getFirst().entityID()
             ));
         }
-        existing.setVisible(visible);
-        existing.setLastChecked(currentTick);
     }
 
     @Override
@@ -139,11 +153,23 @@ public class PacketEventsEntityView implements EntityView<PacketEventsEntity> {
     @Override
     public Collection<UUID> getNeedingRecheck(int recheckTicks, int currentTick) {
         List<UUID> needingRecheck = new ArrayList<>();
+        Set<Integer> checkedMountRoots = new HashSet<>();
         for (PacketEventsEntity state : entitiesByUUID.values()) {
-            if (state.visible() && (currentTick - state.lastChecked()) < recheckTicks) {
+            if (!state.cullTarget()) {
                 continue;
             }
-            needingRecheck.add(state.entityUUID());
+            List<PacketEventsEntity> mountGroup = getMountGroup(state);
+            PacketEventsEntity root = mountGroup.getFirst();
+            if (!checkedMountRoots.add(root.entityID())) {
+                continue;
+            }
+            PacketEventsEntity raycastTarget = root.cullTarget()
+                    ? root
+                    : mountGroup.stream().filter(PacketEventsEntity::cullTarget).findFirst().orElse(state);
+            if (raycastTarget.visible() && (currentTick - raycastTarget.lastChecked()) < recheckTicks) {
+                continue;
+            }
+            needingRecheck.add(raycastTarget.entityUUID());
         }
         return needingRecheck;
     }
@@ -163,6 +189,15 @@ public class PacketEventsEntityView implements EntityView<PacketEventsEntity> {
         return drained;
     }
 
+    public void requeueTransition(EntityViewTransition transition) {
+        transitions.add(transition);
+    }
+
+    public List<PacketEventsEntity> getMountGroup(UUID entityUUID) {
+        PacketEventsEntity entity = entitiesByUUID.get(entityUUID);
+        return entity == null ? List.of() : getMountGroup(entity);
+    }
+
     @Override
     public boolean isPlayerView() {
         return isPlayerView;
@@ -178,6 +213,57 @@ public class PacketEventsEntityView implements EntityView<PacketEventsEntity> {
     private PacketEventsEntity getTrackedEntity(int entityID) {
         UUID entityUUID = entityUUIDsByID.get(entityID);
         return entityUUID == null ? null : entitiesByUUID.get(entityUUID);
+    }
+
+    private List<PacketEventsEntity> getMountGroup(PacketEventsEntity entity) {
+        PacketEventsEntity root = entity;
+        Set<Integer> visited = new HashSet<>();
+        while (root.vehicleID() != NO_VEHICLE && visited.add(root.entityID())) {
+            PacketEventsEntity vehicle = getTrackedEntity(root.vehicleID());
+            if (vehicle == null) {
+                break;
+            }
+            root = vehicle;
+        }
+
+        List<PacketEventsEntity> group = new ArrayList<>();
+        collectTrackedPassengers(root, group, new HashSet<>());
+        return group;
+    }
+
+    private void collectTrackedPassengers(PacketEventsEntity entity, List<PacketEventsEntity> group, Set<Integer> visited) {
+        if (!visited.add(entity.entityID())) {
+            return;
+        }
+        group.add(entity);
+        int[] passengerIDs = entity.passengerIDs();
+        if (passengerIDs == null) {
+            return;
+        }
+        for (int passengerID : passengerIDs) {
+            PacketEventsEntity passenger = getTrackedEntity(passengerID);
+            if (passenger != null) {
+                collectTrackedPassengers(passenger, group, visited);
+            }
+        }
+    }
+
+    private boolean isCompleteMountGroup(List<PacketEventsEntity> mountGroup) {
+        for (PacketEventsEntity member : mountGroup) {
+            if (member.vehicleID() != NO_VEHICLE && getTrackedEntity(member.vehicleID()) == null) {
+                return false;
+            }
+            int[] passengerIDs = member.passengerIDs();
+            if (passengerIDs == null) {
+                continue;
+            }
+            for (int passengerID : passengerIDs) {
+                if (getTrackedEntity(passengerID) == null) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     public String getStringDataForDebugging() {

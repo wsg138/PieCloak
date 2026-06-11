@@ -5,17 +5,21 @@ import games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.utils.BaseEntitySpawnTask;
 import games.cubi.raycastedantiesp.packetevents.locatables.PacketEventsEntity;
+import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
 
 final class PECacheablePacketReconciliationTask extends BaseEntitySpawnTask {
     private final PlayerData playerData;
     private final int entityID;
-    private final PacketWrapper<?> packet;
+    private final String packetType;
+    private final PacketEventsEntityReplayData pendingReplayData;
 
     PECacheablePacketReconciliationTask(PlayerData playerData, int entityID, PacketWrapper<?> packet, int submittedTick) {
         super(submittedTick);
         this.playerData = playerData;
         this.entityID = entityID;
-        this.packet = packet;
+        this.packetType = packet.getClass().getSimpleName();
+        this.pendingReplayData = PacketEventsEntityReplayData.create();
+        this.pendingReplayData.addPacket(packet);
     }
 
     @Override
@@ -24,7 +28,10 @@ final class PECacheablePacketReconciliationTask extends BaseEntitySpawnTask {
         if (entity == null) {
             return;
         }
-        PacketEventsEntityViewController.get().ensureReplayData((PacketEventsEntity) entity).addPacket(packet);
+        PacketEventsEntityReplayData replayData = PacketEventsEntityViewController.get().ensureReplayData((PacketEventsEntity) entity);
+        for (PacketWrapper<?> packet : pendingReplayData.snapshotPackets(entityID)) {
+            replayData.addPacket(packet);
+        }
     }
 
     @Override
@@ -32,7 +39,7 @@ final class PECacheablePacketReconciliationTask extends BaseEntitySpawnTask {
         return "PECacheablePacketReconciliationTask{" +
                 "submittedTick=" + submittedTick +
                 ", entityID=" + entityID +
-                ", packetType=" + packet.getClass().getSimpleName() +
+                ", packetType=" + packetType +
                 ", playerUUID=" + playerData.getPlayerUUID() +
                 '}';
     }

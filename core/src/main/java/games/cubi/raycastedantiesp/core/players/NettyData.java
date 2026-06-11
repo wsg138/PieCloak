@@ -1,10 +1,12 @@
 package games.cubi.raycastedantiesp.core.players;
 
 import games.cubi.logs.Logger;
+import games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable;
 import games.cubi.raycastedantiesp.core.utils.*;
 import games.cubi.raycastedantiesp.core.utils.Packet.Packets;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 
 import java.lang.invoke.MethodHandles;
@@ -15,6 +17,70 @@ import java.lang.invoke.VarHandle;
  * Per-player mutable state intended for Netty-side packet tracking and deferred reconciliation.
  */
 public class NettyData  {
+    private final Int2ObjectArrayMap<int[]> passengerIDsByVehicleID = new Int2ObjectArrayMap<>(8);
+    private final Int2IntOpenHashMap vehicleIDByPassengerID = new Int2IntOpenHashMap(8);
+
+    {
+        vehicleIDByPassengerID.defaultReturnValue(NettyEntityLocatable.NO_VEHICLE);
+    }
+
+    public int[] updatePassengers(int vehicleID, int[] passengerIDs) {
+        int[] updated = passengerIDs == null ? new int[0] : passengerIDs.clone();
+        int[] previous = passengerIDsByVehicleID.put(vehicleID, updated);
+        if (previous != null) {
+            for (int passengerID : previous) {
+                if (vehicleIDByPassengerID.get(passengerID) == vehicleID) {
+                    vehicleIDByPassengerID.remove(passengerID);
+                }
+            }
+        }
+        if (updated.length == 0) {
+            passengerIDsByVehicleID.remove(vehicleID);
+        } else {
+            for (int passengerID : updated) {
+                vehicleIDByPassengerID.put(passengerID, vehicleID);
+            }
+        }
+        return previous == null ? new int[0] : previous.clone();
+    }
+
+    public int[] passengerIDs(int vehicleID) {
+        int[] passengerIDs = passengerIDsByVehicleID.get(vehicleID);
+        return passengerIDs == null ? new int[0] : passengerIDs.clone();
+    }
+
+    public int vehicleID(int passengerID) {
+        return vehicleIDByPassengerID.get(passengerID);
+    }
+
+    public MountRelationships removeEntityRelationships(int entityID) {
+        int[] passengers = passengerIDsByVehicleID.remove(entityID);
+        if (passengers == null) {
+            passengers = new int[0];
+        } else {
+            for (int passengerID : passengers) {
+                if (vehicleIDByPassengerID.get(passengerID) == entityID) {
+                    vehicleIDByPassengerID.remove(passengerID);
+                }
+            }
+        }
+
+        int vehicleID = vehicleIDByPassengerID.remove(entityID);
+        if (vehicleID != NettyEntityLocatable.NO_VEHICLE) {
+            int[] vehiclePassengers = passengerIDsByVehicleID.get(vehicleID);
+            int[] updated = IntArrayList.remove(vehiclePassengers, entityID);
+            if (IntArrayList.isEmpty(updated)) {
+                passengerIDsByVehicleID.remove(vehicleID);
+            } else {
+                passengerIDsByVehicleID.put(vehicleID, updated);
+            }
+        }
+        return new MountRelationships(vehicleID, passengers.clone());
+    }
+
+    public record MountRelationships(int vehicleID, int[] passengerIDs) {
+    }
+
     //
     // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     // START Leash tracking:
@@ -141,6 +207,8 @@ public class NettyData  {
     //
 
     public void clear() {
+        passengerIDsByVehicleID.clear();
+        vehicleIDByPassengerID.clear();
         unresolvedLeashedEntityIDsByHolderID.clear();
         pendingPostEntitySpawnTasksByEntityID.clear();
     }

@@ -23,6 +23,9 @@ public interface EntityLocatable<EntityType, PacketReplayData> extends MutableLo
     boolean clientVisible();
     EntityLocatable<?, ?> setClientVisible(boolean clientVisible);
 
+    boolean cullTarget();
+    EntityLocatable<?, ?> setCullTarget(boolean cullTarget);
+
     boolean isSelfEntity();
 
     float yaw();
