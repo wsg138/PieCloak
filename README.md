@@ -1,80 +1,80 @@
 # PieCloak
 
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/5aa184993c2247ca9df86b95e6b6361f)](https://app.codacy.com/gh/wsg138/PieCloak/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/5aa184993c2247ca9df86b95e6b6361f)](https://app.codacy.com/gh/wsg138/PieCloak/dashboard)
 
-PieCloak is a public modified fork of [RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP) for Paper/Leaf 1.21.x servers.
+PieCloak is a public modified fork of [RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP) for Paper and Leaf 1.21.x servers.
 
-This fork adds an allowlist-based target filter so packet-level anti-ESP handling only applies to configured entity and block entity clues used for pie-chart/base-finding. Non-allowlisted entities and block entities are sent normally.
+It adds an allowlist-based target filter so anti-ESP packet handling applies only to configured entity and block-entity clues. Non-allowlisted targets are sent normally.
 
 Public source: https://github.com/wsg138/PieCloak
 
 ## Behavior
 
 - Does not cancel Bukkit spawn events.
-- Does not affect server-side spawning, AI, farms, breeding, villagers, trades, or block entity ticking.
-- Does not hide players.
+- Does not change server-side spawning, AI, farms, breeding, villager trading, or block-entity ticking.
+- Does not hide players with the default PieCloak configuration.
 - Hides only configured allowlisted targets from outgoing client packets.
-- Rewrites chunk data before the client receives target block entity data.
+- Filters target block entities from chunk data before the client receives them.
+- Tracks mounted managed entities with their vehicles to avoid passenger desync.
+
+PacketEvents is required.
+
+## Commands
+
+Administrative commands require `raycastedantiesp.command`:
+
+- `/raesp reload`
+- `/raesp config-values`
+- `/raesp set <key> <value>`
+- `/raesp add <key> <value>`
+- `/raesp remove <key> <value>`
+- `/raesp stats`
+- `/raesp debugplayer <player>`
+- `/raesp benchmark <radius> <samples>`
+- `/raesp trace ...`
+- `/raesp source`
+
+Public source and attribution commands:
+
+- `/piecloak source`
+- `/raycastedantiespCredits`
+
+## Build
+
+```powershell
+.\gradlew.bat :platform-paper:build --no-daemon
+```
+
+The usable shaded jar is written to `platform-paper/build/libs` with a `RaycastedAntiESP-` filename.
+
+Snapshot builds include the Git commit and build time:
+
+```powershell
+.\gradlew.bat :platform-paper:buildSnapshot --no-daemon
+```
+
+## Testing
+
+See [TESTING.md](TESTING.md) for the server test checklist.
 
 ## Upstream
 
 Original project: [Cubicake/RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP)
 
-PieCloak keeps the upstream history and uses RaycastedAntiESP as the base project, but upstream changes should be reviewed manually before being ported. Do not blindly merge or rebase upstream into PieCloak.
+PieCloak preserves the upstream Git history. Upstream changes are reviewed and integrated manually because PieCloak changes entity targeting, packet filtering, visibility transitions, replay state, and passenger handling.
 
-## What Changed From REO
+See [MAINTAINING.md](MAINTAINING.md) before integrating upstream updates.
 
-PieCloak changes are intentionally limited to these areas:
+## Credits
 
-- Target filter config and resolution:
-  - `core/src/main/java/games/cubi/raycastedantiesp/core/config/TargetFilterConfig.java`
-  - `platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/target/PaperTargetFilterService.java`
-- Packet filtering gates:
-  - `packetevents/src/main/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewController.java`
-  - `packetevents/src/main/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsBlockViewController.java`
-- Admin diagnostics:
-  - `platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/commands/RaycastedAntiESPCommand.java`
-  - `core/src/main/java/games/cubi/raycastedantiesp/core/stats/VisibilityStats.java`
-  - `core/src/main/java/games/cubi/raycastedantiesp/core/debug/VisibilityTraceService.java`
-- Defaults and testing docs:
-  - `platform-paper/src/main/resources/config.yml`
-  - `TESTING.md`
-  - `MAINTAINING.md`
-
-## Commands
-
-- `/raesp stats`
-- `/raesp debugplayer <player>`
-- `/raesp benchmark <radius> <samples>`
-- `/raesp trace`
-- `/raesp source`
-- `/piecloak source`
-
-## Safe Updating
-
-See [MAINTAINING.md](MAINTAINING.md) before porting upstream changes.
-
-Short version:
-
-- Fetch upstream first.
-- Compare upstream changes against PieCloak.
-- Review upstream commits manually.
-- Port only useful fixes or compatibility updates.
-- Do not overwrite PieCloak's allowlist behavior, config, player-hiding defaults, or packet hiding logic.
-- Build and server-test any ported update before production use.
-
-## Build
-
-```powershell
-.\gradlew.bat :platform-paper:build
-```
-
-The usable plugin jar is the shaded `RaycastedAntiESP-*.jar` in `platform-paper/build/libs`.
-
-## Testing
-
-See [TESTING.md](TESTING.md) for the in-server checklist.
+- Cubicake, creator and maintainer of RaycastedAntiESP
+- RaycastedAntiESP contributors
+- PacketEvents contributors
+- StrokkCommands contributors
+- Paper, Spigot, and Bukkit contributors
 
 ## License
 
-PieCloak remains licensed under the GNU Affero General Public License v3.0, the same license used by RaycastedAntiESP. The original license file and attribution are preserved in this repository.
+PieCloak and RaycastedAntiESP are licensed under the GNU Affero General Public License v3.0 only. The original copyright and license notices are preserved.
+
+The complete corresponding source for PieCloak is available in this repository. See [LICENSE](LICENSE) for the full license text.

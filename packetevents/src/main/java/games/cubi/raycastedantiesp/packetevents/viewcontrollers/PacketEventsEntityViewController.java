@@ -17,7 +17,7 @@ import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
-import games.cubi.raycastedantiesp.core.utils.IntArrayList;
+import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
 import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewController;
@@ -25,6 +25,7 @@ import games.cubi.raycastedantiesp.packetevents.locatables.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -394,8 +395,12 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     }
 
     @Override
-    protected void sendEntityPassengerPacket(int vehicle, ArrayList<Integer> passengers, PlayerData playerData) {
-        WrapperPlayServerSetPassengers packet = new WrapperPlayServerSetPassengers(vehicle, passengers.stream().mapToInt(Integer::intValue).toArray());
+    protected void sendEntityPassengerPacket(int vehicle, IntArrayList passengers, PlayerData playerData) {
+        NettyEntityLocatable<?,?> entity = playerData.trackedEntityFromID(vehicle);
+        if (entity == null) {
+            return;
+        }
+        WrapperPlayServerSetPassengers packet = new WrapperPlayServerSetPassengers(vehicle, passengers.toIntArray());
         Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
         PacketEvents.getAPI().getProtocolManager().getUser(channel).writePacketSilently(packet);
     }
@@ -484,19 +489,22 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             );
     }
 
-    private WrapperPlayServerSetPassengers buildPassengersPacket(int vehicleID, PlayerData playerData) {
-        int[] passengerIDs = playerData.nettyData().passengerIDs(vehicleID);
-        if (passengerIDs.length == 0) {
+    private WrapperPlayServerSetPassengers buildPassengersPacket(NettyEntityLocatable<?,?> vehicle, PlayerData playerData) {
+        if (vehicle == null) {
+            return null;
+        }
+        int[] passengerIDs = vehicle.passengerIDs();
+        if (passengerIDs == null || passengerIDs.length == 0) {
             return null;
         }
         ArrayList<Integer> visiblePassengerIDs = new ArrayList<>();
         for (int passengerID : passengerIDs) {
             NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
-            if (passenger == null || passenger.clientVisible()) {
+            if (passenger != null && passenger.clientVisible()) {
                 visiblePassengerIDs.add(passengerID);
             }
         }
-        return new WrapperPlayServerSetPassengers(vehicleID, visiblePassengerIDs.stream().mapToInt(Integer::intValue).toArray());
+        return new WrapperPlayServerSetPassengers(vehicle.entityID(), visiblePassengerIDs.stream().mapToInt(Integer::intValue).toArray());
     }
 
     private @Nullable WrapperPlayServerAttachEntity[] buildLeashPackets(PacketEventsEntity entity, PlayerData playerData) {
@@ -568,10 +576,13 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     private void replayPassengerState(User viewer, PlayerData playerData, List<PacketEventsEntity> mountGroup) {
         for (PacketEventsEntity member : mountGroup) {
-            COMMON.writeIfPresent(viewer, buildPassengersPacket(member.entityID(), playerData));
+            COMMON.writeIfPresent(viewer, buildPassengersPacket(member, playerData));
         }
         if (!mountGroup.isEmpty() && mountGroup.getFirst().vehicleID() != NO_VEHICLE) {
-            COMMON.writeIfPresent(viewer, buildPassengersPacket(mountGroup.getFirst().vehicleID(), playerData));
+            COMMON.writeIfPresent(viewer, buildPassengersPacket(
+                    playerData.trackedEntityFromID(mountGroup.getFirst().vehicleID()),
+                    playerData
+            ));
         }
     }
 
@@ -593,17 +604,21 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     protected void insertEntityToPlayerView(NettyEntityLocatable<?,?> entity, PlayerData playerData) {
         playerData.playerView().insertEntity(entity.cast());
+        // Passenger relationships can arrive before spawn/pairing completes, so resolve them as soon as the entity becomes known.
+        reconcileUnresolvedPassengers(entity, playerData);
         reconcileUnresolvedLeashes(entity, playerData);
     }
 
     protected void insertEntityToEntityView(NettyEntityLocatable<?,?> entity, PlayerData playerData) {
         playerData.entityView().insertEntity(entity.cast()); //todo: no need to put here, move to abstract packet view controller
+        // Passenger relationships can arrive before spawn/pairing completes, so resolve them as soon as the entity becomes known.
+        reconcileUnresolvedPassengers(entity, playerData);
         reconcileUnresolvedLeashes(entity, playerData);
     }
 
     private void reconcileUnresolvedLeashes(NettyEntityLocatable<?,?> insertedEntity, PlayerData playerData) {
         int[] pendingLeashedEntityIDs = playerData.nettyData().consumeUnresolvedLeashes(insertedEntity.entityID());
-        if (IntArrayList.isEmpty(pendingLeashedEntityIDs)) {
+        if (PrimitiveIntArrayList.isEmpty(pendingLeashedEntityIDs)) {
             return;
         }
         for (int leashedEntityID : pendingLeashedEntityIDs) {

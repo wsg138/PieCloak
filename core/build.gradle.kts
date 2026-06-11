@@ -16,13 +16,14 @@ dependencies {
     compileOnly("it.unimi.dsi:fastutil:8.5.18")
     implementation(project(":locatable-lib"))
     compileOnly(project(":logging"))
+    testImplementation("it.unimi.dsi:fastutil:8.5.18")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.test { useJUnitPlatform() }
 
-val coreVersion = "0.4.1-SNAPSHOT"
+val coreVersion = "0.4.2-SNAPSHOT"
 
 val isRelease = gradle.startParameter.taskNames.any {
     it.contains("buildRelease")

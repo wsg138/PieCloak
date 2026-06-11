@@ -9,8 +9,8 @@ import games.cubi.logs.Logger;
  * <p>
  * Arrays expand and contract as needed such that the length of the backing array is always equal to the number of elements in the list, so there is no extra capacity. This means that adding or removing elements from the list will involve creating a new array and copying the existing elements, which can be inefficient for large lists. However, this design choice was made to save memory and avoid the overhead of maintaining a separate size field and capacity management logic.
  */
-public class IntArrayList {
-    private IntArrayList() {}
+public class PrimitiveIntArrayList {
+    private PrimitiveIntArrayList() {}
 
     public static int size(int@IntArrayListMarker[] array) {
         return array == null ? 0 : array.length;
@@ -69,8 +69,8 @@ public class IntArrayList {
     }
 
     public static int get(int@IntArrayListMarker[] array, int index) {
-        if (array == null) Logger.errorAndReturn(new IndexOutOfBoundsException("Attempted to find value at index: " + index + ", for IntArrayList with size: 0"), 3, IntArrayList.class);
-        if (index < 0 || index >= array.length) Logger.errorAndReturn(new IndexOutOfBoundsException("Attempted to find value at index: " + index + ", for IntArrayList with size: " + size(array)), 3, IntArrayList.class);
+        if (array == null) Logger.errorAndReturn(new IndexOutOfBoundsException("Attempted to find value at index: " + index + ", for IntArrayList with size: 0"), 3, PrimitiveIntArrayList.class);
+        if (index < 0 || index >= array.length) Logger.errorAndReturn(new IndexOutOfBoundsException("Attempted to find value at index: " + index + ", for IntArrayList with size: " + size(array)), 3, PrimitiveIntArrayList.class);
         return array[index];
     }
 

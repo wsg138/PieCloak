@@ -5,7 +5,7 @@ import games.cubi.locatables.MutableLocatable;
 import games.cubi.locatables.implementations.MutableLocatableImpl;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
-import games.cubi.raycastedantiesp.core.utils.IntArrayList;
+import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.utils.IntArrayListMarker;
 import org.jetbrains.annotations.Nullable;
 
@@ -263,16 +263,16 @@ public abstract class NettyEntityLocatable<EntityType, PacketReplayData extends 
 
     @Override
     public void addLeashedEntity(int leashedEntityID) {
-        leashedIDs = IntArrayList.add(leashedIDs, leashedEntityID);
+        leashedIDs = PrimitiveIntArrayList.add(leashedIDs, leashedEntityID);
     }
 
     @Override
     public void removeLeashedEntity(int leashedEntityID) {
-        leashedIDs = IntArrayList.remove(leashedIDs, leashedEntityID);
+        leashedIDs = PrimitiveIntArrayList.remove(leashedIDs, leashedEntityID);
     }
 
     public int@Nullable[] leashedEntityIDsOrNull() {
-        return IntArrayList.getCopyOrNull(leashedIDs);
+        return PrimitiveIntArrayList.getCopyOrNull(leashedIDs);
     }
 
     public static final int NO_VEHICLE = -1;
@@ -425,9 +425,9 @@ public abstract class NettyEntityLocatable<EntityType, PacketReplayData extends 
                 ", velocityZ=" + velocityZ +
                 ", onGround=" + onGround +
                 ", cullTarget=" + cullTarget +
-                ", leashedIDs=" + (leashedIDs == null ? null : IntArrayList.toString(leashedIDs)) +
+                ", leashedIDs=" + (leashedIDs == null ? null : PrimitiveIntArrayList.toString(leashedIDs)) +
                 ", leasherID=" + leasherID +
-                ", passengerIDs=" + (passengerIDs == null ? null : IntArrayList.toString(passengerIDs)) +
+                ", passengerIDs=" + (passengerIDs == null ? null : PrimitiveIntArrayList.toString(passengerIDs)) +
                 ", vehicleID=" + vehicleID +
                 ", entityData=" + entityData +
                 '}';

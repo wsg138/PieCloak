@@ -9,9 +9,11 @@
 package games.cubi.raycastedantiesp.paper;
 
 import games.cubi.raycastedantiesp.core.Core;
+import games.cubi.raycastedantiesp.core.debug.VisibilityTraceService;
 import games.cubi.raycastedantiesp.paper.commands.Attribution;
 import games.cubi.raycastedantiesp.paper.commands.AttributionBrigadier;
 import games.cubi.raycastedantiesp.paper.commands.RaycastedAntiESPCommandBrigadier;
+import games.cubi.raycastedantiesp.paper.commands.SourceCommandBrigadier;
 import games.cubi.raycastedantiesp.paper.engine.PaperSimpleEngine;
 import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
@@ -94,6 +96,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             currentTickSupplier = new PaperTicker();
         }
         ViewRegistry.initialise(PacketEventsBlockView::new, PacketEventsEntityView::createEntityView, PacketEventsEntityView::createPlayerView);
+        VisibilityTraceService.get().setOutputPath(getDataPath().resolve("visibility-trace.log"));
         targetFilter = new PaperTargetFilterService(config);
         packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter);
         new PaperPacketEventsBlockViewController(currentTickSupplier, targetFilter);
@@ -105,6 +108,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
         this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS.newHandler(event -> {
         RaycastedAntiESPCommandBrigadier.register(event.registrar());
         AttributionBrigadier.register(event.registrar());
+        SourceCommandBrigadier.register(event.registrar());
         }));
         //bStats
         metricsCollector =  new MetricsCollector(this, config);
