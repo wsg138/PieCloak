@@ -38,7 +38,7 @@ jobs:
 
       - name: Upload PMD reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pmd-reports
           path: "**/build/reports/pmd/"
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload Semgrep report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: semgrep-report
           path: build/reports/semgrep/semgrep.sarif
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload Trivy report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trivy-report
           path: build/reports/trivy/trivy-results.sarif
