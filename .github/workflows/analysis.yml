@@ -1,0 +1,126 @@
+name: Static analysis
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: analysis-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pmd:
+    name: PMD report
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Run PMD
+        run: ./gradlew pmdMain --continue --no-daemon
+
+      - name: Upload PMD reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        with:
+          name: pmd-reports
+          path: "**/build/reports/pmd/"
+          if-no-files-found: warn
+          retention-days: 14
+
+  semgrep:
+    name: Semgrep CE report
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          submodules: recursive
+
+      - name: Run Semgrep CE
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p build/reports/semgrep
+          docker run --rm \
+            -v "$PWD:/src" \
+            semgrep/semgrep:1.166.0 \
+            semgrep scan --config auto --sarif \
+            --output /src/build/reports/semgrep/semgrep.sarif /src
+
+      - name: Upload Semgrep report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        with:
+          name: semgrep-report
+          path: build/reports/semgrep/semgrep.sarif
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Semgrep SARIF
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7 # v4
+        with:
+          sarif_file: build/reports/semgrep/semgrep.sarif
+          category: semgrep
+
+  trivy:
+    name: Trivy report
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          submodules: recursive
+
+      - name: Prepare report directory
+        run: mkdir -p build/reports/trivy
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: build/reports/trivy/trivy-results.sarif
+          exit-code: "0"
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        with:
+          name: trivy-report
+          path: build/reports/trivy/trivy-results.sarif
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Trivy SARIF
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7 # v4
+        with:
+          sarif_file: build/reports/trivy/trivy-results.sarif
+          category: trivy
