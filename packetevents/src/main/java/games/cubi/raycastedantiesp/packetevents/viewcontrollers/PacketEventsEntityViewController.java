@@ -29,7 +29,6 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -497,14 +496,14 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         if (passengerIDs == null || passengerIDs.length == 0) {
             return null;
         }
-        ArrayList<Integer> visiblePassengerIDs = new ArrayList<>();
+        IntArrayList visiblePassengerIDs = new IntArrayList(passengerIDs.length);
         for (int passengerID : passengerIDs) {
             NettyEntityLocatable<?,?> passenger = playerData.trackedEntityFromID(passengerID);
             if (passenger != null && passenger.clientVisible()) {
                 visiblePassengerIDs.add(passengerID);
             }
         }
-        return new WrapperPlayServerSetPassengers(vehicle.entityID(), visiblePassengerIDs.stream().mapToInt(Integer::intValue).toArray());
+        return new WrapperPlayServerSetPassengers(vehicle.entityID(), visiblePassengerIDs.toIntArray());
     }
 
     private @Nullable WrapperPlayServerAttachEntity[] buildLeashPackets(PacketEventsEntity entity, PlayerData playerData) {

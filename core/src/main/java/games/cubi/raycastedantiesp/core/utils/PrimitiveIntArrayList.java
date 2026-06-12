@@ -5,7 +5,7 @@ import games.cubi.logs.Logger;
 /**
  * Static utility class for operations on int arrays annotated with {@link IntArrayListMarker}, which are intended to be used as lists of integers without the overhead of autoboxing.
  * <p>
- * {@link IntArrayListMarker} fields may be null or non-initialised to save memory, {@code IntArrayList} methods will treat null or non-initialised arrays as empty lists.
+ * {@link IntArrayListMarker} fields may be null or non-initialised to save memory, {@code PrimitiveIntArrayList} methods will treat null or non-initialised arrays as empty lists.
  * <p>
  * Arrays expand and contract as needed such that the length of the backing array is always equal to the number of elements in the list, so there is no extra capacity. This means that adding or removing elements from the list will involve creating a new array and copying the existing elements, which can be inefficient for large lists. However, this design choice was made to save memory and avoid the overhead of maintaining a separate size field and capacity management logic.
  */
@@ -69,8 +69,11 @@ public class PrimitiveIntArrayList {
     }
 
     public static int get(int@IntArrayListMarker[] array, int index) {
-        if (array == null) Logger.errorAndReturn(new IndexOutOfBoundsException("Attempted to find value at index: " + index + ", for IntArrayList with size: 0"), 3, PrimitiveIntArrayList.class);
-        if (index < 0 || index >= array.length) Logger.errorAndReturn(new IndexOutOfBoundsException("Attempted to find value at index: " + index + ", for IntArrayList with size: " + size(array)), 3, PrimitiveIntArrayList.class);
+        if (array == null || index < 0 || index >= array.length) {
+            IndexOutOfBoundsException exception = new IndexOutOfBoundsException("Attempted to find value at index: " + index + ", for PrimitiveIntArrayList with size: " + size(array));
+            Logger.errorAndReturn(exception, 3, PrimitiveIntArrayList.class);
+            throw exception;
+        }
         return array[index];
     }
 

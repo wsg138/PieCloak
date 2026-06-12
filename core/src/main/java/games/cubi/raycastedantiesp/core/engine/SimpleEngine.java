@@ -254,9 +254,8 @@ public class SimpleEngine implements Engine {
                         particleSpawner
                 );
                 canSee = details.canSee();
-                int blockID = blockView.getTrackedTileEntity(tileEntityLocation) == null
-                        ? -1
-                        : blockView.getTrackedTileEntity(tileEntityLocation).blockID();
+                var trackedTileEntity = blockView.getTrackedTileEntity(tileEntityLocation);
+                int blockID = trackedTileEntity == null ? -1 : trackedTileEntity.blockID();
                 VisibilityTraceService.get().recordBlockDecision(
                         player,
                         tileEntityLocation,
