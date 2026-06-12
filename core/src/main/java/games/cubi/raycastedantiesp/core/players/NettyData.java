@@ -15,6 +15,15 @@ import static games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable.N
 
 /**
  * Per-player mutable state intended for Netty-side packet tracking and deferred reconciliation.
+ * <p>
+ * <b>Threading contract:</b> every {@code fastutil} collection in this class is owned exclusively by the
+ * Netty thread that processes that player's packet pipeline; all mutating methods are only ever invoked from
+ * that pipeline (via the packet view controllers). The engine/tick thread never touches these collections — its
+ * sole interaction is {@link #markPendingPostSpawnTasksForEviction()}, which only publishes the
+ * {@code volatile}/{@link VarHandle}-guarded {@link #evictPendingPostSpawnTasksOnNextPacket} flag. The Netty
+ * thread then consumes that flag via {@link #evictPendingPostSpawnTasksIfRequired(int)} before mutating any map.
+ * Because there is a single writer (the Netty thread), the non-thread-safe collections are safe and intentionally
+ * left unsynchronised to keep the hot packet path allocation- and lock-free.
  */
 public class NettyData implements Clearable {
     private static final int DEFAULT_MAP_SIZE = 16;
