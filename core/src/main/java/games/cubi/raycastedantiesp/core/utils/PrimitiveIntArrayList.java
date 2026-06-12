@@ -78,6 +78,11 @@ public class PrimitiveIntArrayList {
     }
 
     public static int@IntArrayListMarker[] set(int@IntArrayListMarker[] array, int index, int value) {
+        if (array == null || index < 0 || index >= array.length) {
+            IndexOutOfBoundsException exception = new IndexOutOfBoundsException("Attempted to set value at index: " + index + ", for PrimitiveIntArrayList with size: " + size(array));
+            Logger.errorAndReturn(exception, 3, PrimitiveIntArrayList.class);
+            throw exception;
+        }
         array[index] = value;
         return array;
     }

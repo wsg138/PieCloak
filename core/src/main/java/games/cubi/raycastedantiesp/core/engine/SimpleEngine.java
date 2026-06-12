@@ -232,7 +232,8 @@ public class SimpleEngine implements Engine {
                 if (VisibilityTraceService.get().isTracingBlock(player.getPlayerUUID(), tileEntityLocation)) {
                     boolean wasVisible = blockView.isVisible(tileEntityLocation, currentTick);
                     RaycastUtil.RaycastDetails details = new RaycastUtil.RaycastDetails(false, "beyond-raycast-radius", playerLocation.distance(tileEntityLocation), 0, 0, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), java.util.List.of());
-                    int blockID = blockView.getTrackedTileEntity(tileEntityLocation) == null ? -1 : blockView.getTrackedTileEntity(tileEntityLocation).blockID();
+                    var trackedTileEntity = blockView.getTrackedTileEntity(tileEntityLocation);
+                    int blockID = trackedTileEntity == null ? -1 : trackedTileEntity.blockID();
                     VisibilityTraceService.get().recordBlockDecision(player, tileEntityLocation, blockID, wasVisible, details, currentTick);
                 }
                 blockView.setVisibility(tileEntityLocation, false, currentTick);
