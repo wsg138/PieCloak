@@ -16,8 +16,7 @@ repositories {
 }
 
 dependencies {
-    paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
-    //paperweight.paperDevBundle("26.1.2.build.+")
+    paperweight.paperDevBundle("26.2.build.39-alpha")
     compileOnly("com.github.retrooper:packetevents-spigot:2.12.0")
     compileOnly("org.spongepowered:configurate-core:4.2.0")
     compileOnly("org.spongepowered:configurate-yaml:4.2.0")
@@ -34,7 +33,7 @@ dependencies {
 }
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    toolchain.languageVersion = JavaLanguageVersion.of(26)
 }
 
 val javaToolchainService = project.extensions.getByType(JavaToolchainService::class.java)
@@ -88,8 +87,7 @@ tasks {
             //languageVersion.set(paperRunJavaVersion.map(JavaLanguageVersion::of))
             languageVersion.set(JavaLanguageVersion.of(25))
         }
-        minecraftVersion("26.1.2")
-        //minecraftVersion("1.21.11")
+        minecraftVersion("26.2")
         jvmArgs("-Xms4G", "-Xmx4G", "-Dcom.mojang.eula.agree=true")
     }
 
