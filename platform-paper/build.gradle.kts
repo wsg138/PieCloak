@@ -5,7 +5,7 @@ plugins {
     id("java-library")
     id("io.papermc.paperweight.userdev") version "2.0.0-beta.21"
     id("xyz.jpenilla.run-paper") version "3.0.2"
-    id("com.gradleup.shadow") version "9.4.0"
+    id("com.gradleup.shadow") version "9.6.0"
 }
 
 repositories {
