@@ -17,7 +17,7 @@ dependencies {
     implementation(project(":locatable-lib"))
     compileOnly(project(":logging"))
     testImplementation("it.unimi.dsi:fastutil:8.5.18")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
