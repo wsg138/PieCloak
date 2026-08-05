@@ -5,11 +5,11 @@ coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
 state: READY_FOR_AGENT
-current_package: 01-current-platform-baseline
-recorded_pr_head: 33b615d5ef3a937dafdf461c48e9626ee7d342fc
+current_package: 02-block-transition-reliability
+recorded_pr_head: d23c6a577ead79fb4d70b230d1344a91095fb97b
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0000-coordination-bootstrap.md
+current_handoff: ai-agents/reports/agent-handoffs/0001-20260805T201940Z-current-platform-baseline.md
 ---
 
 # PieCloak workspace state
@@ -34,8 +34,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | State | `READY_FOR_AGENT` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `33b615d5ef3a937dafdf461c48e9626ee7d342fc` |
-| Current package | `01-current-platform-baseline` |
+| Recorded implementation head | `d23c6a577ead79fb4d70b230d1344a91095fb97b` |
+| Current package | `02-block-transition-reliability` |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Future target | Stable Paper `26.2` or newer after a separate verified upgrade |
 | Merge authority | None for workers; owner instruction required |
@@ -44,8 +44,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 
 | Order | Package | Status | Dependency |
 | --- | --- | --- | --- |
-| 01 | Current 1.21.11 platform and CI baseline | `READY` | none |
-| 02 | Block-transition reliability and block-data hardening | `WAITING` | 01 |
+| 01 | Current 1.21.11 platform and CI baseline | `COMPLETE` | none |
+| 02 | Block-transition reliability and block-data hardening | `READY` | 01 |
 | 03 | Idempotent entity-transition reconciliation | `WAITING` | 02 |
 | 04 | Async-engine scheduling and complete lifecycle cleanup | `WAITING` | 03 |
 | 05 | Optional integrations and remaining hardening | `WAITING` | 04 |
@@ -53,13 +53,16 @@ Workers implement on the PR branch first, then make one coordination-only commit
 
 Packages are sequential to avoid overlapping controller, lifecycle, and build edits.
 
+## Completed package 01 baseline
+
+- Minecraft `1.21.11`, Paper development bundle `1.21.11-R0.1-SNAPSHOT`, and Java `21` are centralized in `gradle.properties`.
+- Build, Paper test-server tasks, generated plugin metadata, and CI use the same values.
+- Pull-request workflows validate the exact implementation head rather than GitHub's synthetic merge ref.
+- Exact head `d23c6a577ead79fb4d70b230d1344a91095fb97b` passed Build run `31043407191` and Static analysis run `31043407187`.
+- The shaded artifact records the exact Git SHA and the selected Minecraft, Paper bundle, and Java baseline.
+- Stable Paper `26.2` or newer remains a separate future migration with no current support claim.
+
 ## Confirmed review findings routed into packages
-
-### Package 01
-
-- PR #11 currently validates an older Paper/API and Java baseline rather than the owner's Minecraft 1.21.11 target.
-- Build, run-server, plugin metadata, and CI versions need one coherent source of truth.
-- The future Paper 26.2 move needs a narrow upgrade seam rather than current-target drift.
 
 ### Package 02
 
@@ -102,4 +105,4 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 
 ## Next route
 
-The next ChatGPT worker must complete `ai-agents/work-packages/01-current-platform-baseline.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `02-block-transition-reliability`, and stop.
+The next ChatGPT worker must complete `ai-agents/work-packages/02-block-transition-reliability.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `03-entity-transition-reconciliation` if complete, and stop.
