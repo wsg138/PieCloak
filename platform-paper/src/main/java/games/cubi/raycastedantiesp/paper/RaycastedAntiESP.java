@@ -9,9 +9,11 @@
 package games.cubi.raycastedantiesp.paper;
 
 import games.cubi.raycastedantiesp.core.Core;
+import games.cubi.raycastedantiesp.core.config.TargetFilterConfig;
 import games.cubi.raycastedantiesp.paper.commands.Attribution;
 import games.cubi.raycastedantiesp.paper.commands.AttributionBrigadier;
 import games.cubi.raycastedantiesp.paper.commands.RaycastedAntiESPCommandBrigadier;
+import games.cubi.raycastedantiesp.paper.commands.SourceCommandBrigadier;
 import games.cubi.raycastedantiesp.paper.config.PaperEntityTypeExclusionResolver;
 import games.cubi.raycastedantiesp.paper.engine.PaperAsyncEngine;
 import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
@@ -23,6 +25,8 @@ import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsBlockViewContr
 import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsCommonViewController;
 import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsEntityViewController;
 import games.cubi.raycastedantiesp.paper.packets.PacketEventsPaperBlockInfoResolver;
+import games.cubi.raycastedantiesp.paper.target.PaperTargetFilterService;
+import games.cubi.raycastedantiesp.paper.target.TargetFilteringBlockInfoResolver;
 import games.cubi.raycastedantiesp.core.config.ConfigManager;
 import games.cubi.raycastedantiesp.paper.bStats.MetricsCollector;
 import games.cubi.logs.Logger;
@@ -51,6 +55,8 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     private static MetricsCollector metricsCollector;
     private static RaycastedAntiESP instance;
     private static PaperLoggerAdapter loggerAdapter;
+    private static PaperTargetFilterService targetFilter;
+    private static IntSupplier currentTickSupplier;
 
     public static final boolean isFolia = getClass("io.papermc.paper.threadedregions.RegionizedServer") != null;
     //todo: should probably rethink this entire class structure at some point. Too many static fields/methods. Also, a lot of the classes no longer need a reference to the main plugin class since Logger has been abstracted out and config could be given its own getter if needed
@@ -73,7 +79,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
         config = ConfigManager.initialiseConfigManager(
                 () -> getResource("config.yml"),
                 getDataFolder().toPath(),
-                List.of(PacketEventsBlockProcessorConfig.EXTENSION)
+                List.of(PacketEventsBlockProcessorConfig.EXTENSION, TargetFilterConfig.EXTENSION)
         );
         Plugin packetEvents = Bukkit.getPluginManager().getPlugin("packetevents");
         if (packetEvents == null) {
@@ -84,7 +90,6 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
 
     @Override
     public void onEnable() {
-        IntSupplier currentTickSupplier;
         if (isFolia) {
             Logger.info("Folia detected. Some features may not work as expected.", 5);
             currentTickSupplier = new FoliaTicker();
@@ -93,11 +98,13 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             currentTickSupplier = new PaperTicker();
         }
         PaperEntityTypeExclusionResolver.resolveAndInitialise(config.getEntityConfig().excludedTypes());
-        PacketEventsPaperBlockInfoResolver blockInfoResolver = new PacketEventsPaperBlockInfoResolver();
+        targetFilter = new PaperTargetFilterService(config);
+        PacketEventsPaperBlockInfoResolver upstreamBlockInfoResolver = new PacketEventsPaperBlockInfoResolver();
+        TargetFilteringBlockInfoResolver blockInfoResolver = new TargetFilteringBlockInfoResolver(upstreamBlockInfoResolver, targetFilter);
         boolean trackAllBlocks = config.getBlockProcessorConfig().trackAllBlocks();
         ViewRegistry.initialise(worldEpoch -> new PacketEventsBlockView(blockInfoResolver, trackAllBlocks, worldEpoch), PacketEventsEntityView::createEntityView, PacketEventsEntityView::createPlayerView);
         PacketEventsCommonViewController.initialise(new PaperPacketEventsCommonViewController(currentTickSupplier));
-        packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier);
+        packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter);
         new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier);
 
         engine = new PaperAsyncEngine(this, config, currentTickSupplier);
@@ -107,6 +114,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
         this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS.newHandler(event -> {
         RaycastedAntiESPCommandBrigadier.register(event.registrar());
         AttributionBrigadier.register(event.registrar());
+        SourceCommandBrigadier.register(event.registrar());
         }));
         //bStats
         metricsCollector =  new MetricsCollector(this, config);
@@ -153,5 +161,13 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     }
     public static RaycastedAntiESP get() {
         return instance;
+    }
+
+    public static PaperTargetFilterService getTargetFilter() {
+        return targetFilter;
+    }
+
+    public static int getCurrentTick() {
+        return currentTickSupplier == null ? 0 : currentTickSupplier.getAsInt();
     }
 }

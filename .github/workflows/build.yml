@@ -1,0 +1,67 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Generate LeafPile sources
+        shell: bash
+        run: |
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+
+      - name: Compile, test, and build
+        run: ./gradlew :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
+
+      - name: Inspect staging jar
+        id: staging-jar
+        shell: bash
+        run: |
+          jar_path="$(find platform-paper/build/libs -maxdepth 1 -type f -name 'RaycastedAntiESP-*.jar' | sort | tail -n 1)"
+          if [[ -z "$jar_path" ]]; then
+            echo "No shaded Paper jar was produced." >&2
+            exit 1
+          fi
+
+          echo "Jar: $jar_path"
+          sha256sum "$jar_path"
+          echo "build-properties/platform.yml:"
+          unzip -p "$jar_path" build-properties/platform.yml
+          echo
+          echo "path=$jar_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload staging jar
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: PieCloak-${{ github.sha }}
+          path: ${{ steps.staging-jar.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14

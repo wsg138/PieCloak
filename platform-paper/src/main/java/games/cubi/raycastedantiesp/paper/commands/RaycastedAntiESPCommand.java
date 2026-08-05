@@ -44,6 +44,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Locale;
 import java.util.UUID;
 
 // Credit to Strokkur for making StrokkCommands, a non-hideous way to use the power of brigadier.
@@ -62,6 +63,10 @@ public class RaycastedAntiESPCommand {
         sender.sendRichMessage("<green>/raycastedantiesp set <key> <value> <gray>- Sets a config value");
         sender.sendRichMessage("<green>/raycastedantiesp add <key> <value> <gray>- Adds a value to a list config");
         sender.sendRichMessage("<green>/raycastedantiesp remove <key> <value> <gray>- Removes a value from a list config");
+        sender.sendRichMessage("<green>/raycastedantiesp source <gray>- Shows the PieCloak source repository");
+        sender.sendRichMessage("<green>/raycastedantiesp stats <gray>- Shows managed target counts and filter status");
+        sender.sendRichMessage("<green>/raycastedantiesp debugplayer <player> <gray>- Shows one viewer's managed target counts");
+        sender.sendRichMessage("<green>/raycastedantiesp benchmark <radius> <samples> <gray>- Benchmarks raycast checks");
         sender.sendRichMessage(Attribution.attributionCommandDescription); //Using constant from Attribution class to ensure that it cannot be deleted without the developer noticing that they are obligated to replace it with an equivalent notice.
     }
 
@@ -112,6 +117,123 @@ public class RaycastedAntiESPCommand {
     @Executes("check-for-updates")
     void checkForUpdatesCommand(CommandSender sender) {
         UpdateChecker.checkForUpdates(RaycastedAntiESP.get(), sender);
+    }
+
+    @Executes("source")
+    void sourceCommand(CommandSender sender) {
+        SourceCommand.sendSourceLink(sender);
+    }
+
+    @Executes("stats")
+    void statsCommand(CommandSender sender) {
+        var filter = RaycastedAntiESP.getTargetFilter().snapshot();
+        long managedEntities = 0;
+        long visibleEntities = 0;
+        long managedBlockEntities = 0;
+        long visibleBlockEntities = 0;
+        int currentTick = RaycastedAntiESP.getCurrentTick();
+
+        for (PlayerData playerData : PlayerRegistry.getInstance().getAllPlayerData()) {
+            EntityView<?> entityView = playerData.entityView();
+            managedEntities += entityView.size();
+            for (UUID entityUUID : entityView.getKnownEntities()) {
+                if (entityView.isVisible(entityUUID)) {
+                    visibleEntities++;
+                }
+            }
+            for (var tileEntity : playerData.blockView().getKnownTileEntities()) {
+                managedBlockEntities++;
+                if (playerData.blockView().isVisible(playerData.ownLocation().world(), tileEntity, currentTick)) {
+                    visibleBlockEntities++;
+                }
+            }
+        }
+
+        sender.sendRichMessage("<white>[PieCloak] Target filter: <green>" + (filter.enabled() ? "enabled" : "disabled")
+                + "<gray>, entity-types=<white>" + filter.entityTypeCount()
+                + "<gray>, block-materials=<white>" + filter.blockMaterialCount()
+                + "<gray>, block-states=<white>" + filter.blockStateCount()
+                + "<gray>, safe-block-entity-types=<white>" + filter.safeBlockEntityTypeCount());
+        sender.sendRichMessage("<white>[PieCloak] Managed targets across viewers: <gray>entities=<white>" + managedEntities
+                + " <gray>(visible=<white>" + visibleEntities + "<gray>, hidden=<white>" + (managedEntities - visibleEntities) + "<gray>)"
+                + " block-entities=<white>" + managedBlockEntities
+                + " <gray>(visible=<white>" + visibleBlockEntities + "<gray>, hidden=<white>" + (managedBlockEntities - visibleBlockEntities) + "<gray>)");
+        if (!filter.invalidEntries().isEmpty()) {
+            sender.sendRichMessage("<yellow>[PieCloak] Skipped invalid target-filter entries: <white>" + filter.invalidEntries().size());
+            filter.invalidEntries().stream().limit(8).forEach(entry -> sender.sendRichMessage("<gray>- <white>" + entry));
+        }
+    }
+
+    @Executes("debugplayer")
+    void debugPlayerCommand(@StringArg(StringArgType.STRING) String playerName, CommandSender sender) {
+        Player target = Bukkit.getPlayerExact(playerName);
+        if (target == null) {
+            sender.sendRichMessage("<red>Player not found: <white>" + playerName);
+            return;
+        }
+        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(target.getUniqueId());
+        if (playerData == null) {
+            sender.sendRichMessage("<red>No PieCloak player data is registered for <white>" + target.getName());
+            return;
+        }
+
+        long visibleEntities = playerData.entityView().getKnownEntities().stream()
+                .filter(playerData.entityView()::isVisible)
+                .count();
+        long visibleTiles = playerData.blockView().getKnownTileEntities().stream()
+                .filter(tile -> playerData.blockView().isVisible(playerData.ownLocation().world(), tile, RaycastedAntiESP.getCurrentTick()))
+                .count();
+        int entityCount = playerData.entityView().size();
+        int tileCount = playerData.blockView().getKnownTileEntities().size();
+        sender.sendRichMessage("<white>[PieCloak] Viewer <green>" + target.getName()
+                + "<gray>: managed-entities=<white>" + entityCount
+                + " <gray>(visible=<white>" + visibleEntities + "<gray>, hidden=<white>" + (entityCount - visibleEntities) + "<gray>)"
+                + " managed-block-entities=<white>" + tileCount
+                + " <gray>(visible=<white>" + visibleTiles + "<gray>, hidden=<white>" + (tileCount - visibleTiles) + "<gray>)");
+        if (playerData.blockView() instanceof AbstractBlockView blockView) {
+            sender.sendRichMessage("<gray>Tracked chunk sections: <white>" + blockView.loadedChunkCount());
+        }
+    }
+
+    @Executes("benchmark")
+    void benchmarkCommand(int radius, int samples, Player player) {
+        int clampedRadius = Math.max(1, Math.min(radius, 512));
+        int clampedSamples = Math.max(1, Math.min(samples, 100_000));
+        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+        Locatable origin = playerData == null ? null : playerData.ownLocation();
+        if (origin == null || origin.world() == null) {
+            player.sendRichMessage("<red>No PieCloak player data is available yet.");
+            return;
+        }
+
+        Locatable[] targets = new Locatable[clampedSamples];
+        MutableFloatingSpatial direction = new MutableSpatialImpl(0, 0, 0);
+        for (int i = 0; i < targets.length; i++) {
+            direction.setX(Math.random() - 0.5);
+            direction.setY(Math.random() - 0.5);
+            direction.setZ(Math.random() - 0.5);
+            direction.normalise();
+            direction.scalarMultiply(Math.random() * clampedRadius);
+            targets[i] = new MutableLocatableImpl(origin.world(), origin.x(), origin.y(), origin.z()).add(direction);
+        }
+
+        Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> {
+            long startNanos = System.nanoTime();
+            int visible = 0;
+            for (Locatable target : targets) {
+                if (RaycastUtil.raycast(origin, target, 3, 0, clampedRadius, false, playerData.blockView(), 1, null)) {
+                    visible++;
+                }
+            }
+            long duration = System.nanoTime() - startNanos;
+            int finalVisible = visible;
+            PaperScheduler.runForAudience(RaycastedAntiESP.get(), player, () -> player.sendRichMessage(
+                    "<white>PieCloak raycast benchmark: <green>" + clampedSamples
+                            + " <gray>samples within <green>" + clampedRadius
+                            + " <gray>blocks, avg=<white>" + String.format(Locale.ROOT, "%,d", duration / clampedSamples)
+                            + "ns <gray>total=<white>" + String.format(Locale.ROOT, "%.3f", duration / 1_000_000.0)
+                            + "ms <gray>visible=<white>" + finalVisible));
+        });
     }
 
     @Executes("print-block-ids")

@@ -57,6 +57,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public void updateFoot(double footX, double footY, double footZ) {
         validateFinite(footX, footY, footZ);
         synchronized (writerMonitor) {
+            requireInitialised();
             X.setOpaque(this, footX);
             Y.setOpaque(this, footY);
             Z.setOpaque(this, footZ);
@@ -67,6 +68,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public void updateRotation(float yaw, float pitch) {
         validateRotation(yaw, pitch);
         synchronized (writerMonitor) {
+            requireInitialised();
             YAW.setOpaque(this, yaw);
             PITCH.setOpaque(this, pitch);
         }
@@ -76,6 +78,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public void updatePose(PlayerPose pose) {
         Objects.requireNonNull(pose, "pose");
         synchronized (writerMonitor) {
+            requireInitialised();
             POSE.setOpaque(this, pose);
         }
     }
@@ -85,6 +88,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
         validateFinite(footX, footY, footZ);
         validateRotation(yaw, pitch);
         synchronized (writerMonitor) {
+            requireInitialised();
             X.setOpaque(this, footX);
             Y.setOpaque(this, footY);
             Z.setOpaque(this, footZ);
@@ -176,6 +180,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public PlayerLocatable setX(double x) {
         validateFinite(x);
         synchronized (writerMonitor) {
+            requireInitialised();
             X.setOpaque(this, x);
             return this;
         }
@@ -185,6 +190,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public PlayerLocatable setY(double y) {
         validateFinite(y);
         synchronized (writerMonitor) {
+            requireInitialised();
             Y.setOpaque(this, y);
             return this;
         }
@@ -194,6 +200,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public PlayerLocatable setZ(double z) {
         validateFinite(z);
         synchronized (writerMonitor) {
+            requireInitialised();
             Z.setOpaque(this, z);
             return this;
         }
@@ -203,6 +210,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public PlayerLocatable setPosition(double x, double y, double z) {
         validateFinite(x, y, z);
         synchronized (writerMonitor) {
+            requireInitialised();
             X.setOpaque(this, x);
             Y.setOpaque(this, y);
             Z.setOpaque(this, z);
@@ -223,6 +231,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
             return this;
         }
         synchronized (writerMonitor) {
+            requireInitialised();
             WORLD.setOpaque(this, world);
             return this;
         }
@@ -242,6 +251,7 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
             return this;
         }
         synchronized (writerMonitor) {
+            requireInitialised();
             X.setOpaque(this, x);
             Y.setOpaque(this, y);
             Z.setOpaque(this, z);
@@ -307,6 +317,13 @@ public final class PlayerLocatable implements MutableFloatingLocatable, Floating
     public String toString() {
         return toStringForm();
     }
+
+    /** This method must only be called while holding {@link #writerMonitor}. */
+private void requireInitialised() {
+    if (WORLD.getOpaque(this) == null || POSE.getOpaque(this) == null) {
+        throw new IllegalStateException("Player location has not been initialised");
+    }
+}
 
     /** This method must only be called while holding {@link #writerMonitor}. */
     private void writeFullState(UUID world, double footX, double footY, double footZ, float yaw, float pitch, PlayerPose pose) {

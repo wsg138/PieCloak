@@ -1,11 +1,11 @@
-name: RaycastedAntiESP
+name: PieCloak
 version: ${version}
 main: games.cubi.raycastedantiesp.paper.RaycastedAntiESP
 api-version: '1.21.4'
-prefix: RaycastedAntiESP
-authors: [ _Cubicake ]
+prefix: PieCloak
+authors: [ _Cubicake, P2wn ]
 load: STARTUP
-website: https://cubi.games
+website: https://github.com/wsg138/PieCloak
 permissions:
     raycastedantiesp.command:
         description: Permission to use the /RaycastedAntiESP command

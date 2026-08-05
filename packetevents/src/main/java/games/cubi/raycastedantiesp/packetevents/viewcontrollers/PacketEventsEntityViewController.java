@@ -37,6 +37,7 @@ import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
 import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewController;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
+import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -63,6 +64,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     private final IntSupplier CURRENT_TICK_SUPPLIER;
     private final PacketEventsCommonViewController COMMON;
+    private final PacketEventsTargetFilter targetFilter;
     private static PacketEventsEntityViewController SELF; //TODO Switch to LazyConstant once out of preview (see https://openjdk.org/jeps/526)
 
     public static PacketEventsEntityViewController get() {
@@ -72,8 +74,9 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         return SELF;
     }
 
-    protected PacketEventsEntityViewController(IntSupplier currentTickSupplier) {
+    protected PacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
         this.CURRENT_TICK_SUPPLIER = currentTickSupplier;
+        this.targetFilter = targetFilter == null ? PacketEventsTargetFilter.DISABLED : targetFilter;
         COMMON = PacketEventsCommonViewController.get(currentTickSupplier);
     }
 
@@ -285,7 +288,9 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         if (isBypassed(entityID)) {
             return true;
         }
-        if (isPlayer || !EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()))) {
+        boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
+        boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
+        if (!isPlayer && managedByPieCloak && !excludedByUpstream) {
             return false;
         }
         EntityBypassRegistry.addEntity(entityID);

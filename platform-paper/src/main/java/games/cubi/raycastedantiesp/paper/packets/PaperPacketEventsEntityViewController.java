@@ -10,6 +10,7 @@ package games.cubi.raycastedantiesp.paper.packets;
 
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
+import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
 
 import java.util.function.IntSupplier;
@@ -17,8 +18,8 @@ import java.util.function.IntSupplier;
 
 public class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController {
 
-    public PaperPacketEventsEntityViewController(IntSupplier currentTickSupplier) {
-        super(currentTickSupplier);
+    public PaperPacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+        super(currentTickSupplier, targetFilter);
         PacketEvents.getAPI().getEventManager().registerListener(this, PacketListenerPriority.HIGHEST);
     }
 }
