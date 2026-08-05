@@ -215,9 +215,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         if (diagnostic > MAX_DIAGNOSTICS_PER_KIND) {
             return;
         }
-        String blockEntityType = packet.getBlockEntityType() == null
-                ? "unknown"
-                : packet.getBlockEntityType().getName().toString();
+        String blockEntityType = String.valueOf(packet.getBlockEntityType());
         Logger.warning("Received standalone block entity data without tracked tile state. world=" + world
                         + " position=" + position.blockX() + "," + position.blockY() + "," + position.blockZ()
                         + " blockEntityType=" + blockEntityType
