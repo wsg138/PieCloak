@@ -5,11 +5,11 @@ coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
 state: READY_FOR_AGENT
-current_package: 02-block-transition-reliability
-recorded_pr_head: d23c6a577ead79fb4d70b230d1344a91095fb97b
+current_package: 03-entity-transition-reconciliation
+recorded_pr_head: dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0001-20260805T201940Z-current-platform-baseline.md
+current_handoff: ai-agents/reports/agent-handoffs/0002-20260805T222448Z-block-transition-reliability.md
 ---
 
 # PieCloak workspace state
@@ -34,8 +34,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | State | `READY_FOR_AGENT` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `d23c6a577ead79fb4d70b230d1344a91095fb97b` |
-| Current package | `02-block-transition-reliability` |
+| Recorded implementation head | `dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b` |
+| Current package | `03-entity-transition-reconciliation` |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Future target | Stable Paper `26.2` or newer after a separate verified upgrade |
 | Merge authority | None for workers; owner instruction required |
@@ -45,8 +45,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | Order | Package | Status | Dependency |
 | --- | --- | --- | --- |
 | 01 | Current 1.21.11 platform and CI baseline | `COMPLETE` | none |
-| 02 | Block-transition reliability and block-data hardening | `READY` | 01 |
-| 03 | Idempotent entity-transition reconciliation | `WAITING` | 02 |
+| 02 | Block-transition reliability and block-data hardening | `COMPLETE` | 01 |
+| 03 | Idempotent entity-transition reconciliation | `READY` | 02 |
 | 04 | Async-engine scheduling and complete lifecycle cleanup | `WAITING` | 03 |
 | 05 | Optional integrations and remaining hardening | `WAITING` | 04 |
 | 06 | Final coordinator integration and brutal review | `WAITING` | 01–05 |
@@ -62,14 +62,19 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 - The shaded artifact records the exact Git SHA and the selected Minecraft, Paper bundle, and Java baseline.
 - Stable Paper `26.2` or newer remains a separate future migration with no current support claim.
 
-## Confirmed review findings routed into packages
+## Completed package 02 block-transition reliability
 
-### Package 02
+- Packed block-transition callbacks are failure-isolated; one callback cannot discard later packed or queued transitions.
+- HIDE, SHOW, and mode-disable repairs use explicit packet stages and resume at the first incomplete write.
+- Block repairs are deduplicated, backoff-bounded, capped at 256 entries per viewer, and invalidated by world, mode, disconnect, removed-tile, and expected-block changes.
+- Desired tile visibility is committed independently from client repair so one failed mode-disable write does not block later repairs.
+- Authoritative managed/non-managed/unknown block-entity classification works with both full-block tracking and the default occlusion-only mode.
+- Unknown standalone managed block-entity data fails closed without logging NBT; known virtual/non-managed data remains pass-through.
+- Unexpected `MAP_CHUNK_BULK` packets pass through with bounded diagnostics rather than throwing.
+- Exact head `dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b` passed Build run `31052209121`, Static analysis run `31052209222`, and focused validation run `31052271820` with seven package test groups repeated 25 times.
+- The exact shaded JAR declares PieCloak API `1.21.11` and records the exact implementation SHA, Minecraft `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, and Java `21`.
 
-- A block transition callback failure consumes the queue entry and can discard remaining packed transitions.
-- HIDE/SHOW writes and mode-disable visibility repair are not transactional or retry-safe.
-- Unknown block-entity data currently fails open and logs full NBT.
-- `MAP_CHUNK_BULK` intentionally throws from packet handling.
+## Confirmed review findings routed into remaining packages
 
 ### Package 03
 
@@ -91,7 +96,7 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 - Bypass IDs can remain stale after optional entities are removed or IDs are reused.
 - The update checker configures one connection but reads from another unbounded connection.
 - The join-time update window arithmetic is reversed.
-- Sensitive block NBT can enter logs.
+- Remaining sensitive-data and optional-integration paths require final hardening review.
 
 ## Current boundaries
 
@@ -105,4 +110,4 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 
 ## Next route
 
-The next ChatGPT worker must complete `ai-agents/work-packages/02-block-transition-reliability.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `03-entity-transition-reconciliation` if complete, and stop.
+The next ChatGPT worker must complete `ai-agents/work-packages/03-entity-transition-reconciliation.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `04-engine-scheduling-lifecycle` if complete, and stop.

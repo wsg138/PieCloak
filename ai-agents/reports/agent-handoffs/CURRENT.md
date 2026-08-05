@@ -1,16 +1,7 @@
----
-current_report: ai-agents/reports/agent-handoffs/0001-20260805T201940Z-current-platform-baseline.md
-current_package: 02-block-transition-reliability
-coordination_branch: main
-active_pr: 11
-active_branch: agent/sync-upstream-clean-history
-recorded_pr_head: d23c6a577ead79fb4d70b230d1344a91095fb97b
----
+# Current PieCloak handoff
 
-# Current PieCloak agent handoff
+Read this report next:
 
-Read the report named above from `main`, then reconcile it with live GitHub and `ai-agents/WORKSPACE-STATE.md`.
+`ai-agents/reports/agent-handoffs/0002-20260805T222448Z-block-transition-reliability.md`
 
-The next package is `02-block-transition-reliability`.
-
-Implementation belongs on PR #11. The completed package report and next routing state belong in one coordination-only commit to `main`.
+It completes package `02-block-transition-reliability`, records PR #11 head `dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b`, and routes the next worker to `03-entity-transition-reconciliation`.
