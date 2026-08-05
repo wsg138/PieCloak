@@ -5,11 +5,11 @@ coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
 state: READY_FOR_AGENT
-current_package: 03-entity-transition-reconciliation
-recorded_pr_head: dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b
+current_package: 04-engine-scheduling-lifecycle
+recorded_pr_head: 3e18acde563809f68f003229266258687ce8ce10
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0002-20260805T222448Z-block-transition-reliability.md
+current_handoff: ai-agents/reports/agent-handoffs/0003-20260805T233318Z-entity-transition-reconciliation.md
 ---
 
 # PieCloak workspace state
@@ -34,8 +34,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | State | `READY_FOR_AGENT` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b` |
-| Current package | `03-entity-transition-reconciliation` |
+| Recorded implementation head | `3e18acde563809f68f003229266258687ce8ce10` |
+| Current package | `04-engine-scheduling-lifecycle` |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Future target | Stable Paper `26.2` or newer after a separate verified upgrade |
 | Merge authority | None for workers; owner instruction required |
@@ -46,8 +46,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | --- | --- | --- | --- |
 | 01 | Current 1.21.11 platform and CI baseline | `COMPLETE` | none |
 | 02 | Block-transition reliability and block-data hardening | `COMPLETE` | 01 |
-| 03 | Idempotent entity-transition reconciliation | `READY` | 02 |
-| 04 | Async-engine scheduling and complete lifecycle cleanup | `WAITING` | 03 |
+| 03 | Idempotent entity-transition reconciliation | `COMPLETE` | 02 |
+| 04 | Async-engine scheduling and complete lifecycle cleanup | `READY` | 03 |
 | 05 | Optional integrations and remaining hardening | `WAITING` | 04 |
 | 06 | Final coordinator integration and brutal review | `WAITING` | 01–05 |
 
@@ -74,14 +74,20 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 - Exact head `dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b` passed Build run `31052209121`, Static analysis run `31052209222`, and focused validation run `31052271820` with seven package test groups repeated 25 times.
 - The exact shaded JAR declares PieCloak API `1.21.11` and records the exact implementation SHA, Minecraft `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, and Java `21`.
 
+## Completed package 03 entity-transition reconciliation
+
+- SHOW and HIDE use immutable packet plans with independent checkpoints for spawn, corrections, replay, relationships, and destroy.
+- A successful packet write advances state immediately, so a later failure resumes at the first incomplete packet rather than duplicating spawn or destroy.
+- Packet-confirmed visibility and local `clientVisible` bookkeeping are repaired separately; superseding opposite transitions inherit confirmed external state.
+- Retry work is keyed, exponential-backoff bounded, limited to eight failures, capped at 256 entries per viewer and 4096 globally, and rejects new work at capacity instead of evicting queued partial repairs.
+- Retry validation and cleanup cover viewer disconnect, join/respawn, world epoch, entity UUID/ID/object identity, despawn, destroyed IDs, desired visibility changes, and entity-ID reuse.
+- Direct forced-show/bypass paths use the same staged reconciliation.
+- Focused transition tests passed once plus 20 forced reruns in run `31056041879`.
+- Exact head `3e18acde563809f68f003229266258687ce8ce10` passed Build run `31056637735`, Static analysis run `31056637857`, and CodeRabbit.
+- The exact shaded JAR declares PieCloak API `1.21.11`, records the exact Git SHA and current platform baseline, and has SHA-256 `1e776b5b352026058e064e6200c6eed9feea6466ed41edd7d5d1d0d1db4a8a0d`.
+- Live Leaf, Geyser/Floodgate, and real injected packet send-then-throw behavior remain unverified and are recorded in the package handoff.
+
 ## Confirmed review findings routed into remaining packages
-
-### Package 03
-
-- Current entity retry wraps a multi-packet SHOW as one operation and can resend a spawn after a later stage fails.
-- Retries are unbounded and may continue indefinitely.
-- Direct forced-show paths can commit visibility before packet reconciliation succeeds.
-- Relationship, replay, and correction stages need explicit idempotent semantics.
 
 ### Package 04
 
@@ -107,7 +113,8 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 - No parallel workers.
 - No product code, tests, workflows, or plugin metadata directly on `main`.
 - No agent-routing files on the implementation branch.
+- `agent/package03-worker-20260805` is a non-authoritative temporary validation branch with no PR; it must not be used for routing or implementation.
 
 ## Next route
 
-The next ChatGPT worker must complete `ai-agents/work-packages/03-entity-transition-reconciliation.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `04-engine-scheduling-lifecycle` if complete, and stop.
+The next ChatGPT worker must complete `ai-agents/work-packages/04-engine-scheduling-lifecycle.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `05-adapter-and-startup` if complete, and stop.
