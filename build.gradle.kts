@@ -7,25 +7,19 @@ val javaVersionProvider = providers.gradleProperty("javaVersion").map { it.toInt
 val minecraftVersionProvider = providers.gradleProperty("minecraftVersion")
 val paperDevBundleVersionProvider = providers.gradleProperty("paperDevBundleVersion")
 
+check(javaVersionProvider.get() == 21) {
+    "The current 1.21.11 production baseline requires Java 21."
+}
+check(minecraftVersionProvider.get() == "1.21.11") {
+    "The current production target must remain Minecraft 1.21.11 until an intentional upgrade package changes it."
+}
+check(paperDevBundleVersionProvider.get() == "1.21.11-R0.1-SNAPSHOT") {
+    "The current Paper development bundle must remain 1.21.11-R0.1-SNAPSHOT."
+}
+
 tasks.register("verifyCurrentPlatformBaseline") {
     group = "verification"
-    description = "Fails when the checked-in production platform baseline changes unintentionally."
-
-    inputs.property("javaVersion", javaVersionProvider)
-    inputs.property("minecraftVersion", minecraftVersionProvider)
-    inputs.property("paperDevBundleVersion", paperDevBundleVersionProvider)
-
-    doLast {
-        check(javaVersionProvider.get() == 21) {
-            "The current 1.21.11 production baseline requires Java 21."
-        }
-        check(minecraftVersionProvider.get() == "1.21.11") {
-            "The current production target must remain Minecraft 1.21.11 until an intentional upgrade package changes it."
-        }
-        check(paperDevBundleVersionProvider.get() == "1.21.11-R0.1-SNAPSHOT") {
-            "The current Paper development bundle must remain 1.21.11-R0.1-SNAPSHOT."
-        }
-    }
+    description = "Confirms that configuration passed the checked-in production platform baseline guard."
 }
 
 subprojects {
