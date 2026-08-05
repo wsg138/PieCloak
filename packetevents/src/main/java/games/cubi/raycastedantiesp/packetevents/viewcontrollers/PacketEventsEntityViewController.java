@@ -65,6 +65,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     private final IntSupplier CURRENT_TICK_SUPPLIER;
     private final PacketEventsCommonViewController COMMON;
     private final PacketEventsTargetFilter targetFilter;
+    private final EntityTransitionRetryQueue transitionRetries = new EntityTransitionRetryQueue();
     private static PacketEventsEntityViewController SELF; //TODO Switch to LazyConstant once out of preview (see https://openjdk.org/jeps/526)
 
     public static PacketEventsEntityViewController get() {
@@ -83,6 +84,9 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     @Override
     public void onUserDisconnect(UserDisconnectEvent event) {
         UUID viewerUUID = event.getUser().getUUID();
+        if (viewerUUID != null) {
+            transitionRetries.clear(viewerUUID);
+        }
         handlePlayerDisconnect(viewerUUID);
     }
 
@@ -127,7 +131,9 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             enableBypass(playerData, currentTick);
         }
 
-        if (playerData.entityView().hasPendingTransitions() || playerData.playerView().hasPendingTransitions()) {
+        if (playerData.entityView().hasPendingTransitions()
+                || playerData.playerView().hasPendingTransitions()
+                || transitionRetries.hasPending(viewerUUID)) {
             PlayerData transitionData = playerData;
             User viewer = event.getUser();
             event.getTasksAfterSend().add(() -> processPendingEntityTransitions(transitionData, viewer));
@@ -137,6 +143,8 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     }
 
     private void processPendingEntityTransitions(PlayerData data, User viewer) {
+        processTransitionRetries(data, viewer);
+
         if (data.entityView().hasPendingTransitions()) {
             processEntityTransitions(data, viewer, cast(data.entityView()));
         }
@@ -145,6 +153,14 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             processEntityTransitions(data, viewer, cast(data.playerView()));
         }
 
+    }
+
+    private void processTransitionRetries(PlayerData data, User viewer) {
+        UUID viewerUUID = data.getPlayerUUID();
+        for (EntityTransitionRetryQueue.Retry retry : transitionRetries.drain(viewerUUID)) {
+            processEntityTransitionSafely(data, viewer, retry.view(), retry.type(), retry.entity(),
+                    retry.worldEpoch(), retry.attempts());
+        }
     }
 
     static boolean shouldProcessManagedPackets(boolean hasBypassPermission) {
@@ -608,9 +624,25 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     }
 
     private void processEntityTransitions(PlayerData data, User viewer, EntityView<PacketEventsEntity> entityView) {
-        int worldEpoch = data.acquireWorldEpoch(); //epoch can only change on the netty thread, so the epoch cannot be invalidated between this read and the packets being written
-        entityView.drainTransitions((type, transitionEntity, transitionWorldEpoch) -> processEntityTransition(
-                data, viewer, entityView, worldEpoch, type, transitionEntity, transitionWorldEpoch));
+        entityView.drainTransitions((type, transitionEntity, transitionWorldEpoch) ->
+                processEntityTransitionSafely(data, viewer, entityView, type, transitionEntity, transitionWorldEpoch, 0));
+    }
+
+    private void processEntityTransitionSafely(PlayerData data, User viewer, EntityView<PacketEventsEntity> entityView,
+            EntityViewTransition.Type type, TrackedEntity<?> transitionEntity, int transitionWorldEpoch, int attempts) {
+        try {
+            processEntityTransition(data, viewer, entityView, data.acquireWorldEpoch(), type, transitionEntity, transitionWorldEpoch);
+        } catch (Exception exception) {
+            int nextAttempt = attempts + 1;
+            transitionRetries.enqueue(data.getPlayerUUID(), entityView, type, transitionEntity, transitionWorldEpoch, nextAttempt);
+            if (nextAttempt == 1 || nextAttempt % 20 == 0) {
+                Logger.error("Entity visibility transition failed and was queued for retry. viewer=" + data.getPlayerUUID()
+                        + " entityUUID=" + transitionEntity.entityUUID()
+                        + " entityID=" + transitionEntity.entityID()
+                        + " transition=" + type
+                        + " attempts=" + nextAttempt, exception, 1, PacketEventsEntityViewController.class);
+            }
+        }
     }
 
     private void processEntityTransition(PlayerData data, User viewer, EntityView<PacketEventsEntity> entityView,
