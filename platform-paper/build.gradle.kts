@@ -24,9 +24,12 @@ repositories {
     maven("https://repo.fancyinnovations.com/releases")
 }
 
+val minecraftVersionProvider = providers.gradleProperty("minecraftVersion")
+val paperDevBundleVersionProvider = providers.gradleProperty("paperDevBundleVersion")
+val javaVersionProvider = providers.gradleProperty("javaVersion").map { it.toInt() }
+
 dependencies {
-    paperweight.paperDevBundle("1.21.4-R0.1-SNAPSHOT")
-    //paperweight.paperDevBundle("26.2.build.+")
+    paperweight.paperDevBundle(paperDevBundleVersionProvider.get())
     compileOnly("com.github.retrooper:packetevents-spigot:2.12.0")
     compileOnly("org.spongepowered:configurate-core:4.2.0")
     compileOnly("org.spongepowered:configurate-yaml:4.2.0")
@@ -57,7 +60,7 @@ configurations.named("testRuntimeClasspath") {
 }
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    toolchain.languageVersion.set(javaVersionProvider.map { JavaLanguageVersion.of(it) })
 }
 
 val javaToolchainService = project.extensions.getByType(JavaToolchainService::class.java)
@@ -104,33 +107,34 @@ version = getVersionString()
 
 tasks {
     runServer {
-        // Configure the Minecraft version for our task.
-        // This is the only required configuration besides applying the plugin.
-        // Your plugin's jar (or shadowJar if present) will be used automatically.
         javaLauncher = javaToolchainService.launcherFor {
-            //languageVersion.set(paperRunJavaVersion.map(JavaLanguageVersion::of))
-            languageVersion.set(JavaLanguageVersion.of(25))
+            languageVersion.set(javaVersionProvider.map { JavaLanguageVersion.of(it) })
         }
-        minecraftVersion("26.1.2")
-        //minecraftVersion("1.21.11")
+        minecraftVersion(minecraftVersionProvider.get())
         jvmArgs("-Xms4G", "-Xmx4G", "-Dcom.mojang.eula.agree=true")
     }
 
     processResources {
-        val props = mapOf("version" to version.toString())
-        inputs.properties(props)
+        val pluginProps = mapOf(
+            "version" to version.toString(),
+            "api_version" to minecraftVersionProvider.get()
+        )
+        inputs.properties(pluginProps)
         filesMatching("plugin.yml") {
-            expand(props)
+            expand(pluginProps)
         }
-        val gitProps = mapOf(
+        val buildProps = mapOf(
             "short_git" to commitShort.get(),
             "long_git" to commitFull.get(),
             "build_time" to buildTime.get(),
-            "version" to getBasicVersionString()
+            "version" to getBasicVersionString(),
+            "minecraft_version" to minecraftVersionProvider.get(),
+            "paper_dev_bundle_version" to paperDevBundleVersionProvider.get(),
+            "java_version" to javaVersionProvider.get()
         )
-        inputs.properties(gitProps)
+        inputs.properties(buildProps)
         filesMatching("build-properties/platform.yml") {
-            expand(gitProps)
+            expand(buildProps)
         }
     }
 

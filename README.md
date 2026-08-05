@@ -2,7 +2,7 @@
 
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/5aa184993c2247ca9df86b95e6b6361f)](https://app.codacy.com/gh/wsg138/PieCloak/dashboard)
 
-PieCloak is a public modified fork of [RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP) for Paper and Leaf 1.21.x servers.
+PieCloak is a public modified fork of [RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP) for the server's current Paper/Leaf-compatible Minecraft 1.21.11 stack.
 
 It keeps the upstream packet, async-engine, chunk-processing, compatibility, and performance improvements while applying anti-ESP handling only to an explicit allowlist of entity and block-entity clues used for pie-chart or base-finding. Non-allowlisted targets are sent normally.
 
@@ -39,17 +39,22 @@ Public source and attribution commands:
 
 ## Build
 
-```powershell
-.\gradlew.bat :platform-paper:build --no-daemon
+The checked-in production baseline is Minecraft 1.21.11, Paper development bundle `1.21.11-R0.1-SNAPSHOT`, and Java 21. Those values are centralized in `gradle.properties`; `verifyCurrentPlatformBaseline` prevents an accidental target change.
+
+Initialize the submodules, generate the LeafPile sources, and run the same clean build used by CI:
+
+```bash
+git submodule update --init --recursive
+cd leafpile/templates
+javac --release 21 GenerateSources.java Preprocessor.java
+java GenerateSources . ..
+cd ../..
+./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
 ```
 
-The shaded plugin jar is written to `platform-paper/build/libs` with a `RaycastedAntiESP-` filename.
+The shaded plugin JAR is written to `platform-paper/build/libs` with a `RaycastedAntiESP-` filename. Its generated `plugin.yml` and `build-properties/platform.yml` record the Minecraft, Paper bundle, Java, Git, and build-time baseline used for that artifact.
 
-Snapshot builds include the Git commit and build time:
-
-```powershell
-.\gradlew.bat :platform-paper:buildSnapshot --no-daemon
-```
+The `runServer` and `runPaper` tasks use Minecraft 1.21.11 on Java 21. They are development conveniences and do not constitute Leaf, Geyser, or production validation.
 
 ## Testing and upstream maintenance
 

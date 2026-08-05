@@ -24,38 +24,74 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Read platform baseline
+        id: platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          read_property() {
+            grep -E "^$1=" gradle.properties | cut -d= -f2-
+          }
+
+          java_version="$(read_property javaVersion)"
+          minecraft_version="$(read_property minecraftVersion)"
+          paper_dev_bundle_version="$(read_property paperDevBundleVersion)"
+
+          test -n "$java_version"
+          test -n "$minecraft_version"
+          test -n "$paper_dev_bundle_version"
+
+          echo "java_version=$java_version" >> "$GITHUB_OUTPUT"
+          echo "minecraft_version=$minecraft_version" >> "$GITHUB_OUTPUT"
+          echo "paper_dev_bundle_version=$paper_dev_bundle_version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ steps.platform.outputs.java_version }}
           cache: gradle
 
       - name: Generate LeafPile sources
         shell: bash
         run: |
           cd leafpile/templates
-          javac --release 21 GenerateSources.java Preprocessor.java
+          javac --release "${{ steps.platform.outputs.java_version }}" GenerateSources.java Preprocessor.java
           java GenerateSources . ..
 
       - name: Compile, test, and build
-        run: ./gradlew :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
+        run: ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
 
       - name: Inspect staging jar
         id: staging-jar
         shell: bash
+        env:
+          JAVA_VERSION: ${{ steps.platform.outputs.java_version }}
+          MINECRAFT_VERSION: ${{ steps.platform.outputs.minecraft_version }}
+          PAPER_DEV_BUNDLE_VERSION: ${{ steps.platform.outputs.paper_dev_bundle_version }}
         run: |
+          set -euo pipefail
           jar_path="$(find platform-paper/build/libs -maxdepth 1 -type f -name 'RaycastedAntiESP-*.jar' | sort | tail -n 1)"
           if [[ -z "$jar_path" ]]; then
             echo "No shaded Paper jar was produced." >&2
             exit 1
           fi
 
+          plugin_yml="$(unzip -p "$jar_path" plugin.yml)"
+          platform_yml="$(unzip -p "$jar_path" build-properties/platform.yml)"
+
+          grep -Fqx "name: PieCloak" <<< "$plugin_yml"
+          grep -Fqx "api-version: '$MINECRAFT_VERSION'" <<< "$plugin_yml"
+          grep -Fqx "minecraft-version: $MINECRAFT_VERSION" <<< "$platform_yml"
+          grep -Fqx "paper-dev-bundle-version: $PAPER_DEV_BUNDLE_VERSION" <<< "$platform_yml"
+          grep -Fqx "java-version: $JAVA_VERSION" <<< "$platform_yml"
+
           echo "Jar: $jar_path"
           sha256sum "$jar_path"
+          echo "plugin.yml:"
+          printf '%s\n' "$plugin_yml"
           echo "build-properties/platform.yml:"
-          unzip -p "$jar_path" build-properties/platform.yml
-          echo
+          printf '%s\n' "$platform_yml"
           echo "path=$jar_path" >> "$GITHUB_OUTPUT"
 
       - name: Upload staging jar

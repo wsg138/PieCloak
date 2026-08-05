@@ -3,3 +3,6 @@ long-git: ${long_git}
 build-time: ${build_time}
 version: ${version}
 platform: Paper
+minecraft-version: ${minecraft_version}
+paper-dev-bundle-version: ${paper_dev_bundle_version}
+java-version: ${java_version}

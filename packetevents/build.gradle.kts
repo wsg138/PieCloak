@@ -35,6 +35,8 @@ tasks.test {
     useJUnitPlatform()
 }
 
+val javaVersionProvider = providers.gradleProperty("javaVersion").map { it.toInt() }
+
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    toolchain.languageVersion.set(javaVersionProvider.map { JavaLanguageVersion.of(it) })
 }

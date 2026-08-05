@@ -2,6 +2,16 @@
 
 Use a normal client plus a pie-chart/base-finding client or packet capture where possible.
 
+## Build Baseline
+
+- Initialize all Git submodules recursively.
+- Generate LeafPile sources with Java 21 before the Gradle build.
+- Run `./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon`.
+- Confirm the shaded JAR is named `RaycastedAntiESP-*.jar`, not `Incorrectly-Compiled-Without-ShadowJar`.
+- Confirm generated `plugin.yml` names `PieCloak` and declares API version `1.21.11`.
+- Confirm `build-properties/platform.yml` records Minecraft `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, Java `21`, and the exact Git revision.
+- Treat `runPaper`/`runServer` as a local Paper 1.21.11 smoke-test convenience, not proof of Leaf, Geyser, or production compatibility.
+
 ## Server Behavior
 
 - Normal mobs still spawn and tick.
@@ -13,6 +23,7 @@ Use a normal client plus a pie-chart/base-finding client or packet capture where
 - Allays still work.
 - Players are never hidden.
 - Non-allowlisted entities and block entities behave normally.
+- Java and Bedrock players through Geyser/Floodgate observe the same managed visibility outcomes.
 
 ## Target Filter
 
