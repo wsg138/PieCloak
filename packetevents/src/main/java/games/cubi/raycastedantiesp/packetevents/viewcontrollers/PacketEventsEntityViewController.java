@@ -120,7 +120,12 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         UUID world = COMMON.resolvePacketWorld(playerData, event.getUser());
         int currentTick = CURRENT_TICK_SUPPLIER.getAsInt();
 
-        handleEntityPackets(event, event.getUser(), playerData, world, currentTick);
+        if (shouldProcessManagedPackets(playerData.hasBypassPermission())) {
+            handleEntityPackets(event, event.getUser(), playerData, world, currentTick);
+        } else {
+            handleBypassPacketLifecycle(event, event.getUser(), playerData, currentTick);
+            enableBypass(playerData, currentTick);
+        }
 
         if (playerData.entityView().hasPendingTransitions() || playerData.playerView().hasPendingTransitions()) {
             PlayerData transitionData = playerData;
@@ -140,6 +145,40 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             processEntityTransitions(data, viewer, cast(data.playerView()));
         }
 
+    }
+
+    static boolean shouldProcessManagedPackets(boolean hasBypassPermission) {
+        return !hasBypassPermission;
+    }
+
+    public void enableBypass(PlayerData playerData, int currentTick) {
+        int worldEpoch = playerData.acquireWorldEpoch();
+        revealBypassedView(playerData, playerData.entityView(), currentTick, worldEpoch);
+        revealBypassedView(playerData, playerData.playerView(), currentTick, worldEpoch);
+    }
+
+    private void revealBypassedView(PlayerData playerData, EntityView<?> view, int currentTick, int worldEpoch) {
+        for (UUID entityUUID : view.getKnownEntities()) {
+            NettyEntity<?> entity = (NettyEntity<?>) view.getEntity(entityUUID);
+            if (entity == null || entity.isSelfEntity() || entity.visible() && entity.clientVisible()) {
+                continue;
+            }
+            if (view.recordDirectVisibility(entity, true, currentTick, worldEpoch)) {
+                processDirectEntityShow(playerData, view, entity, worldEpoch);
+            }
+        }
+    }
+
+    private void handleBypassPacketLifecycle(PacketSendEvent event, User viewer, PlayerData playerData, int currentTick) {
+        if (event.getPacketType() == PacketType.Play.Server.DESTROY_ENTITIES) {
+            handleDestroyEntities(new WrapperPlayServerDestroyEntities(event).getEntityIds(), playerData, currentTick);
+        } else if (event.getPacketType() == PacketType.Play.Server.RESPAWN) {
+            WrapperPlayServerRespawn packet = new WrapperPlayServerRespawn(event);
+            String worldName = packet.getWorldName().orElse(null);
+            handleWorldStatePacket(viewer.getUUID(), worldName,
+                    worldName == null ? null : COMMON.resolveWorldUUID(worldName),
+                    packet.getDimensionType().getMinY(), currentTick);
+        }
     }
 
     private void handleEntityPackets(PacketSendEvent event, User viewer, PlayerData playerData, UUID world, int currentTick) {

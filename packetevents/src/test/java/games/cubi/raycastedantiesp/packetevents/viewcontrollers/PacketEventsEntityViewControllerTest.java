@@ -27,6 +27,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PacketEventsEntityViewControllerTest {
     @Test
+    void bypassViewersSkipManagedPacketHandling() {
+        assertFalse(PacketEventsEntityViewController.shouldProcessManagedPackets(true));
+        assertTrue(PacketEventsEntityViewController.shouldProcessManagedPackets(false));
+    }
+
+    @Test
     void retainingSeenEntitySuppressesHideWithoutDestroying() {
         assertEquals(NONE, PacketEventsEntityViewController.resolveClientTransitionAction(
                 EntityViewTransition.Type.HIDE, true, true));

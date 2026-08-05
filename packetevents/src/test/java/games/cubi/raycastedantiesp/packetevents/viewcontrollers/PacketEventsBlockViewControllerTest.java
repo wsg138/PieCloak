@@ -20,6 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PacketEventsBlockViewControllerTest {
+    @Test
+    void bypassViewersDisableTileChecksWithoutChangingGlobalConfig() {
+        assertFalse(PacketEventsBlockViewController.tileChecksEnabledForViewer(true, true));
+        assertTrue(PacketEventsBlockViewController.tileChecksEnabledForViewer(true, false));
+        assertFalse(PacketEventsBlockViewController.tileChecksEnabledForViewer(false, false));
+    }
+
     private static final IntSupplier STABLE_WORLD_EPOCH = () -> 2;
     private static final BlockInfoResolver RESOLVER = new BlockInfoResolver() {
         @Override public boolean isOccluding(int blockStateID) { return false; }

@@ -78,7 +78,8 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
 
         UUID world = common.resolvePacketWorld(playerData, event.getUser());
         int currentTick = currentTickSupplier.getAsInt();
-        boolean tileChecksEnabled = tileEntityConfig.enabled();
+        boolean tileChecksEnabled = tileChecksEnabledForViewer(
+                tileEntityConfig.enabled(), playerData.hasBypassPermission());
         BlockView blockView = playerData.blockView();
         blockView.applyTileEntityCheckMode(tileChecksEnabled, currentTick,
                 tileEntity -> sendTileEntityVisibilityRepair(event.getUser(), tileEntity));
@@ -88,6 +89,10 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         if (blockView.hasPendingTransitions()) {
             processTileEntityTransitions(event.getUser(), playerData);
         }
+    }
+
+    static boolean tileChecksEnabledForViewer(boolean configuredEnabled, boolean hasBypassPermission) {
+        return configuredEnabled && !hasBypassPermission;
     }
 
     private void handleBlockPackets(PacketSendEvent event, User viewer, PlayerData playerData, UUID world, int currentTick, boolean tileChecksEnabled) {
