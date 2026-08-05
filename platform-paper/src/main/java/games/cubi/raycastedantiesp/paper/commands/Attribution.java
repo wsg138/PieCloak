@@ -29,10 +29,10 @@ Note that using external software to remove this command (for example by using a
     }
 
     public static void sendAttributionMessage(CommandSender sender) {
-        sender.sendRichMessage("<white>This server runs <gold><click:open_url:'https://github.com/wsg138/PieCloak'>PieCloak</click></gold>, a modified fork of <gold><click:open_url:'https://github.com/Cubicake/RaycastedAntiESP'>RaycastedAntiESP</click></gold>.\n" +
+        sender.sendRichMessage("<white>This server runs <gold><click:open_url:'https://github.com/Cubicake/RaycastedAntiESP'>RaycastedAntiESP</click></gold>, a packet-based anti-esp plugin.\n" +
                 "\n" +
-                "<white>The original plugin is <dark_green>copyright © 2025-2026 Cubicake and Contributors</dark_green>. PieCloak is maintained by <dark_green>P2wn and contributors</dark_green>. The complete plugin is licensed under the <dark_green>AGPLv3 license</dark_green>.\n" +
-                "<white>PieCloak source: <u><blue><hover:show_text:'Click to view source'><click:open_url:'https://github.com/wsg138/PieCloak'>https://github.com/wsg138/PieCloak</click></hover></blue></u>.");
+                "<white>The plugin is <dark_green>copyright © 2025-2026 Cubicake and Contributors</dark_green>, and licenced under the <dark_green>AGPLv3 licence</dark_green>, which requires the source code to be available to all users of the plugin, including you. \n" +
+                "<white>As such, the source code can be found at <u><blue><hover:show_text:'Click to view source'><click:open_url:'https://github.com/Cubicake/RaycastedAntiESP'>https://github.com/Cubicake/RaycastedAntiESP</click></hover></blue></u>.");
         /* Fork developers: Comment out the above message and uncomment this one, making sure to replace the placeholders with the appropriate information about your fork.
 // Some notes for fork developers:
 // While you are allowed to modify the message below, you must still include all of the legally obligated information. As such, I recommend you only modify the {bracketed} placeholders and the formatting of the message.

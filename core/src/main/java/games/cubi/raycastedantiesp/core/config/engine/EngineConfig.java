@@ -5,7 +5,7 @@ import games.cubi.raycastedantiesp.core.config.ConfigLoadException;
 import games.cubi.raycastedantiesp.core.config.ConfigReader;
 import org.spongepowered.configurate.ConfigurationNode;
 
-public record EngineConfig(EngineMode mode, SimpleEngineConfig simpleConfig) implements Config {
+public record EngineConfig(EngineMode mode, AsyncEngineConfig asyncConfig) implements Config {
     public static EngineConfig load(ConfigurationNode root) {
         ConfigurationNode node = ConfigReader.node(root, "engine");
         String modeName = ConfigReader.string(ConfigReader.node(node, "mode"), "engine.mode");
@@ -13,7 +13,7 @@ public record EngineConfig(EngineMode mode, SimpleEngineConfig simpleConfig) imp
         if (mode == null) {
             throw new ConfigLoadException("engine.mode has unsupported value '" + modeName + "'");
         }
-        return new EngineConfig(mode, SimpleEngineConfig.load(ConfigReader.node(node, "simple")));
+        return new EngineConfig(mode, AsyncEngineConfig.load(ConfigReader.node(node, "async")));
     }
 
     public EngineMode getMode() {

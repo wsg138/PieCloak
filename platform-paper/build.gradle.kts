@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP.
+ * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
+ * See README.md for warranty disclaimer and further information.
+ */
+
 import java.time.Instant
 import org.gradle.jvm.toolchain.JavaToolchainService
 
@@ -13,34 +21,50 @@ repositories {
     maven { url = uri("https://repo.codemc.io/repository/maven-releases/") }
     maven { url = uri("https://repo.codemc.io/repository/maven-snapshots/") }
     maven { url = uri("https://eldonexus.de/repository/maven-public/") }
+    maven("https://repo.fancyinnovations.com/releases")
 }
 
 dependencies {
-    paperweight.paperDevBundle("26.2.build.39-alpha")
+    paperweight.paperDevBundle("1.21.4-R0.1-SNAPSHOT")
+    //paperweight.paperDevBundle("26.2.build.+")
     compileOnly("com.github.retrooper:packetevents-spigot:2.12.0")
     compileOnly("org.spongepowered:configurate-core:4.2.0")
     compileOnly("org.spongepowered:configurate-yaml:4.2.0")
+
+    compileOnly("de.oliver:FancyHolograms:2.9.1")
+    compileOnly("de.oliver:FancyNpcs:2.9.2")
 
     compileOnly("net.strokkur.commands:annotations-paper:2.1.2")
     annotationProcessor("net.strokkur.commands:processor-paper:2.1.2")
 
     implementation("org.jetbrains:annotations:24.0.1")
+    implementation("org.bstats:bstats-bukkit:3.2.1")
 
-    implementation(project(":locatable-lib"))
+    implementation(project(":leafpile"))
+    implementation(project(":locatables"))
     implementation(project(":logging"))
     implementation(project(":core"))
     implementation(project(":packetevents"))
+
+    testImplementation(platform("org.junit:junit-bom:5.10.2"))
+    testImplementation("org.junit.jupiter:junit-jupiter-api")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+configurations.named("testRuntimeClasspath") {
+    exclude(group = "at.yawk.lz4", module = "lz4-java")
 }
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(26)
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
 }
 
 val javaToolchainService = project.extensions.getByType(JavaToolchainService::class.java)
 
 group = "games.cubi.raycastedantiesp.paper"
 
-val platformPaperVersion: String = "0.4.10-SNAPSHOT"
+val platformPaperVersion: String = "0.10.0-SNAPSHOT"
 val coreVersion = project(":core").version.toString()
 
 val commitShort = providers.exec {
@@ -87,7 +111,8 @@ tasks {
             //languageVersion.set(paperRunJavaVersion.map(JavaLanguageVersion::of))
             languageVersion.set(JavaLanguageVersion.of(25))
         }
-        minecraftVersion("26.2")
+        minecraftVersion("26.1.2")
+        //minecraftVersion("1.21.11")
         jvmArgs("-Xms4G", "-Xmx4G", "-Dcom.mojang.eula.agree=true")
     }
 
@@ -108,15 +133,32 @@ tasks {
             expand(gitProps)
         }
     }
+
+    test {
+        useJUnitPlatform()
+    }
 }
 
 tasks.shadowJar {
     dependencies {
         include(project(":logging"))
-        include(project(":locatable-lib"))
+        include(project(":locatables"))
         include(project(":core"))
         include(project(":packetevents"))
+
+        include(project(":leafpile"))
+        include(dependency("org.bstats:bstats-base:3.2.1"))
+        include(dependency("org.bstats:bstats-bukkit:3.2.1"))
     }
+    relocate(
+        "ca.spottedleaf",
+        "games.cubi.libs.raycastedantiesp.spottedleaf"
+    )
+    relocate(
+        "org.bstats",
+        "games.cubi.libs.raycastedantiesp.bstats"
+    )
+    minimize {} // get rid of leafpile bloat
     archiveBaseName.set("RaycastedAntiESP")
     archiveClassifier.set("")
 }

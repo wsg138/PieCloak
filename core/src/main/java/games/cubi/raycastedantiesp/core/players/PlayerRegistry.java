@@ -1,39 +1,34 @@
 package games.cubi.raycastedantiesp.core.players;
 
+import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
+
 import java.util.Collection;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerRegistry {
 
-    private static PlayerRegistry instance;
+    @FunctionalInterface
+    public interface SelfEntityCreator {
+        NettyEntity<?> createSelfEntity(PlayerData playerData, int selfEntityID, UUID playerUUID);
+    }
+
+    private static final PlayerRegistry instance = new PlayerRegistry();
 
     private PlayerRegistry() {}
 
     public static PlayerRegistry getInstance() {
-        if (instance == null) {
-            instance = new PlayerRegistry();
-        }
         return instance;
     }
 
     private final ConcurrentHashMap<UUID, PlayerData> playerDataMap = new ConcurrentHashMap<>();
 
-    public void registerPlayerIfAbsent(UUID playerUUID, boolean hasBypassPermission, int joinTick) {
-        playerDataMap.putIfAbsent(playerUUID, new PlayerData(playerUUID, hasBypassPermission, joinTick));
-    }
-
     /** Forcefully registers a player and returns the new PlayerData, even if they were already registered.**/
-    public PlayerData registerAndGetPlayer(UUID playerUUID, int joinTick) {
-        PlayerData newData = new PlayerData(playerUUID, joinTick);
-        playerDataMap.put(playerUUID, newData);
+    public PlayerData registerAndGetPlayer(UUID playerUUID, int joinTick, int selfEntityID, SelfEntityCreator selfEntityCreator) {
+        PlayerData newData = new PlayerData(playerUUID, false, joinTick, selfEntityID, selfEntityCreator);
+        PlayerData old = playerDataMap.put(playerUUID, newData);
+        if (old != null) old.markDisconnected();
         return newData;
-    }
-
-    public PlayerData registerAndGetPlayerIfAbsent(UUID playerUUID, boolean hasBypassPermission, int joinTick) {
-        PlayerData newData = new PlayerData(playerUUID, hasBypassPermission, joinTick);
-        PlayerData existingData = playerDataMap.putIfAbsent(playerUUID, newData);
-        return existingData != null ? existingData : newData;
     }
 
     public void unregisterPlayer(UUID playerUUID) {
@@ -41,10 +36,7 @@ public class PlayerRegistry {
         if (unregisteredPlayer == null) {
             return;
         }
-        unregisteredPlayer.blockView().clear();
-        unregisteredPlayer.entityView().clear();
-        unregisteredPlayer.playerView().clear();
-        unregisteredPlayer.nettyData().clear();
+        unregisteredPlayer.markDisconnected();
     }
 
     public PlayerData getPlayerData(UUID playerUUID) {

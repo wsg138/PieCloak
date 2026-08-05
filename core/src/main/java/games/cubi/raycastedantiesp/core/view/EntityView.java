@@ -1,17 +1,21 @@
 package games.cubi.raycastedantiesp.core.view;
 
-import games.cubi.raycastedantiesp.core.locatables.EntityLocatable;
-import games.cubi.locatables.Locatable;
+import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
+import games.cubi.locatables.api.Spatial;
+import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.IntSupplier;
 
-public interface EntityView<T extends EntityLocatable<?, ?>>  extends Clearable {
-    void insertEntity(T entity);
+public interface EntityView<T extends TrackedEntity<?>>  extends Clearable {
+    void insertEntity(UUID world, T entity);
 
     void removeEntity(int entityID, int currentTick);
+
+    void removeEntity(int entityID);
 
     void removeEntity(UUID entityUUID, int currentTick);
 
@@ -19,13 +23,19 @@ public interface EntityView<T extends EntityLocatable<?, ?>>  extends Clearable 
 
     T getEntity(int entityID);
 
-    Locatable getLocation(UUID entityUUID);
+    Spatial getPosition(UUID entityUUID);
 
     int getEntityID(UUID entityUUID);
 
     boolean exists(UUID entityUUID);
 
     boolean exists(int entityID);
+
+    /**
+     * Returns a weakly consistent count of the entities currently tracked by this view.
+     * This operation is safe to call from threads other than the structural writer.
+     */
+    int size();
 
     @Deprecated
     boolean isVisible(UUID entityUUID, int currentTick);
@@ -34,15 +44,44 @@ public interface EntityView<T extends EntityLocatable<?, ?>>  extends Clearable 
 
     boolean isVisible(int entityID);
 
-    void setVisibility(UUID entityUUID, boolean visible, int currentTick);
+    void setVisibility(NettyEntity<?> entity, boolean visible, int currentTick, int expectedWorldEpoch);
+
+    /**
+     * Applies visibility from the Netty structural writer without publishing an engine transition.
+     *
+     * @return whether the entity and epoch were current and the visibility was applied
+     */
+    boolean recordDirectVisibility(NettyEntity<?> entity, boolean visible, int currentTick, int expectedWorldEpoch);
 
     Collection<UUID> getKnownEntities();
 
-    Collection<UUID> getNeedingRecheck(int recheckTicks, int currentTick);
+    int[] getKnownEntityIDs();
+
+    /**
+     * Iterates currently tracked entities that should be visibility-checked.
+     *
+     * @return number of entities passed to {@code action}.
+     */
+    int forEachNeedingRecheck(int visibleRecheckTicks, int currentTick, Consumer<UUID> action);
+
+    /**
+     * Iterates currently tracked entities that should be visibility-checked.
+     *
+     * @return number of entities passed to {@code action}, or 0 if {@code countingActuallyNeeded} is false.
+     */
+    int forEachNeedingRecheckEntity(int visibleRecheckTicks, int currentTick, boolean countingActuallyNeeded, int expectedWorldEpoch, Consumer<NettyEntity<?>> action);
 
     boolean hasPendingTransitions();
 
-    List<EntityViewTransition> drainTransitions();
+    /** Publishes the partial transition batch owned by the current engine producer. */
+    void flushPendingTransitions();
+
+    @FunctionalInterface
+    interface TransitionConsumer {
+        void accept(EntityViewTransition.Type type, TrackedEntity<?> entity, int worldEpoch);
+    }
+
+    void drainTransitions(TransitionConsumer consumer);
 
     boolean isPlayerView();
 
@@ -53,6 +92,6 @@ public interface EntityView<T extends EntityLocatable<?, ?>>  extends Clearable 
     String getStringDataForDebugging();
 
     interface Factory {
-        EntityView<?> createEntityView();
+        EntityView<?> createEntityView(IntSupplier worldEpochSupplier);
     }
 }

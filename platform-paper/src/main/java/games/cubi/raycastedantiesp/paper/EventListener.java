@@ -1,24 +1,34 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP.
+ * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
+ * See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.paper;
 
 import com.destroystokyo.paper.event.server.ServerTickEndEvent;
 import com.destroystokyo.paper.event.server.ServerTickStartEvent;
 import games.cubi.logs.Logger;
+import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
+import games.cubi.raycastedantiesp.core.config.ConfigManager;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
-import games.cubi.raycastedantiesp.paper.engine.PaperSimpleEngine;
+import games.cubi.raycastedantiesp.paper.engine.PaperAsyncEngine;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.paper.utils.PaperListener;
+import io.papermc.paper.event.player.PlayerClientLoadedWorldEvent;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
-import org.bukkit.util.Vector;
 
 import java.util.function.IntSupplier;
 
@@ -26,48 +36,48 @@ import static games.cubi.raycastedantiesp.paper.UpdateChecker.checkForUpdates;
 
 public class EventListener extends PaperListener {
     private final RaycastedAntiESP plugin;
-    private final PaperSimpleEngine engine;
+    private final PaperAsyncEngine engine;
     private final IntSupplier currentTickSupplier;
+    private static EventListener instance = null;
 
-    private static EventListener instance;
-
-    private EventListener(RaycastedAntiESP plugin, PaperSimpleEngine engine, IntSupplier currentTickSupplier) {
+    private EventListener(RaycastedAntiESP plugin, PaperAsyncEngine engine, IntSupplier currentTickSupplier) {
         this.plugin = plugin;
         this.engine = engine;
         this.currentTickSupplier = currentTickSupplier;
     }
 
-    public static EventListener initialise(RaycastedAntiESP plugin, PaperSimpleEngine engine, IntSupplier currentTickSupplier) {
+    public static EventListener initialise(RaycastedAntiESP plugin, PaperAsyncEngine engine, IntSupplier currentTickSupplier) {
         if (instance == null) {
             instance = new EventListener(plugin, engine, currentTickSupplier);
         }
         return instance;
     }
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerDisconnect(PlayerQuitEvent e) {
-        PlayerRegistry.getInstance().unregisterPlayer(e.getPlayer().getUniqueId());
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true) //Paper ignoreCancelled means "do not run this method if the event is cancelled", not "run even if cancelled"
+    public void onEntityRemove(EntityRemoveEvent event) {
+        EntityBypassRegistry.markEntityDespawned(event.getEntity().getEntityId());
     }
 
     @EventHandler(priority = EventPriority.LOWEST) //Runs first
-    public void onPlayerJoin(PlayerJoinEvent e) {
+    public void onPlayerJoin(PlayerClientLoadedWorldEvent e) {
         Player player = e.getPlayer();
 
-        if (player.hasPermission("raycastedantiesp.updatecheck")) { //todo: centralise permission strings to prevent issues when perm names are changed
+        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+        if (playerData == null) {
+            Logger.error("Player joined before packet state was registered. Kicking player=" + player.getName() + " uuid=" + player.getUniqueId(), 1, EventListener.class);
+            player.kick(MiniMessage.miniMessage().deserialize("RaycastedAntiESP failed to initialise your packet state. Please reconnect. Report this issue to the server you are playing on if you are still unable to join."));
+            return;
+        }
+
+        if (ConfigManager.get().getUpdateConfig().notifyInGame()
+                && player.hasPermission("raycastedantiesp.updatecheck")
+                && (playerData.getJoinTick() - currentTickSupplier.getAsInt() < 10)) { //todo: centralise permission strings to prevent issues when perm names are changed
             checkForUpdates(plugin, player);
         }
 
         boolean hasBypassPermission = player.hasPermission("raycastedantiesp.bypass");
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
-
-        if (playerData == null) {
-            Logger.warning("Failed to load player data for " + player.getName() + " (" + player.getUniqueId() + "). Attempting to reconstruct.", 3, EventListener.class);
-            playerData = PlayerRegistry.getInstance().registerAndGetPlayerIfAbsent(player.getUniqueId(), hasBypassPermission, currentTickSupplier.getAsInt());
-        }
         playerData.setBypassPermission(hasBypassPermission);
         updateOwnLocation(playerData, player.getEyeLocation());
-        if (hasBypassPermission) {
-            RaycastedAntiESP.getPacketEventsController().enableBypass(playerData, currentTickSupplier.getAsInt());
-        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -94,7 +104,7 @@ public class EventListener extends PaperListener {
 
     @EventHandler(priority = EventPriority.LOWEST) //Runs first
     public void serverTickStartEvent(ServerTickStartEvent event) {
-        Bukkit.getAsyncScheduler().runNow(plugin, task -> engine.tick());
+
     }
 
     @EventHandler(priority = EventPriority.MONITOR) //Runs last
@@ -105,18 +115,7 @@ public class EventListener extends PaperListener {
         if (playerData == null || location == null || location.getWorld() == null) {
             return;
         }
-        Vector direction = location.getDirection();
-        playerData.updateOwnLocationAndLook(
-                location.getWorld().getUID(),
-                location.getX(),
-                location.getY(),
-                location.getZ(),
-                location.getYaw(),
-                location.getPitch(),
-                direction.getX(),
-                direction.getY(),
-                direction.getZ()
-        );
+        playerData.updateOwnLocation(location.getWorld().getUID(), location.getX(), location.getY(), location.getZ());
     }
 
     private void updateOwnLocation(Player player, Location location) {

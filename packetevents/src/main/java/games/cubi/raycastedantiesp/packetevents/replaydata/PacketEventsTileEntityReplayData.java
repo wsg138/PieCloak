@@ -5,8 +5,8 @@ import com.github.retrooper.packetevents.protocol.world.blockentity.BlockEntityT
 import games.cubi.raycastedantiesp.core.utils.Clearable;
 
 public final class PacketEventsTileEntityReplayData implements Clearable {
-    private volatile BlockEntityType blockEntityType;
-    private volatile NBTCompound nbt;
+    private BlockEntityType blockEntityType;
+    private NBTCompound nbt;
 
     public BlockEntityType blockEntityType() {
         return blockEntityType;
