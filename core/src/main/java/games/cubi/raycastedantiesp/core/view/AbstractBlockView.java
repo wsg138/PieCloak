@@ -4,16 +4,17 @@ import ca.spottedleaf.concurrentutil.map.SWMRInt2ObjectHashTable;
 import games.cubi.locatables.api.BlockLocatable;
 import games.cubi.locatables.api.BlockSpatial;
 import games.cubi.logs.Logger;
-import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.chunks.BlockChunkData;
+import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkData;
-import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
-import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
+import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
+import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
 import games.cubi.raycastedantiesp.core.utils.InvasivelyLinkedSWMRList;
 import games.cubi.raycastedantiesp.core.utils.VarHandler;
 import games.cubi.raycastedantiesp.core.view.chunks.BlockChunkSectionStore;
+import games.cubi.raycastedantiesp.core.view.chunks.BlockEntitySectionStore;
 import games.cubi.raycastedantiesp.core.view.chunks.ChunkSectionStore;
 import games.cubi.raycastedantiesp.core.view.chunks.OccludingChunkSectionStore;
 
@@ -32,21 +33,31 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     public static final int LOCAL_MASK = CHUNK_SIZE - 1;
 
     private final ChunkSectionStore chunks;
+    private final BlockEntitySectionStore blockEntitySections;
     private final boolean trackAllBlocks;
     /**
-     * The int key represents a packed chunk column bucket, with (signed) 16 bits allocated for x and z respectively. While chunk columns over 60k chunks apart may overlap, this is unlikely to ever actually occur.
-     * <p> {@code NettyTileEntity<R>} is an {@link InvasivelyLinkedSWMRList}, so all tile entities in the column chain from the head entry.
-     * <p> Since direct access to this object outside {@link AbstractBlockView} is impossible, a marker head object is skipped, and head removal is handled separately.
-     * **/
-    private final SWMRInt2ObjectHashTable<NettyTileEntity<R>> knownTileEntitiesByColumnBucket = new SWMRInt2ObjectHashTable<>();
+     * The int key represents a packed chunk column bucket, with (signed) 16 bits allocated for x and z respectively.
+     * While chunk columns over 60k chunks apart may overlap, this is unlikely to ever actually occur.
+     *
+     * <p>{@code NettyTileEntity<R>} is an {@link InvasivelyLinkedSWMRList}, so all tile entities in the column chain
+     * from the head entry.</p>
+     *
+     * <p>Since direct access to this object outside {@link AbstractBlockView} is impossible, a marker head object is
+     * skipped, and head removal is handled separately.</p>
+     */
+    private final SWMRInt2ObjectHashTable<NettyTileEntity<R>> knownTileEntitiesByColumnBucket =
+            new SWMRInt2ObjectHashTable<>();
     private final PackedBlockTransitionQueue transitions = new PackedBlockTransitionQueue();
     private final IntSupplier worldEpochSupplier;
     private volatile UUID trackedWorld;
     // Bit 0 is enabled; higher bits are a generation. The generation prevents enabled -> disabled -> enabled ABA from
     // accepting an old raycast and also tags transitions that may be drained after their originating mode was replaced.
-    private volatile long tileEntityCheckModeToken; private static final VarHandle TILE_ENTITY_CHECK_MODE_TOKEN = VarHandler.get(AbstractBlockView.class, "tileEntityCheckModeToken", long.class);
+    private volatile long tileEntityCheckModeToken;
+    private static final VarHandle TILE_ENTITY_CHECK_MODE_TOKEN =
+            VarHandler.get(AbstractBlockView.class, "tileEntityCheckModeToken", long.class);
 
-    protected AbstractBlockView(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks, IntSupplier worldEpochSupplier) {
+    protected AbstractBlockView(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks,
+            IntSupplier worldEpochSupplier) {
         Logger.requireNonNull(blockInfoResolver, "blockInfoResolver was null", 1, AbstractBlockView.class);
         Logger.requireNonNull(worldEpochSupplier, "worldEpochSupplier was null", 1, AbstractBlockView.class);
         this.trackAllBlocks = trackAllBlocks;
@@ -54,10 +65,10 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         this.chunks = trackAllBlocks
                 ? new BlockChunkSectionStore(blockInfoResolver)
                 : new OccludingChunkSectionStore(blockInfoResolver);
+        this.blockEntitySections = new BlockEntitySectionStore(blockInfoResolver);
     }
 
     protected abstract T createTrackedTileEntity(BlockSpatial position, char blockID, boolean visible);
-
 
     @Override
     public boolean isBlockOccluding(int x, int y, int z) {
@@ -69,8 +80,15 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         if (location == null || !isTrackedWorld(location.world())) {
             return false;
         }
-
         return isBlockOccluding(location.blockX(), location.blockY(), location.blockZ());
+    }
+
+    @Override
+    public BlockEntityStatus getBlockEntityStatus(UUID world, BlockSpatial position) {
+        if (position == null || !isTrackedWorld(world)) {
+            return BlockEntityStatus.UNKNOWN;
+        }
+        return blockEntitySections.getStatus(position.blockX(), position.blockY(), position.blockZ());
     }
 
     public int loadedChunkCount() {
@@ -122,7 +140,9 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         if (position == null || !isTrackedWorld(world)) {
             return null;
         }
-        return findTileEntityInBucket(knownTileEntitiesByColumnBucket.get(packColumnBucket(position.chunkX(), position.chunkZ())), position);
+        return findTileEntityInBucket(
+                knownTileEntitiesByColumnBucket.get(packColumnBucket(position.chunkX(), position.chunkZ())),
+                position);
     }
 
     @Override
@@ -134,7 +154,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         return state == null || state.visible();
     }
 
-    private void commitTileEntityVisibilityDecision(T tileEntity, boolean currentVisibility, boolean shouldBeVisible, int currentTick, long modeToken, int expectedWorldEpoch) {
+    private void commitTileEntityVisibilityDecision(T tileEntity, boolean currentVisibility,
+            boolean shouldBeVisible, int currentTick, long modeToken, int expectedWorldEpoch) {
         if (!isCurrentWorldEpoch(expectedWorldEpoch) || tileEntityCheckModeTokenAcquire() != modeToken) {
             return;
         }
@@ -145,13 +166,13 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         tileEntity.setVisible(shouldBeVisible);
         tileEntity.setLastChecked(currentTick);
         if (visibilityChanged) {
-            BlockViewTransition.Type type = shouldBeVisible ? BlockViewTransition.Type.SHOW : BlockViewTransition.Type.HIDE;
+            BlockViewTransition.Type type =
+                    shouldBeVisible ? BlockViewTransition.Type.SHOW : BlockViewTransition.Type.HIDE;
             transitions.add(type, tileEntity, modeToken, expectedWorldEpoch);
         }
     }
 
     @Override
-    // Only used on non-mutation paths
     public void recordOutboundTileEntityVisibility(TrackedTileEntity<?> tileEntity, boolean visible) {
         if (tileEntity != null) {
             tileEntity.setVisible(visible);
@@ -160,7 +181,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     @Override
-    public void applyTileEntityCheckMode(boolean enabled, int currentTick, Consumer<TrackedTileEntity<?>> visibilityRepairConsumer) {
+    public void applyTileEntityCheckMode(boolean enabled, int currentTick,
+            Consumer<TrackedTileEntity<?>> visibilityRepairConsumer) {
         long current = tileEntityCheckModeTokenAcquire();
         if (modeEnabled(current) == enabled) {
             return;
@@ -174,13 +196,25 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         }
 
         TILE_ENTITY_CHECK_MODE_TOKEN.setRelease(this, next);
+        RuntimeException[] firstFailure = {null};
         forEachTileEntity(tileEntity -> {
             if (!tileEntity.visible()) {
                 tileEntity.setVisible(true);
                 tileEntity.setLastChecked(currentTick);
-                visibilityRepairConsumer.accept(tileEntity);
+                try {
+                    visibilityRepairConsumer.accept(tileEntity);
+                } catch (RuntimeException exception) {
+                    if (firstFailure[0] == null) {
+                        firstFailure[0] = exception;
+                    } else if (firstFailure[0] != exception) {
+                        firstFailure[0].addSuppressed(exception);
+                    }
+                }
             }
         });
+        if (firstFailure[0] != null) {
+            throw firstFailure[0];
+        }
     }
 
     @Override
@@ -201,12 +235,17 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     @Override
-    public int forEachNeedingRecheck(int recheckTicks, int currentTick, Consumer<TrackedTileEntity<?>> action) {
+    public int forEachNeedingRecheck(int recheckTicks, int currentTick,
+            Consumer<TrackedTileEntity<?>> action) {
         return knownTileEntitiesByColumnBucket.forEachValueSummed(head -> {
             int processed = 0;
-            for (NettyTileEntity<R> tileEntity = head; tileEntity != null; tileEntity = tileEntity.nextAcquire()) {
+            for (NettyTileEntity<R> tileEntity = head;
+                    tileEntity != null;
+                    tileEntity = tileEntity.nextAcquire()) {
                 int lastChecked = tileEntity.lastChecked();
-                if (tileEntity.visible() && lastChecked != TrackedTileEntity.NEVER_CHECKED && (recheckTicks < 0 || currentTick - lastChecked < recheckTicks)) {
+                if (tileEntity.visible()
+                        && lastChecked != TrackedTileEntity.NEVER_CHECKED
+                        && (recheckTicks < 0 || currentTick - lastChecked < recheckTicks)) {
                     continue;
                 }
                 action.accept(tileEntity);
@@ -217,22 +256,30 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     @Override
-    public int updateVisibilityForEachNeedingRecheck(int recheckTicks, int currentTick, long modeToken, int expectedWorldEpoch, VisibilityResolver action) {
+    public int updateVisibilityForEachNeedingRecheck(int recheckTicks, int currentTick, long modeToken,
+            int expectedWorldEpoch, VisibilityResolver action) {
         if (!isCurrentEnabledTileEntityMode(modeToken) || !isCurrentWorldEpoch(expectedWorldEpoch)) {
             return 0;
         }
         return knownTileEntitiesByColumnBucket.forEachValueSummed(head -> {
             int processed = 0;
-            for (NettyTileEntity<R> tileEntity = head; tileEntity != null; tileEntity = tileEntity.nextAcquire()) {
+            for (NettyTileEntity<R> tileEntity = head;
+                    tileEntity != null;
+                    tileEntity = tileEntity.nextAcquire()) {
                 boolean currentVisibility = tileEntity.visible();
                 int lastChecked = tileEntity.lastChecked();
-                if (currentVisibility && lastChecked != TrackedTileEntity.NEVER_CHECKED && (recheckTicks < 0 || currentTick - lastChecked < recheckTicks)) {
+                if (currentVisibility
+                        && lastChecked != TrackedTileEntity.NEVER_CHECKED
+                        && (recheckTicks < 0 || currentTick - lastChecked < recheckTicks)) {
                     continue;
                 }
                 byte shouldBeVisible = action.setVisible(tileEntity);
                 if (shouldBeVisible != VisibilityResolver.SKIPPED) {
-                    @SuppressWarnings("unchecked") T typed = (T) tileEntity;
-                    commitTileEntityVisibilityDecision(typed, currentVisibility, shouldBeVisible == VisibilityResolver.SHOW, currentTick, modeToken, expectedWorldEpoch);
+                    @SuppressWarnings("unchecked")
+                    T typed = (T) tileEntity;
+                    commitTileEntityVisibilityDecision(typed, currentVisibility,
+                            shouldBeVisible == VisibilityResolver.SHOW,
+                            currentTick, modeToken, expectedWorldEpoch);
                 }
                 processed++;
             }
@@ -261,6 +308,7 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             return;
         }
         chunks.setBlockID(x, y, z, blockID);
+        blockEntitySections.setBlockID(x, y, z, blockID);
     }
 
     @Override
@@ -269,6 +317,7 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             return;
         }
         chunks.removeColumn(chunkX, chunkZ);
+        blockEntitySections.removeColumn(chunkX, chunkZ);
         removeTileEntitiesInChunk(chunkX, chunkZ);
     }
 
@@ -278,11 +327,15 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             return;
         }
         chunks.removeSection(chunkX, chunkY, chunkZ);
+        blockEntitySections.removeSection(chunkX, chunkY, chunkZ);
     }
 
     @Override
-    public void pruneTileEntitiesAbsentFromChunkSections(UUID world, int chunkX, int chunkZ, int minimumSectionY, int sectionCount, long[][] presentBySection) {
-        if (!isTrackedWorld(world) || sectionCount < 0 || (presentBySection != null && presentBySection.length != sectionCount)) {
+    public void pruneTileEntitiesAbsentFromChunkSections(UUID world, int chunkX, int chunkZ,
+            int minimumSectionY, int sectionCount, long[][] presentBySection) {
+        if (!isTrackedWorld(world)
+                || sectionCount < 0
+                || (presentBySection != null && presentBySection.length != sectionCount)) {
             return;
         }
         SWMRInt2ObjectHashTable<NettyTileEntity<R>> map = knownTileEntitiesByColumnBucket;
@@ -294,13 +347,16 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             NettyTileEntity<R> next = current.nextAcquire();
             if (current.chunkX() == chunkX && current.chunkZ() == chunkZ) {
                 int sectionIndex = current.chunkY() - minimumSectionY;
-                long[] present = sectionIndex >= 0 && sectionIndex < sectionCount && presentBySection != null
+                long[] present = sectionIndex >= 0
+                        && sectionIndex < sectionCount
+                        && presentBySection != null
                         ? presentBySection[sectionIndex]
                         : null;
                 if (sectionIndex < 0 || sectionIndex >= sectionCount || present == null) {
                     currentHead = removeNode(map, bucketKey, currentHead, current);
                 } else {
-                    int packed = packUncheckedGuarded(current.blockX(), current.blockY(), current.blockZ());
+                    int packed = packUncheckedGuarded(
+                            current.blockX(), current.blockY(), current.blockZ());
                     // Guarded packing masks the full coordinates to local x/y/z. The high bits choose the 64-bit word;
                     // Java masks the long shift distance to the low six bits, selecting the bit within that word.
                     if ((present[packed >>> 6] & 1L << packed) == 0L) {
@@ -313,7 +369,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     @Override
-    public void replaceChunkSection(UUID world, int chunkX, int chunkY, int chunkZ, BlockChunkData data) {
+    public void replaceChunkSection(UUID world, int chunkX, int chunkY, int chunkZ,
+            BlockChunkData data) {
         if (!ensureTrackedWorld(world)) {
             return;
         }
@@ -321,14 +378,25 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     @Override
-    public void replaceChunkSectionOcclusion(UUID world, int chunkX, int chunkY, int chunkZ, OccludingChunkData data) {
+    public void replaceChunkSectionOcclusion(UUID world, int chunkX, int chunkY, int chunkZ,
+            OccludingChunkData data) {
         if (trackAllBlocks) {
-            throw new UnsupportedOperationException("Block chunk storage requires full block IDs for section replacement");
+            throw new UnsupportedOperationException(
+                    "Block chunk storage requires full block IDs for section replacement");
         }
         if (!ensureTrackedWorld(world)) {
             return;
         }
         chunks.replaceSectionOcclusion(chunkX, chunkY, chunkZ, data);
+    }
+
+    @Override
+    public void replaceChunkSectionBlockEntities(UUID world, int chunkX, int chunkY, int chunkZ,
+            OccludingChunkData managedBlockEntities) {
+        if (!ensureTrackedWorld(world)) {
+            return;
+        }
+        blockEntitySections.replaceSection(chunkX, chunkY, chunkZ, managedBlockEntities);
     }
 
     @Override
@@ -357,6 +425,7 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
 
     private void clearTrackedState() {
         chunks.clear();
+        blockEntitySections.clear();
         forEachTileEntity(NettyTileEntity::markRemoved);
         knownTileEntitiesByColumnBucket.clear();
         transitions.clearPublishedTransitions();
@@ -381,13 +450,17 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             // Removing the map entry publishes removal of the whole bucket. Keep the old chain intact so readers that
             // already acquired its head can finish their weakly-consistent traversal; detached nodes are never reused.
             map.remove(bucketKey, head);
-            for (NettyTileEntity<R> current = head; current != null; current = current.nextAcquire()) {
+            for (NettyTileEntity<R> current = head;
+                    current != null;
+                    current = current.nextAcquire()) {
                 current.markRemoved();
             }
             return;
         }
 
-        Logger.info("Chunk collision occured, failing back to linear scan for tile entity removal in chunk " + chunkX + ", " + chunkZ, 5, AbstractBlockView.class); // I want to see if this occurs frequently
+        Logger.info("Chunk collision occured, failing back to linear scan for tile entity removal in chunk "
+                        + chunkX + ", " + chunkZ,
+                5, AbstractBlockView.class);
 
         // Wrapped-key collisions are rare. Remove matching nodes individually while preserving other columns.
         NettyTileEntity<R> currentHead = head;
@@ -400,7 +473,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         }
     }
 
-    private NettyTileEntity<R> removeNode(SWMRInt2ObjectHashTable<NettyTileEntity<R>> map, int bucketKey, NettyTileEntity<R> head, NettyTileEntity<R> node) {
+    private NettyTileEntity<R> removeNode(SWMRInt2ObjectHashTable<NettyTileEntity<R>> map,
+            int bucketKey, NettyTileEntity<R> head, NettyTileEntity<R> node) {
         node.markRemoved();
         if (node != head) {
             node.unlink();
@@ -418,8 +492,12 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
 
     @SuppressWarnings("unchecked")
     private T findTileEntityInBucket(NettyTileEntity<R> bucketHead, BlockSpatial position) {
-        for (NettyTileEntity<R> current = bucketHead; current != null; current = current.nextAcquire()) {
-            if (current.blockX() == position.blockX() && current.blockY() == position.blockY() && current.blockZ() == position.blockZ()) {
+        for (NettyTileEntity<R> current = bucketHead;
+                current != null;
+                current = current.nextAcquire()) {
+            if (current.blockX() == position.blockX()
+                    && current.blockY() == position.blockY()
+                    && current.blockZ() == position.blockZ()) {
                 return (T) current;
             }
         }
@@ -427,7 +505,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     private boolean isCurrentWorldEpoch(int expectedWorldEpoch) {
-        return PlayerData.isStableWorldEpoch(expectedWorldEpoch) && worldEpochSupplier.getAsInt() == expectedWorldEpoch;
+        return PlayerData.isStableWorldEpoch(expectedWorldEpoch)
+                && worldEpochSupplier.getAsInt() == expectedWorldEpoch;
     }
 
     private long tileEntityCheckModeTokenAcquire() {
@@ -436,7 +515,9 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
 
     private void forEachTileEntity(Consumer<NettyTileEntity<R>> action) {
         knownTileEntitiesByColumnBucket.forEachValue(head -> {
-            for (NettyTileEntity<R> current = head; current != null; current = current.nextAcquire()) {
+            for (NettyTileEntity<R> current = head;
+                    current != null;
+                    current = current.nextAcquire()) {
                 action.accept(current);
             }
         });

@@ -2,11 +2,16 @@ package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import com.github.retrooper.packetevents.event.PacketListener;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
+import com.github.retrooper.packetevents.event.UserDisconnectEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.User;
 import com.github.retrooper.packetevents.protocol.world.chunk.Column;
 import com.github.retrooper.packetevents.util.Vector3i;
-import com.github.retrooper.packetevents.wrapper.play.server.*;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockEntityData;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChunkData;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerUnloadChunk;
 import games.cubi.locatables.api.BlockSpatial;
 import games.cubi.locatables.api.Locatable;
 import games.cubi.locatables.implementations.ImmutableBlockSpatialImpl;
@@ -15,13 +20,16 @@ import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.config.ConfigManager;
 import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
-import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
-import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
+import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.BlockViewTransition;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsTileEntityReplayData;
+import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
+import games.cubi.raycastedantiesp.packetevents.viewcontrollers.BlockTransitionRetryQueue.Operation;
+import games.cubi.raycastedantiesp.packetevents.viewcontrollers.BlockTransitionRetryQueue.Stage;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.chunkparser.BlockChunkParser;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.chunkparser.ChunkParser;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.chunkparser.NonMutatingBlockChunkParser;
@@ -30,19 +38,32 @@ import games.cubi.raycastedantiesp.packetevents.viewcontrollers.chunkparser.Occl
 import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.IntSupplier;
 
 public abstract class PacketEventsBlockViewController implements PacketListener {
+    private static final int MAX_DIAGNOSTICS_PER_KIND = 5;
+
     private final BlockInfoResolver blockInfoResolver;
+    private final PacketEventsTargetFilter targetFilter;
     private final ChunkParser mutatingChunkParser;
     private final ChunkParser nonMutatingChunkParser;
     private final IntSupplier currentTickSupplier;
     private final PacketEventsCommonViewController common;
+    private final BlockTransitionRetryQueue transitionRetries = new BlockTransitionRetryQueue();
+    private final AtomicInteger unknownBlockEntityDiagnostics = new AtomicInteger();
+    private final AtomicInteger bulkChunkDiagnostics = new AtomicInteger();
+    private final AtomicInteger retryOverflowDiagnostics = new AtomicInteger();
     private TileEntityConfig tileEntityConfig = null;
     private int hideOnSpawnDistanceSquared = 0;
 
-    protected PacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks, IntSupplier currentTickSupplier) {
+    protected PacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks,
+            IntSupplier currentTickSupplier) {
         this.blockInfoResolver = blockInfoResolver;
+        this.targetFilter = blockInfoResolver instanceof PacketEventsTargetFilter filter
+                ? filter
+                : PacketEventsTargetFilter.DISABLED;
         this.currentTickSupplier = currentTickSupplier;
         common = PacketEventsCommonViewController.get(currentTickSupplier);
         if (trackAllBlocks) {
@@ -57,37 +78,50 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     protected abstract int getHiddenBlockId(int blockY);
 
     public void removeViewer(UUID viewerUUID) {
+        transitionRetries.clear(viewerUUID);
+    }
+
+    @Override
+    public void onUserDisconnect(UserDisconnectEvent event) {
+        removeViewer(event.getUser().getUUID());
     }
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
-        UUID viewerUUID = event.getUser().getUUID();
+        User viewer = event.getUser();
+        UUID viewerUUID = viewer.getUUID();
         if (viewerUUID == null) {
             return;
         }
 
-        if (!(ConfigManager.get().getTileEntityConfig() == tileEntityConfig)) {
+        if (ConfigManager.get().getTileEntityConfig() != tileEntityConfig) {
             tileEntityConfig = ConfigManager.get().getTileEntityConfig();
             hideOnSpawnDistanceSquared = tileEntityConfig.hideOnSpawnDistance() * tileEntityConfig.hideOnSpawnDistance();
         }
 
         PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(viewerUUID);
         if (playerData == null) {
+            transitionRetries.clear(viewerUUID);
             return;
         }
 
-        UUID world = common.resolvePacketWorld(playerData, event.getUser());
+        UUID world = common.resolvePacketWorld(playerData, viewer);
         int currentTick = currentTickSupplier.getAsInt();
+        int worldEpoch = playerData.acquireWorldEpoch();
+
         boolean tileChecksEnabled = tileChecksEnabledForViewer(
                 tileEntityConfig.enabled(), playerData.hasBypassPermission());
         BlockView blockView = playerData.blockView();
         blockView.applyTileEntityCheckMode(tileChecksEnabled, currentTick,
-                tileEntity -> sendTileEntityVisibilityRepair(event.getUser(), tileEntity));
+                tileEntity -> processModeRepairSafely(viewerUUID, viewer, blockView, worldEpoch,
+                        tileEntity, blockView.tileEntityCheckModeToken(), currentTick, 0, Stage.BLOCK));
+        transitionRetries.discardStale(viewerUUID, worldEpoch, blockView.tileEntityCheckModeToken());
 
-        handleBlockPackets(event, event.getUser(), playerData, world, currentTick, tileChecksEnabled);
+        handleBlockPackets(event, viewer, playerData, world, currentTick, tileChecksEnabled);
 
+        processTransitionRetries(viewerUUID, viewer, playerData, currentTick);
         if (blockView.hasPendingTransitions()) {
-            processTileEntityTransitions(event.getUser(), playerData);
+            processTileEntityTransitions(viewerUUID, viewer, playerData, currentTick);
         }
     }
 
@@ -95,7 +129,17 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         return configuredEnabled && !hasBypassPermission;
     }
 
-    private void handleBlockPackets(PacketSendEvent event, User viewer, PlayerData playerData, UUID world, int currentTick, boolean tileChecksEnabled) {
+    static boolean shouldFailClosedForUnknownBlockEntity(boolean tileChecksEnabled,
+            BlockView.BlockEntityStatus blockStatus, boolean packetTypeManaged) {
+        if (!tileChecksEnabled) {
+            return false;
+        }
+        return blockStatus == BlockView.BlockEntityStatus.MANAGED
+                || blockStatus == BlockView.BlockEntityStatus.UNKNOWN && packetTypeManaged;
+    }
+
+    private void handleBlockPackets(PacketSendEvent event, User viewer, PlayerData playerData, UUID world,
+            int currentTick, boolean tileChecksEnabled) {
         if (world == null) {
             return;
         }
@@ -107,36 +151,97 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             removeChunk(packet, blockView, world);
         } else if (event.getPacketType() == PacketType.Play.Server.BLOCK_CHANGE) {
             WrapperPlayServerBlockChange packet = new WrapperPlayServerBlockChange(event);
-            handleSingleBlockChange(event, viewer, playerData, world, packet, tileChecksEnabled);
+            handleSingleBlockChange(event, viewer, playerData, world, packet, tileChecksEnabled, currentTick);
         } else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
             WrapperPlayServerMultiBlockChange packet = new WrapperPlayServerMultiBlockChange(event);
             handleMultiBlockChange(event, blockView, world, packet, playerData.ownLocation(), tileChecksEnabled);
         } else if (event.getPacketType() == PacketType.Play.Server.BLOCK_ENTITY_DATA) {
             WrapperPlayServerBlockEntityData packet = new WrapperPlayServerBlockEntityData(event);
-            ImmutableBlockSpatialImpl position = new ImmutableBlockSpatialImpl(packet.getPosition().getX(), packet.getPosition().getY(), packet.getPosition().getZ());
-            TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity = getTrackedTileEntity(blockView, world, position);
+            ImmutableBlockSpatialImpl position = new ImmutableBlockSpatialImpl(
+                    packet.getPosition().getX(), packet.getPosition().getY(), packet.getPosition().getZ());
+            TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity =
+                    getTrackedTileEntity(blockView, world, position);
             if (tileEntity == null) {
-                // This can be triggered by things such as virtual signs
-                Logger.warning("Received standalone block entity data for an uncached tile entity. Location: " + world + " " + position.blockX() + "," + position.blockY() + "," + position.blockZ() + ". Data:" + packet.getBlockEntityType().getName() + packet.getNBT(), 7, PacketEventsBlockViewController.class);
+                BlockView.BlockEntityStatus blockStatus = blockView.getBlockEntityStatus(world, position);
+                boolean packetTypeManaged = targetFilter.shouldCullBlockEntity(packet.getBlockEntityType());
+                boolean failClosed = shouldFailClosedForUnknownBlockEntity(
+                        tileChecksEnabled, blockStatus, packetTypeManaged);
+                logUnknownBlockEntity(world, position, packet, blockStatus, packetTypeManaged, failClosed);
+                if (failClosed) {
+                    event.setCancelled(true);
+                    sendUnknownManagedTileFallback(viewer, position);
+                }
                 return;
             }
+
             ensureTileReplayData(tileEntity).setBlockEntityData(packet.getBlockEntityType(), packet.getNBT());
             if (tileChecksEnabled && !blockView.isVisible(world, position, currentTick)) {
                 event.setCancelled(true);
-                sendHiddenBlock(viewer, position);
+                processTileEntityOperationSafely(playerData.getPlayerUUID(), viewer, blockView,
+                        playerData.acquireWorldEpoch(), Operation.HIDE, tileEntity,
+                        blockView.tileEntityCheckModeToken(), currentTick, 0, Stage.BLOCK, tileEntity.blockID());
             }
         } else if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
             WrapperPlayServerChunkData packet = new WrapperPlayServerChunkData(event);
             ChunkParser parser = tileChecksEnabled ? mutatingChunkParser : nonMutatingChunkParser;
-            @Nullable Column result = parser.parse(blockView, world, packet.getColumn(), playerData.nettyData().getCurrentWorldMinHeight() >> 4);
+            @Nullable Column result = parser.parse(blockView, world, packet.getColumn(),
+                    playerData.nettyData().getCurrentWorldMinHeight() >> 4);
             if (result != null) {
                 packet.setColumn(result);
                 event.markForReEncode(true);
             }
-
         } else if (event.getPacketType() == PacketType.Play.Server.MAP_CHUNK_BULK) {
-            WrapperPlayServerChunkDataBulk packet = new WrapperPlayServerChunkDataBulk(event);
-            throw new RuntimeException("I didn't think this packet existed. Please report this to the developer with details on how to reproduce it so it can be implemented");
+            handleUnexpectedBulkChunkPacket(bulkChunkDiagnostics, viewer.getUUID(), currentTick);
+        }
+    }
+
+    static void handleUnexpectedBulkChunkPacket(AtomicInteger diagnostics, UUID viewerUUID, int currentTick) {
+        handleUnexpectedBulkChunkPacket(diagnostics, viewerUUID, currentTick,
+                message -> Logger.warning(message, 3, PacketEventsBlockViewController.class));
+    }
+
+    static void handleUnexpectedBulkChunkPacket(AtomicInteger diagnostics, UUID viewerUUID, int currentTick,
+            Consumer<String> warningSink) {
+        int diagnostic = diagnostics.incrementAndGet();
+        if (diagnostic <= MAX_DIAGNOSTICS_PER_KIND) {
+            warningSink.accept("Passing unexpected MAP_CHUNK_BULK packet through unchanged. viewer=" + viewerUUID
+                    + " tick=" + currentTick + diagnosticSuffix(diagnostic));
+        }
+    }
+
+    private void logUnknownBlockEntity(UUID world, BlockSpatial position, WrapperPlayServerBlockEntityData packet,
+            BlockView.BlockEntityStatus blockStatus, boolean packetTypeManaged, boolean failClosed) {
+        int diagnostic = unknownBlockEntityDiagnostics.incrementAndGet();
+        if (diagnostic > MAX_DIAGNOSTICS_PER_KIND) {
+            return;
+        }
+        String blockEntityType = packet.getBlockEntityType() == null
+                ? "unknown"
+                : packet.getBlockEntityType().getName().toString();
+        Logger.warning("Received standalone block entity data without tracked tile state. world=" + world
+                        + " position=" + position.blockX() + "," + position.blockY() + "," + position.blockZ()
+                        + " blockEntityType=" + blockEntityType
+                        + " blockStatus=" + blockStatus
+                        + " packetTypeManaged=" + packetTypeManaged
+                        + " action=" + (failClosed ? "cancel-and-hide" : "pass-virtual")
+                        + diagnosticSuffix(diagnostic),
+                5, PacketEventsBlockViewController.class);
+    }
+
+    private static String diagnosticSuffix(int diagnostic) {
+        return diagnostic == MAX_DIAGNOSTICS_PER_KIND ? " (further messages suppressed)" : "";
+    }
+
+    private void sendUnknownManagedTileFallback(User viewer, BlockSpatial position) {
+        try {
+            viewer.writePacketSilently(new WrapperPlayServerBlockChange(
+                    new Vector3i(position.blockX(), position.blockY(), position.blockZ()),
+                    getHiddenBlockId(position.blockY())));
+        } catch (RuntimeException exception) {
+            Logger.error("Failed to send fail-closed block fallback for untracked managed block entity. viewer="
+                            + viewer.getUUID() + " position=" + position.blockX() + "," + position.blockY() + ","
+                            + position.blockZ(),
+                    exception, 2, PacketEventsBlockViewController.class);
         }
     }
 
@@ -144,7 +249,8 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         blockView.removeChunk(world, packet.getChunkX(), packet.getChunkZ());
     }
 
-    private void handleMultiBlockChange(PacketSendEvent event, BlockView blockView, UUID world, WrapperPlayServerMultiBlockChange packet, Locatable playerLocation, boolean tileChecksEnabled) {
+    private void handleMultiBlockChange(PacketSendEvent event, BlockView blockView, UUID world,
+            WrapperPlayServerMultiBlockChange packet, Locatable playerLocation, boolean tileChecksEnabled) {
         MutableBlockSpatialImpl key = new MutableBlockSpatialImpl(0, 0, 0);
         for (WrapperPlayServerMultiBlockChange.EncodedBlock change : packet.getBlocks()) {
             char blockID = (char) change.getBlockId();
@@ -153,7 +259,8 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             key.setBlockPosition(change.getX(), change.getY(), change.getZ());
             if (tileEntity) {
                 boolean visibleIfNew = !tileChecksEnabled || visibleIfNew(key, playerLocation, world);
-                TrackedTileEntity<?> state = blockView.updateOrInsertTileEntity(world, key, blockID, visibleIfNew);
+                TrackedTileEntity<?> state =
+                        blockView.updateOrInsertTileEntity(world, key, blockID, visibleIfNew);
                 if (!tileChecksEnabled) {
                     blockView.recordOutboundTileEntityVisibility(state, true);
                 } else if (state != null && !state.visible()) {
@@ -167,7 +274,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     }
 
     static class MutableVector3i extends Vector3i {
-        int x,y,z;
+        int x;
+        int y;
+        int z;
 
         public int getX() {
             return x;
@@ -190,124 +299,234 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     }
 
     private final ThreadLocal<MutableVector3i> vector = ThreadLocal.withInitial(MutableVector3i::new);
-    private final ThreadLocal<WrapperPlayServerBlockChange> blockChangeWrapper = ThreadLocal.withInitial(() -> new WrapperPlayServerBlockChange(vector.get(), 0));
+    private final ThreadLocal<WrapperPlayServerBlockChange> blockChangeWrapper =
+            ThreadLocal.withInitial(() -> new WrapperPlayServerBlockChange(vector.get(), 0));
 
     private WrapperPlayServerBlockChange getBlockChangeWith(int x, int y, int z, int blockID) {
-        MutableVector3i vec = vector.get().set(x,y,z);
+        MutableVector3i vec = vector.get().set(x, y, z);
         WrapperPlayServerBlockChange change = blockChangeWrapper.get();
         change.setBlockID(blockID);
         change.setBlockPosition(vec);
         return change;
     }
 
-    private void processTileEntityTransitions(User viewer, PlayerData playerData) {
+    private void processTransitionRetries(UUID viewerUUID, User viewer, PlayerData playerData, int currentTick) {
+        int worldEpoch = playerData.acquireWorldEpoch();
+        BlockView blockView = playerData.blockView();
+        for (BlockTransitionRetryQueue.Retry retry :
+                transitionRetries.drainDue(viewerUUID, worldEpoch, currentTick)) {
+            processTileEntityOperationSafely(viewerUUID, viewer, blockView, worldEpoch,
+                    retry.operation(), retry.tileEntity(), retry.modeToken(), currentTick,
+                    retry.attempts(), retry.stage(), retry.expectedBlockID());
+        }
+    }
+
+    private void processTileEntityTransitions(UUID viewerUUID, User viewer, PlayerData playerData, int currentTick) {
         BlockView blockView = playerData.blockView();
         int worldEpoch = playerData.acquireWorldEpoch();
-        blockView.drainTransitions((type, tileEntity, modeToken, transitionWorldEpoch) ->
-                processTileEntityTransition(viewer, blockView, worldEpoch, type, tileEntity, modeToken, transitionWorldEpoch));
+        blockView.drainTransitions((type, tileEntity, modeToken, transitionWorldEpoch) -> {
+            Operation operation = type == BlockViewTransition.Type.HIDE ? Operation.HIDE : Operation.SHOW;
+            processTileEntityOperationSafely(viewerUUID, viewer, blockView, worldEpoch, operation,
+                    tileEntity, modeToken, currentTick, 0, Stage.BLOCK, tileEntity.blockID(),
+                    transitionWorldEpoch);
+        });
     }
 
-    private void processTileEntityTransition(User viewer, BlockView blockView, int worldEpoch,
-            BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity, long modeToken, int transitionWorldEpoch) {
-        TrackedTileEntity<PacketEventsTileEntityReplayData> state = resolveCurrentTransitionState(tileEntity, transitionWorldEpoch, worldEpoch);
-        if (state == null || state.blockID() == 0) {
+    private void processModeRepairSafely(UUID viewerUUID, User viewer, BlockView blockView, int worldEpoch,
+            TrackedTileEntity<?> tileEntity, long modeToken, int currentTick, int attempts, Stage stage) {
+        processTileEntityOperationSafely(viewerUUID, viewer, blockView, worldEpoch,
+                Operation.MODE_REPAIR, tileEntity, modeToken, currentTick, attempts, stage, tileEntity.blockID());
+    }
+
+    private void processTileEntityOperationSafely(UUID viewerUUID, User viewer, BlockView blockView,
+            int currentWorldEpoch, Operation operation, TrackedTileEntity<?> tileEntity, long modeToken,
+            int currentTick, int attempts, Stage stage, int expectedBlockID) {
+        processTileEntityOperationSafely(viewerUUID, viewer, blockView, currentWorldEpoch, operation,
+                tileEntity, modeToken, currentTick, attempts, stage, expectedBlockID, currentWorldEpoch);
+    }
+
+    private void processTileEntityOperationSafely(UUID viewerUUID, User viewer, BlockView blockView,
+            int currentWorldEpoch, Operation operation, TrackedTileEntity<?> tileEntity, long modeToken,
+            int currentTick, int attempts, Stage stage, int expectedBlockID, int transitionWorldEpoch) {
+        try {
+            processTileEntityOperation(viewer, blockView, currentWorldEpoch, operation, tileEntity,
+                    modeToken, stage, expectedBlockID, transitionWorldEpoch);
+        } catch (RuntimeException exception) {
+            Stage failedStage = exception instanceof TransitionWriteException writeFailure
+                    ? writeFailure.stage()
+                    : stage;
+            int nextAttempt = attempts == Integer.MAX_VALUE ? attempts : attempts + 1;
+            boolean evicted = transitionRetries.enqueue(viewerUUID, operation, failedStage, tileEntity,
+                    expectedBlockID, transitionWorldEpoch, modeToken, nextAttempt, currentTick);
+            if (nextAttempt == 1 || nextAttempt % 20 == 0) {
+                Exception loggedException = exception;
+                if (exception instanceof TransitionWriteException
+                        && exception.getCause() instanceof Exception cause) {
+                    loggedException = cause;
+                }
+                Logger.error("Block visibility synchronization failed and was queued for retry. viewer=" + viewerUUID
+                                + " position=" + tileEntity.blockX() + "," + tileEntity.blockY() + ","
+                                + tileEntity.blockZ()
+                                + " blockID=" + expectedBlockID
+                                + " operation=" + operation
+                                + " stage=" + failedStage
+                                + " attempts=" + nextAttempt,
+                        loggedException, 1, PacketEventsBlockViewController.class);
+            }
+            if (evicted) {
+                int diagnostic = retryOverflowDiagnostics.incrementAndGet();
+                if (diagnostic <= MAX_DIAGNOSTICS_PER_KIND) {
+                    Logger.warning("Block transition retry queue reached its per-viewer limit and evicted its oldest "
+                                    + "repair. viewer=" + viewerUUID + " limit="
+                                    + BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER
+                                    + diagnosticSuffix(diagnostic),
+                            2, PacketEventsBlockViewController.class);
+                }
+            }
+        }
+    }
+
+    private void processTileEntityOperation(User viewer, BlockView blockView, int currentWorldEpoch,
+            Operation operation, TrackedTileEntity<?> tileEntity, long modeToken, Stage stage,
+            int expectedBlockID, int transitionWorldEpoch) {
+        TrackedTileEntity<PacketEventsTileEntityReplayData> state =
+                resolveCurrentTransitionState(tileEntity, transitionWorldEpoch, currentWorldEpoch);
+        if (state == null || state.blockID() == 0 || state.blockID() != expectedBlockID) {
             return;
         }
-        switch (type) {
+
+        switch (operation) {
             case HIDE -> {
-                if (!blockView.isCurrentEnabledTileEntityMode(modeToken)) {
-                    state.setVisible(true);
-                    state.setLastChecked(TrackedTileEntity.NEVER_CHECKED);
+                if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || state.visible()) {
                     return;
                 }
-                viewer.writePacketSilently(getBlockChangeWith(tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), getHiddenBlockId(tileEntity.blockY())));
+                executeTransitionWrites(operation, stage,
+                        () -> viewer.writePacketSilently(getBlockChangeWith(
+                                state.blockX(), state.blockY(), state.blockZ(),
+                                getHiddenBlockId(state.blockY()))),
+                        null);
             }
             case SHOW -> {
-                if (!state.visible()) {
+                if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !state.visible()) {
                     return;
                 }
-                sendTileEntity(viewer, state);
+                sendTileEntityFromStage(viewer, state, operation, stage);
+            }
+            case MODE_REPAIR -> {
+                if (blockView.tileEntityCheckModeToken() != modeToken
+                        || (modeToken & 1L) != 0L
+                        || !state.visible()) {
+                    return;
+                }
+                sendTileEntityFromStage(viewer, state, operation, stage);
             }
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private void sendTileEntityVisibilityRepair(User viewer, TrackedTileEntity<?> tileEntity) {
-        TrackedTileEntity<PacketEventsTileEntityReplayData> state = (TrackedTileEntity<PacketEventsTileEntityReplayData>) tileEntity;
-        if (state.blockID() != 0) {
-            sendTileEntity(viewer, state);
-        }
-    }
-
-    private void sendTileEntity(User viewer, TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity) {
-        viewer.writePacketSilently(getBlockChangeWith(tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), tileEntity.blockID()));
-
+    private void sendTileEntityFromStage(User viewer,
+            TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity,
+            Operation operation, Stage stage) {
         PacketEventsTileEntityReplayData replayData = ensureTileReplayData(tileEntity);
-        if (replayData.blockEntityType() != null && replayData.nbt() != null) {
-            viewer.writePacketSilently(buildBlockEntityDataPacket(tileEntity, replayData));
+        Runnable blockEntityDataWrite = replayData.blockEntityType() != null && replayData.nbt() != null
+                ? () -> viewer.writePacketSilently(buildBlockEntityDataPacket(tileEntity, replayData))
+                : null;
+        executeTransitionWrites(operation, stage,
+                () -> viewer.writePacketSilently(getBlockChangeWith(
+                        tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), tileEntity.blockID())),
+                blockEntityDataWrite);
+    }
+
+    static void executeTransitionWrites(Operation operation, Stage startingStage,
+            Runnable blockWrite, @Nullable Runnable blockEntityDataWrite) {
+        if (operation == Operation.HIDE) {
+            if (startingStage != Stage.BLOCK) {
+                throw new IllegalArgumentException("HIDE repair cannot start at block-entity-data stage");
+            }
+            writeStage(Stage.BLOCK, blockWrite);
+            return;
+        }
+
+        if (startingStage == Stage.BLOCK) {
+            writeStage(Stage.BLOCK, blockWrite);
+        }
+        if (blockEntityDataWrite != null) {
+            writeStage(Stage.BLOCK_ENTITY_DATA, blockEntityDataWrite);
         }
     }
 
-    private void handleSingleBlockChange(PacketSendEvent event, User viewer, PlayerData playerData, UUID world, WrapperPlayServerBlockChange packet, boolean tileChecksEnabled) {
+    private static void writeStage(Stage stage, Runnable write) {
+        try {
+            write.run();
+        } catch (RuntimeException exception) {
+            throw new TransitionWriteException(stage, exception);
+        }
+    }
+
+    private void handleSingleBlockChange(PacketSendEvent event, User viewer, PlayerData playerData, UUID world,
+            WrapperPlayServerBlockChange packet, boolean tileChecksEnabled, int currentTick) {
         char blockID = (char) packet.getBlockId();
         boolean tileEntity = blockInfoResolver.isTileEntity(blockID);
         Vector3i position = packet.getBlockPosition();
-        ImmutableBlockSpatialImpl location = new ImmutableBlockSpatialImpl(position.getX(), position.getY(), position.getZ());
+        ImmutableBlockSpatialImpl location =
+                new ImmutableBlockSpatialImpl(position.getX(), position.getY(), position.getZ());
 
-        playerData.blockView().upsertBlock(world, position.getX(), position.getY(), position.getZ(), blockID);
+        BlockView blockView = playerData.blockView();
+        blockView.upsertBlock(world, position.getX(), position.getY(), position.getZ(), blockID);
         if (tileEntity) {
             boolean visibleIfNew = !tileChecksEnabled || visibleIfNew(location, playerData.ownLocation(), world);
-            TrackedTileEntity<?> state = playerData.blockView().updateOrInsertTileEntity(world, location, blockID, visibleIfNew);
+            TrackedTileEntity<?> state =
+                    blockView.updateOrInsertTileEntity(world, location, blockID, visibleIfNew);
             if (!tileChecksEnabled) {
-                playerData.blockView().recordOutboundTileEntityVisibility(state, true);
+                blockView.recordOutboundTileEntityVisibility(state, true);
             } else if (state != null && !state.visible()) {
                 event.setCancelled(true);
-                sendHiddenBlock(viewer, location);
+                processTileEntityOperationSafely(playerData.getPlayerUUID(), viewer, blockView,
+                        playerData.acquireWorldEpoch(), Operation.HIDE, state,
+                        blockView.tileEntityCheckModeToken(), currentTick, 0, Stage.BLOCK, state.blockID());
             }
         } else {
-            playerData.blockView().removeTileEntity(world, location);
+            blockView.removeTileEntity(world, location);
         }
-    }
-
-    private void sendHiddenBlock(User viewer, BlockSpatial location) {
-        viewer.writePacketSilently(new WrapperPlayServerBlockChange(
-                new Vector3i(location.blockX(), location.blockY(), location.blockZ()),
-                getHiddenBlockId(location.blockY())
-        ));
     }
 
     private boolean visibleIfNew(BlockSpatial location, Locatable playerLocation, UUID packetWorld) {
         if (!tileEntityConfig.enabled()) {
             return false;
         }
-        if (playerLocation == null || playerLocation.world() == null || !playerLocation.world().equals(packetWorld)) {
+        if (playerLocation == null || playerLocation.world() == null
+                || !playerLocation.world().equals(packetWorld)) {
             return false;
         }
         return location.distanceSquared(playerLocation) <= hideOnSpawnDistanceSquared;
     }
 
-    private WrapperPlayServerBlockEntityData buildBlockEntityDataPacket(BlockSpatial location, PacketEventsTileEntityReplayData replayData) {
+    private WrapperPlayServerBlockEntityData buildBlockEntityDataPacket(
+            BlockSpatial location, PacketEventsTileEntityReplayData replayData) {
         return new WrapperPlayServerBlockEntityData(
                 new Vector3i(location.blockX(), location.blockY(), location.blockZ()),
                 replayData.blockEntityType(),
-                replayData.nbt()
-        );
+                replayData.nbt());
     }
 
     @SuppressWarnings("unchecked")
-    private static TrackedTileEntity<PacketEventsTileEntityReplayData> getTrackedTileEntity(BlockView blockView, UUID world, BlockSpatial position) {
-        return (TrackedTileEntity<PacketEventsTileEntityReplayData>) blockView.getTrackedTileEntity(world, position);
+    private static TrackedTileEntity<PacketEventsTileEntityReplayData> getTrackedTileEntity(
+            BlockView blockView, UUID world, BlockSpatial position) {
+        return (TrackedTileEntity<PacketEventsTileEntityReplayData>)
+                blockView.getTrackedTileEntity(world, position);
     }
 
     @SuppressWarnings("unchecked")
-    static @Nullable TrackedTileEntity<PacketEventsTileEntityReplayData> resolveCurrentTransitionState(BlockViewTransition transition, int currentWorldEpoch) {
-        return resolveCurrentTransitionState(transition.tileEntity(), transition.worldEpoch(), currentWorldEpoch);
+    static @Nullable TrackedTileEntity<PacketEventsTileEntityReplayData> resolveCurrentTransitionState(
+            BlockViewTransition transition, int currentWorldEpoch) {
+        return resolveCurrentTransitionState(
+                transition.tileEntity(), transition.worldEpoch(), currentWorldEpoch);
     }
 
     @SuppressWarnings("unchecked")
     static @Nullable TrackedTileEntity<PacketEventsTileEntityReplayData> resolveCurrentTransitionState(
             TrackedTileEntity<?> tileEntity, int transitionWorldEpoch, int currentWorldEpoch) {
-        if (transitionWorldEpoch != currentWorldEpoch
+        if (!PlayerData.isStableWorldEpoch(currentWorldEpoch)
+                || transitionWorldEpoch != currentWorldEpoch
                 || !(tileEntity instanceof NettyTileEntity<?> nettyTileEntity)
                 || nettyTileEntity.isRemoved()) {
             return null;
@@ -315,12 +534,26 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         return (TrackedTileEntity<PacketEventsTileEntityReplayData>) tileEntity;
     }
 
-    private PacketEventsTileEntityReplayData ensureTileReplayData(TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity) {
+    private PacketEventsTileEntityReplayData ensureTileReplayData(
+            TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity) {
         PacketEventsTileEntityReplayData replayData = tileEntity.extraData();
         if (replayData == null) {
             replayData = new PacketEventsTileEntityReplayData();
             tileEntity.setExtraData(replayData);
         }
         return replayData;
+    }
+
+    static final class TransitionWriteException extends RuntimeException {
+        private final Stage stage;
+
+        private TransitionWriteException(Stage stage, RuntimeException cause) {
+            super(cause);
+            this.stage = stage;
+        }
+
+        Stage stage() {
+            return stage;
+        }
     }
 }

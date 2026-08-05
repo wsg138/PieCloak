@@ -2,10 +2,11 @@ package games.cubi.raycastedantiesp.core.view;
 
 import games.cubi.locatables.api.BlockLocatable;
 import games.cubi.locatables.api.BlockSpatial;
-import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.chunks.BlockChunkData;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkData;
+import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
+
 import java.util.Collection;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -19,9 +20,20 @@ import java.util.function.IntSupplier;
  * decisions; visibility fields and the transition queue are safe for that Netty/engine overlap.</p>
  */
 public interface BlockView extends Clearable {
+    enum BlockEntityStatus {
+        UNKNOWN,
+        NON_MANAGED,
+        MANAGED
+    }
+
     boolean isBlockOccluding(BlockLocatable location);
 
     boolean isBlockOccluding(int x, int y, int z);
+
+    /** Returns whether authoritative tracked block state classifies this position as managed, non-managed, or unknown. */
+    default BlockEntityStatus getBlockEntityStatus(UUID world, BlockSpatial position) {
+        return BlockEntityStatus.UNKNOWN;
+    }
 
     /**
      * Constructs a new tile entity with the provided id and visibility, or updates the block id for an existing tile
@@ -50,9 +62,10 @@ public interface BlockView extends Clearable {
      *
      * Invokes {@code visibilityRepairConsumer} for each tile entity made visible when checks are disabled. The
      * structural writer must send their current state directly rather than publishing them to the engine transition
-     * queue.
+     * queue. Consumers must isolate packet-write failures so one failed repair does not prevent later repairs.
      */
-    void applyTileEntityCheckMode(boolean enabled, int currentTick, Consumer<TrackedTileEntity<?>> visibilityRepairConsumer);
+    void applyTileEntityCheckMode(boolean enabled, int currentTick,
+                                  Consumer<TrackedTileEntity<?>> visibilityRepairConsumer);
 
     /** Returns an opaque enabled-state/generation snapshot for rejecting results that cross a mode change. */
     long tileEntityCheckModeToken();
@@ -83,7 +96,8 @@ public interface BlockView extends Clearable {
      *
      * @return number of tile entities passed to {@code action}.
      */
-    int updateVisibilityForEachNeedingRecheck(int recheckTicks, int currentTick, long modeToken, int expectedWorldEpoch, VisibilityResolver action);
+    int updateVisibilityForEachNeedingRecheck(int recheckTicks, int currentTick, long modeToken,
+                                              int expectedWorldEpoch, VisibilityResolver action);
 
     boolean hasPendingTransitions();
 
@@ -92,7 +106,8 @@ public interface BlockView extends Clearable {
 
     @FunctionalInterface
     interface TransitionConsumer {
-        void accept(BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity, long modeToken, int worldEpoch);
+        void accept(BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity,
+                    long modeToken, int worldEpoch);
     }
 
     void drainTransitions(TransitionConsumer consumer);
@@ -111,13 +126,22 @@ public interface BlockView extends Clearable {
      * the entire column has no managed tiles; a null entry means that section has none. This is a structural-writer
      * operation.
      */
-    void pruneTileEntitiesAbsentFromChunkSections(UUID world, int chunkX, int chunkZ, int minimumSectionY, int sectionCount, long[][] presentBySection);
+    void pruneTileEntitiesAbsentFromChunkSections(UUID world, int chunkX, int chunkZ, int minimumSectionY,
+                                                  int sectionCount, long[][] presentBySection);
 
     /** Structural-writer operation. */
     void replaceChunkSection(UUID world, int chunkX, int chunkY, int chunkZ, BlockChunkData data);
 
     /** Structural-writer operation. */
     void replaceChunkSectionOcclusion(UUID world, int chunkX, int chunkY, int chunkZ, OccludingChunkData data);
+
+    /**
+     * Replaces authoritative block-entity classification for a full chunk section. A null bitset means the loaded
+     * section contains no managed block entities.
+     */
+    default void replaceChunkSectionBlockEntities(UUID world, int chunkX, int chunkY, int chunkZ,
+            OccludingChunkData managedBlockEntities) {
+    }
 
     default <T> T cast() {
         return (T) this;

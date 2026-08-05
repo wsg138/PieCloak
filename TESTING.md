@@ -59,3 +59,16 @@ Use a normal client plus a pie-chart/base-finding client or packet capture where
 - Destroy the minecart while mounted, then repeat by removing the passenger first; neither case may leave stale visibility.
 - Repeat at least 100 hide/show cycles and confirm replay state and heap usage remain bounded.
 - Force one SHOW replay failure in a development build and verify other transitions still process and the failed SHOW retries.
+
+## Block Transition Repair Regression
+
+- Inject a write failure for a fake-block HIDE packet and verify later packed transitions still run and the failed tile retries.
+- Inject a failure before the real-block SHOW packet and verify the repair restarts from the block stage.
+- Inject a failure only for SHOW block-entity data and verify retry sends only the missing data rather than duplicating the real block.
+- Disable tile checks while several tiles are hidden, fail one repair write, and verify every other tile is repaired while the failed tile remains queued.
+- Toggle checks enabled → disabled → enabled while a repair is pending and verify the old generation is discarded.
+- Change worlds or disconnect with repairs pending and verify no old-world repair is sent afterward.
+- Send standalone managed block-entity data without cached tile state and verify it is cancelled and replaced with the hidden block.
+- Send virtual/non-managed block-entity data and verify it still reaches Java and Bedrock clients.
+- Inject an unexpected `MAP_CHUNK_BULK` packet and verify it passes through without throwing while diagnostics remain bounded.
+- Repeat the package-specific concurrency and retry tests at least 25 times before release.
