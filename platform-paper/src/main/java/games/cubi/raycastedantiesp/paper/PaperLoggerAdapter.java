@@ -33,7 +33,7 @@ public class PaperLoggerAdapter implements PlatformLogger {
     /**
      * Set this to true to send logs to the file regardless of the log level.
      */
-    private static final boolean LOG_TO_FILE = true;
+    private static final boolean LOG_TO_FILE = false;
 
     /*
      * If too many logs queue up before clear() is called, flush them anyway.

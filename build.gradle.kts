@@ -1,6 +1,6 @@
+import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.plugins.quality.Pmd
 import org.gradle.api.plugins.quality.PmdExtension
-import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.compile.JavaCompile
 
 subprojects {
@@ -8,12 +8,12 @@ subprojects {
         apply(plugin = "pmd")
 
         extensions.configure<JavaPluginExtension> {
-            sourceCompatibility = JavaVersion.toVersion(25)
-            targetCompatibility = JavaVersion.toVersion(25)
+            sourceCompatibility = JavaVersion.VERSION_21
+            targetCompatibility = JavaVersion.VERSION_21
         }
 
         tasks.withType<JavaCompile>().configureEach {
-            options.release.set(25)
+            options.release.set(21)
         }
 
         extensions.configure<PmdExtension> {
@@ -25,6 +25,11 @@ subprojects {
         }
 
         tasks.withType<Pmd>().configureEach {
+            // These rules do not need third-party type resolution. Keeping the optional
+            // analysis classpath empty also avoids resolving conflicting LZ4 capabilities
+            // exposed by Paperweight and LeafPile solely for PMD.
+            classpath = files()
+
             reports {
                 xml.required.set(true)
                 html.required.set(true)

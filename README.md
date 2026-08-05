@@ -4,18 +4,18 @@
 
 PieCloak is a public modified fork of [RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP) for Paper and Leaf 1.21.x servers.
 
-It adds an allowlist-based target filter so anti-ESP packet handling applies only to configured entity and block-entity clues. Non-allowlisted targets are sent normally.
+It keeps the upstream packet, async-engine, chunk-processing, compatibility, and performance improvements while applying anti-ESP handling only to an explicit allowlist of entity and block-entity clues used for pie-chart or base-finding. Non-allowlisted targets are sent normally.
 
 Public source: https://github.com/wsg138/PieCloak
 
 ## Behavior
 
-- Does not cancel Bukkit spawn events.
-- Does not change server-side spawning, AI, farms, breeding, villager trading, or block-entity ticking.
-- Does not hide players with the default PieCloak configuration.
-- Hides only configured allowlisted targets from outgoing client packets.
-- Filters target block entities from chunk data before the client receives them.
-- Tracks mounted managed entities with their vehicles to avoid passenger desync.
+- Does not cancel Bukkit spawn events or change server-side spawning, AI, ticking, farms, breeding, villagers, or trades.
+- Does not hide players. Player checks are disabled and player entities bypass managed anti-ESP views.
+- Tracks and hides only entity types listed under `target-filter.entities`.
+- Tracks and rewrites only block entities selected by `target-filter.block-entities` and `target-filter.block-entity-groups`.
+- Keeps upstream occlusion processing, async visibility checks, relationship replay, passenger handling, chunk parsing, Folia support, and PacketEvents compatibility.
+- Saves target-filter config changes through the admin commands, but applies them after a restart so already-tracked entities cannot retain stale visibility state.
 
 PacketEvents is required.
 
@@ -29,10 +29,8 @@ Administrative commands require `raycastedantiesp.command`:
 - `/raesp add <key> <value>`
 - `/raesp remove <key> <value>`
 - `/raesp stats`
-- `/raesp debugplayer <player>`
-- `/raesp benchmark <radius> <samples>`
-- `/raesp trace ...`
 - `/raesp source`
+- `/raesp test ...`
 
 Public source and attribution commands:
 
@@ -45,7 +43,7 @@ Public source and attribution commands:
 .\gradlew.bat :platform-paper:build --no-daemon
 ```
 
-The usable shaded jar is written to `platform-paper/build/libs` with a `RaycastedAntiESP-` filename.
+The shaded plugin jar is written to `platform-paper/build/libs` with a `RaycastedAntiESP-` filename.
 
 Snapshot builds include the Git commit and build time:
 
@@ -53,28 +51,17 @@ Snapshot builds include the Git commit and build time:
 .\gradlew.bat :platform-paper:buildSnapshot --no-daemon
 ```
 
-## Testing
+## Testing and upstream maintenance
 
-See [TESTING.md](TESTING.md) for the server test checklist.
+See [TESTING.md](TESTING.md) for the server test checklist and [MAINTAINING.md](MAINTAINING.md) before integrating later upstream changes.
 
-## Upstream
+This update is based on upstream commit `853fa1531acbbb1458f776bbe2dc637fd0d40b7c` from August 5, 2026.
 
-Original project: [Cubicake/RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP)
+## License and credits
 
-PieCloak preserves the upstream Git history. Upstream changes are reviewed and integrated manually because PieCloak changes entity targeting, packet filtering, visibility transitions, replay state, and passenger handling.
-
-See [MAINTAINING.md](MAINTAINING.md) before integrating upstream updates.
-
-## Credits
+PieCloak and RaycastedAntiESP are licensed under the GNU Affero General Public License v3.0 only. Original copyright and license notices are preserved.
 
 - Cubicake, creator and maintainer of RaycastedAntiESP
 - RaycastedAntiESP contributors
-- PacketEvents contributors
-- StrokkCommands contributors
-- Paper, Spigot, and Bukkit contributors
-
-## License
-
-PieCloak and RaycastedAntiESP are licensed under the GNU Affero General Public License v3.0 only. The original copyright and license notices are preserved.
-
-The complete corresponding source for PieCloak is available in this repository. See [LICENSE](LICENSE) for the full license text.
+- P2wn and PieCloak contributors
+- PacketEvents, StrokkCommands, Paper, Spigot, and Bukkit contributors

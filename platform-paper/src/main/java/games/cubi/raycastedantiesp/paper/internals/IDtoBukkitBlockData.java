@@ -1,7 +1,7 @@
 package games.cubi.raycastedantiesp.paper.internals;
 
 import games.cubi.logs.Logger;
-import games.cubi.raycastedantiesp.paper.staging.PacketEventsPaperBlockInfoResolver;
+import games.cubi.raycastedantiesp.paper.packets.PacketEventsPaperBlockInfoResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.block.data.BlockData;
 

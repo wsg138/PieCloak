@@ -1,3 +1,9 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2025-2026 Cubicake and Contributors.
+ * This file is part of PieCloak, a modified fork of RaycastedAntiESP.
+ */
+
 package games.cubi.raycastedantiesp.paper.target;
 
 import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
@@ -18,7 +24,6 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,11 +63,11 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
 
     public PaperTargetFilterService(ConfigManager configManager) {
         this.configManager = configManager;
-        refresh(configManager.getTargetFilterConfig());
+        refresh(configManager.getExtensionConfig(TargetFilterConfig.class));
     }
 
     public void refresh() {
-        refresh(configManager.getTargetFilterConfig());
+        refresh(configManager.getExtensionConfig(TargetFilterConfig.class));
     }
 
     @Override
@@ -107,7 +112,7 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
     }
 
     private ResolvedTargetFilter current() {
-        TargetFilterConfig config = configManager.getTargetFilterConfig();
+        TargetFilterConfig config = configManager.getExtensionConfig(TargetFilterConfig.class);
         if (config != loadedConfig) {
             refresh(config);
         }

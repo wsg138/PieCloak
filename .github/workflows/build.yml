@@ -31,6 +31,13 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      - name: Generate LeafPile sources
+        shell: bash
+        run: |
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+
       - name: Compile, test, and build
         run: ./gradlew :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
 

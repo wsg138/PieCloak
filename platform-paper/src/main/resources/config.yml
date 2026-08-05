@@ -1,9 +1,7 @@
+# PieCloak is a modified RaycastedAntiESP fork. Non-allowlisted targets are never
+# inserted into anti-ESP managed views and are sent to clients normally.
 config-version: '2.0'
 
-# This filter controls only which targets RaycastedAntiESP manages.
-# It does not affect real server-side spawning, AI, ticking, farms, villagers,
-# trades, breeding, or Bukkit spawn events. Non-allowlisted targets are sent
-# normally and are not inserted into the anti-ESP visibility views.
 target-filter:
     enabled: true
     mode: ALLOWLIST
@@ -58,6 +56,8 @@ checks:
         raycast-radius: 48
         hide-on-spawn-distance: 0
         visible-recheck-interval-ticks: 10
+        keep-client-entity-when-hidden: false
+        only-check-sneaking: false
     entity:
         enabled: true
         hide-sounds-when-hidden: false
@@ -66,6 +66,33 @@ checks:
         raycast-radius: 48
         hide-on-spawn-distance: 0
         visible-recheck-interval-ticks: 10
+        keep-client-entity-when-hidden: false
+        excluded-types:
+            - minecraft:arrow
+            - minecraft:spectral_arrow
+            - minecraft:fireball
+            - minecraft:dragon_fireball
+            - minecraft:small_fireball
+            - minecraft:firework_rocket
+            - minecraft:wither_skull
+            - minecraft:breeze_wind_charge
+            - minecraft:wind_charge
+            - minecraft:ender_pearl
+            - minecraft:evoker_fangs
+            - minecraft:shulker_bullet
+            - minecraft:area_effect_cloud
+            - minecraft:lingering_potion
+            - minecraft:splash_potion
+            - minecraft:potion
+            - minecraft:lightning_bolt
+            - minecraft:ender_dragon
+            - minecraft:wither
+            - minecraft:warden
+            - minecraft:block_display
+            - minecraft:text_display
+            - minecraft:item_display
+            - minecraft:interaction
+            - minecraft:mannequin
     tile-entity:
         enabled: true
         max-occluding-count: 3
@@ -83,18 +110,20 @@ checks:
         max-occluding-count: 6
         always-show-radius-chunks: 2
         visible-recheck-interval-ticks: -1
+
 engine:
-    mode: simple
-    simple:
-        async-processing-threads: 1
+    mode: async
+    async:
+        processing-threads: 1
     netty:
+
 block-processor:
     mode: packetevents
     track-all-blocks: false
     packetevents:
         tile-entity-exempted-ids:
-            - 9779
         tile-entity-force-included-ids:
+
 debug:
     info-level: 5
     info-exempted-classes:
@@ -104,3 +133,11 @@ debug:
     error-exempted-classes:
     particles: false
     timings: false
+
+# Upstream's Modrinth update feed distributes RaycastedAntiESP, not PieCloak.
+# Leave automatic checks disabled so operators are not prompted to replace the fork.
+updates:
+    check-release: false
+    check-beta: false
+    check-alpha: false
+    notify-in-game: false

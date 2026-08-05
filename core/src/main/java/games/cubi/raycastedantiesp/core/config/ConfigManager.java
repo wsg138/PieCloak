@@ -1,14 +1,26 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP.
+ * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
+ * See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.core.config;
 
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.config.engine.EngineConfig;
+import games.cubi.raycastedantiesp.core.config.raycast.ChunkSectionConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.PlayerConfig;
+import games.cubi.raycastedantiesp.core.config.raycast.SoundEffectsConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
+import games.cubi.raycastedantiesp.core.utils.VarHandler;
 import org.spongepowered.configurate.ConfigurationNode;
 import org.spongepowered.configurate.yaml.NodeStyle;
 import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
 
+import java.lang.invoke.VarHandle;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -33,7 +45,7 @@ public class ConfigManager {
 
     private ConfigurationNode config;
     private RootConfig startupConfig;
-    private volatile RootConfig activeConfig;
+    private volatile RootConfig activeConfig; private static final VarHandle ACTIVE_CONFIG = VarHandler.get(ConfigManager.class, "activeConfig", RootConfig.class);
 
     private ConfigManager(Supplier<InputStream> resourceSupplier, Path dataFolder, List<ConfigExtension<? extends Config>> extensions) {
         this.resourceSupplier = resourceSupplier;
@@ -74,7 +86,7 @@ public class ConfigManager {
         if (startupConfig == null) {
             startupConfig = parsed;
         }
-        activeConfig = parsed;
+        ACTIVE_CONFIG.setOpaque(this, parsed);
     }
 
     public SetConfigResult setConfigValue(String path, String rawValue) {
@@ -149,42 +161,54 @@ public class ConfigManager {
         }
 
         config = candidate;
-        activeConfig = parsed;
+        ACTIVE_CONFIG.setOpaque(this, parsed);
         saveConfigNode(candidate);
         return SetConfigResult.ok();
     }
 
     public PlayerConfig getPlayerConfig() {
-        return activeConfig.checksConfig().playerConfig();
+        return activeConfig().checksConfig().playerConfig();
     }
 
     public EntityConfig getEntityConfig() {
-        return activeConfig.checksConfig().entityConfig();
+        return activeConfig().checksConfig().entityConfig();
     }
 
     public TileEntityConfig getTileEntityConfig() {
-        return activeConfig.checksConfig().tileEntityConfig();
+        return activeConfig().checksConfig().tileEntityConfig();
     }
 
-    public TargetFilterConfig getTargetFilterConfig() {
-        return activeConfig.targetFilterConfig();
+    public SoundEffectsConfig getSoundEffectsConfig() {
+        return activeConfig().checksConfig().soundEffectsConfig();
+    }
+
+    public ChunkSectionConfig getChunkSectionConfig() {
+        return activeConfig().checksConfig().chunkSectionConfig();
     }
 
     public DebugConfig getDebugConfig() {
-        RootConfig current = activeConfig;
+        RootConfig current = activeConfig();
         return current == null ? null : current.debugConfig();
     }
 
+    public UpdateConfig getUpdateConfig() {
+        return activeConfig().updateConfig();
+    }
+
     public EngineConfig getEngineConfig() {
-        return activeConfig.engineConfig();
+        return activeConfig().engineConfig();
     }
 
     public BlockProcessorConfig getBlockProcessorConfig() {
-        return activeConfig.blockProcessorConfig();
+        return activeConfig().blockProcessorConfig();
     }
 
     public <T extends Config> T getExtensionConfig(Class<T> type) {
-        return activeConfig.extensionConfig(type);
+        return activeConfig().extensionConfig(type);
+    }
+
+    private RootConfig activeConfig() {
+        return (RootConfig) ACTIVE_CONFIG.getOpaque(this);
     }
 
     public ConfigurationNode getConfigFile() {
@@ -204,10 +228,10 @@ public class ConfigManager {
         }
 
         ChecksConfig checksConfig = ChecksConfig.load(loaded);
-        TargetFilterConfig targetFilterConfig = TargetFilterConfig.load(loaded);
         EngineConfig engineConfig = EngineConfig.load(loaded);
         BlockProcessorConfig blockProcessorConfig = BlockProcessorConfig.load(loaded);
         DebugConfig debugConfig = DebugConfig.load(loaded);
+        UpdateConfig updateConfig = UpdateConfig.load(loaded);
         Map<Class<? extends Config>, Config> extensionConfigs = new LinkedHashMap<>();
         for (ConfigExtension<? extends Config> extension : extensions) {
             extensionConfigs.put(extension.type(), extension.load(loaded, blockProcessorConfig));
@@ -217,7 +241,7 @@ public class ConfigManager {
             throw new ConfigLoadException("checks.chunk-section.enabled must be false when block-processor.track-all-blocks is false");
         }
 
-        return new RootConfig(version, checksConfig, targetFilterConfig, engineConfig, blockProcessorConfig, debugConfig, Map.copyOf(extensionConfigs));
+        return new RootConfig(version, checksConfig, engineConfig, blockProcessorConfig, debugConfig, updateConfig, Map.copyOf(extensionConfigs));
     }
 
     private void validateReload(RootConfig next) {
@@ -225,13 +249,16 @@ public class ConfigManager {
             return;
         }
         if (next.engineConfig().mode() != startupConfig.engineConfig().mode()) {
-            throw new RestartRequiredException("engine.mode cannot be changed without a restart");
+            throw new RestartRequiredException("engine.mode cannot be changed without a restart.");
         }
         if (!next.blockProcessorConfig().equals(startupConfig.blockProcessorConfig())) {
-            throw new RestartRequiredException("block-processor cannot be changed without a restart");
+            throw new RestartRequiredException("block-processor cannot be changed without a restart.");
         }
-        if (next.checksConfig().hasRestartOnlyChanges(startupConfig.checksConfig())) {
-            throw new RestartRequiredException("checks cannot be enabled or disabled without a restart");
+        if (!next.checksConfig().entityConfig().excludedTypes().equals(startupConfig.checksConfig().entityConfig().excludedTypes())) {
+            throw new RestartRequiredException("excluded entity types cannot be changed without a restart.");
+        }
+        if (next.checksConfig().hasEnabledStatusChanges(startupConfig.checksConfig())) {
+            throw new RestartRequiredException("player and entity checks cannot be enabled or disabled without a restart.");
         }
         for (ConfigExtension<? extends Config> extension : extensions) {
             validateExtensionReload(extension, next);
@@ -279,8 +306,25 @@ public class ConfigManager {
                     Files.createFile(configPath);
                 }
             }
+            prependConfigDocumentationHeaderIfMissing();
         } catch (IOException e) {
             throw new ConfigLoadException("Failed to create config.yml", e);
+        }
+    }
+
+    private void prependConfigDocumentationHeaderIfMissing() {
+        try {
+            String content = Files.readString(configPath);
+
+            if (content.startsWith("#")) {
+                Logger.debug("Config starts with comment");
+                return;
+            }
+
+            Logger.debug("no starting comment");
+            Files.writeString(configPath, "# An explanation of this configuration file and what all the options do can be found at https://raycastedantiesp.cubi.games/config/" + System.lineSeparator() + content);
+        } catch (Exception e) {
+            Logger.warning(e,3, ConfigManager.class);
         }
     }
 
@@ -293,10 +337,11 @@ public class ConfigManager {
     }
 
     private ConfigurationNode loadBundledDefaults() {
-        try (InputStream resource = resourceSupplier.get()) {
-            if (resource == null) {
-                return null;
-            }
+        InputStream resource = resourceSupplier.get();
+        if (resource == null) {
+            return null;
+        }
+        try (resource) {
             return YamlConfigurationLoader.builder()
                     .source(() -> new BufferedReader(new InputStreamReader(resource)))
                     .build()

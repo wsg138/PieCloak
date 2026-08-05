@@ -2,7 +2,6 @@ package games.cubi.raycastedantiesp.core.config.raycast;
 
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.config.Config;
-import games.cubi.raycastedantiesp.core.config.ConfigLoadException;
 import games.cubi.raycastedantiesp.core.config.ConfigReader;
 import org.spongepowered.configurate.ConfigurationNode;
 
@@ -14,9 +13,17 @@ public class RaycastConfig implements Config {
     private final short raycastRadius;
     private final short hideOnSpawnDistance;
     private final short visibleRecheckIntervalTicks;
+    private final boolean keepClientEntityWhenHidden;
 
     public RaycastConfig(boolean enabled, boolean hideSoundsWhenHidden, int maxOccludingCount, int alwaysShowRadius,
                          int raycastRadius, int hideOnSpawnDistance, int visibleRecheckIntervalTicks) {
+        this(enabled, hideSoundsWhenHidden, maxOccludingCount, alwaysShowRadius, raycastRadius, hideOnSpawnDistance,
+                visibleRecheckIntervalTicks, false);
+    }
+
+    public RaycastConfig(boolean enabled, boolean hideSoundsWhenHidden, int maxOccludingCount, int alwaysShowRadius,
+                         int raycastRadius, int hideOnSpawnDistance, int visibleRecheckIntervalTicks,
+                         boolean keepClientEntityWhenHidden) {
         this.enabled = enabled;
         this.hideSoundsWhenHidden = hideSoundsWhenHidden;
         this.maxOccludingCount = (byte) maxOccludingCount;
@@ -24,14 +31,40 @@ public class RaycastConfig implements Config {
         this.raycastRadius = (short) raycastRadius;
         this.hideOnSpawnDistance = (short) hideOnSpawnDistance;
         this.visibleRecheckIntervalTicks = (short) visibleRecheckIntervalTicks;
+        this.keepClientEntityWhenHidden = keepClientEntityWhenHidden;
     }
 
     protected static RaycastConfig load(ConfigurationNode node, String path, boolean hasHideSoundsWhenHidden) {
-        int maxOccludingCount = boundedInteger(node, path, "max-occluding-count", Byte.MAX_VALUE, 3);
-        int alwaysShowRadius = boundedInteger(node, path, "always-show-radius", Short.MAX_VALUE, 8);
-        int raycastRadius = boundedInteger(node, path, "raycast-radius", Short.MAX_VALUE, 48);
-        int hideOnSpawnDistance = boundedInteger(node, path, "hide-on-spawn-distance", Short.MAX_VALUE, 32);
-        int visibleRecheckIntervalTicks = boundedInteger(node, path, "visible-recheck-interval-ticks", Short.MAX_VALUE, 5);
+        return load(node, path, hasHideSoundsWhenHidden, false);
+    }
+
+    protected static RaycastConfig load(ConfigurationNode node, String path, boolean hasHideSoundsWhenHidden,
+                                        boolean hasKeepClientEntityWhenHidden) {
+        int maxOccludingCount = ConfigReader.integer(ConfigReader.node(node, "max-occluding-count"), path + ".max-occluding-count");
+        if (maxOccludingCount < 0 || maxOccludingCount > Byte.MAX_VALUE) {
+            Logger.warning(path + ".max-occluding-count must be between 0 and " + Byte.MAX_VALUE + " but was " + maxOccludingCount +". Defaulting to 3.", 4, RaycastConfig.class);
+            maxOccludingCount = 3;
+        }
+        int alwaysShowRadius = ConfigReader.integer(ConfigReader.node(node, "always-show-radius"), path + ".always-show-radius");
+        if (alwaysShowRadius < 0 || alwaysShowRadius > Short.MAX_VALUE) {
+            Logger.warning(path + ".always-show-radius must be between 0 and " + Short.MAX_VALUE + " but was " + alwaysShowRadius +". Defaulting to 8.", 4, RaycastConfig.class);
+            alwaysShowRadius = 8;
+        }
+        int raycastRadius = ConfigReader.integer(ConfigReader.node(node, "raycast-radius"), path + ".raycast-radius");
+        if (raycastRadius < 0 || raycastRadius > Short.MAX_VALUE) {
+            Logger.warning(path + ".raycast-radius must be between 0 and " + Short.MAX_VALUE + " but was " + raycastRadius +". Defaulting to 48.", 4, RaycastConfig.class);
+            raycastRadius = 48;
+        }
+        int hideOnSpawnDistance = ConfigReader.integer(ConfigReader.node(node, "hide-on-spawn-distance"), path + ".hide-on-spawn-distance");
+        if (hideOnSpawnDistance < 0 || hideOnSpawnDistance > Short.MAX_VALUE) {
+            Logger.warning(path + ".hide-on-spawn-distance must be between 0 and " + Short.MAX_VALUE + " but was " + hideOnSpawnDistance +". Defaulting to 32.", 4, RaycastConfig.class);
+            hideOnSpawnDistance = 32;
+        }
+        int visibleRecheckIntervalTicks = ConfigReader.integer(ConfigReader.node(node, "visible-recheck-interval-ticks"), path + ".visible-recheck-interval-ticks");
+        if (visibleRecheckIntervalTicks < -1 || visibleRecheckIntervalTicks > Short.MAX_VALUE) {
+            Logger.warning(path + ".visible-recheck-interval-ticks must be between -1 and " + Short.MAX_VALUE + " but was " + visibleRecheckIntervalTicks +". Defaulting to 5.", 4, RaycastConfig.class);
+            visibleRecheckIntervalTicks = 5;
+        }
         return new RaycastConfig(
                 ConfigReader.bool(ConfigReader.node(node, "enabled"), path + ".enabled"),
                 hasHideSoundsWhenHidden && ConfigReader.bool(ConfigReader.node(node, "hide-sounds-when-hidden"), path + ".hide-sounds-when-hidden"),
@@ -39,18 +72,9 @@ public class RaycastConfig implements Config {
                 alwaysShowRadius,
                 raycastRadius,
                 hideOnSpawnDistance,
-                visibleRecheckIntervalTicks
+                visibleRecheckIntervalTicks,
+                hasKeepClientEntityWhenHidden && ConfigReader.bool(ConfigReader.node(node, "keep-client-entity-when-hidden"), path + ".keep-client-entity-when-hidden")
         );
-    }
-
-    private static int boundedInteger(ConfigurationNode node, String path, String key, int max, int fallback) {
-        String fullPath = path + "." + key;
-        int value = ConfigReader.integer(ConfigReader.node(node, key), fullPath);
-        if (value >= -1 && value <= max) {
-            return value;
-        }
-        Logger.warning(fullPath + " must be between -1 and " + max + " but was " + value + ". Defaulting to " + fallback + ".", 4, RaycastConfig.class);
-        return fallback;
     }
 
     public boolean enabled() {
@@ -79,5 +103,9 @@ public class RaycastConfig implements Config {
 
     public short getVisibleRecheckIntervalTicks() {
         return visibleRecheckIntervalTicks;
+    }
+
+    public boolean keepClientEntityWhenHidden() {
+        return keepClientEntityWhenHidden;
     }
 }
