@@ -878,23 +878,8 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         }
         sendEntityAbsoluteCorrection(viewer, entity);
 
-        for (PacketWrapper<?> cachedPacket : replayData.getPackets()) {
-            if (cachedPacket.getClass() == WrapperPlayServerEntityMetadata.class) {
-                viewer.writePacketSilently(copyEntityMetadataPacket((WrapperPlayServerEntityMetadata) cachedPacket));
-            } else if (cachedPacket.getClass() == WrapperPlayServerEntityEquipment.class) {
-                viewer.writePacketSilently(copyEntityEquipmentPacket((WrapperPlayServerEntityEquipment) cachedPacket));
-            } else if (cachedPacket.getClass() == WrapperPlayServerEntityVelocity.class) {
-                viewer.writePacketSilently(copyEntityVelocityPacket((WrapperPlayServerEntityVelocity) cachedPacket));
-            } else if (cachedPacket.getClass() == WrapperPlayServerEntityEffect.class) {
-                viewer.writePacketSilently(copyEffectPacket((WrapperPlayServerEntityEffect) cachedPacket));
-            } else if (cachedPacket.getClass() == WrapperPlayServerRemoveEntityEffect.class) {
-                viewer.writePacketSilently(copyRemoveEntityEffectPacket((WrapperPlayServerRemoveEntityEffect) cachedPacket));
-            } else if (cachedPacket.getClass() == WrapperPlayServerUpdateAttributes.class) {
-                WrapperPlayServerUpdateAttributes existing = (WrapperPlayServerUpdateAttributes) cachedPacket;
-                viewer.writePacketSilently(new WrapperPlayServerUpdateAttributes(existing.getEntityId(), existing.getProperties()));
-            } else {
-                Logger.warning("Unsupported cached packet type for replay: " + cachedPacket.getClass().getName(), 2, PacketEventsEntityViewController.class);
-            }
+        for (PacketWrapper<?> cachedPacket : replayData.snapshotPackets(entity.entityID())) {
+            viewer.writePacketSilently(cachedPacket);
         }
         writeEntityRelationships(viewer, data, entity, entity.entityID());
     }
