@@ -72,3 +72,11 @@ Use a normal client plus a pie-chart/base-finding client or packet capture where
 - Send virtual/non-managed block-entity data and verify it still reaches Java and Bedrock clients.
 - Inject an unexpected `MAP_CHUNK_BULK` packet and verify it passes through without throwing while diagnostics remain bounded.
 - Repeat the package-specific concurrency and retry tests at least 25 times before release.
+
+## Entity transition failure injection
+
+For package 03 validation, inject one outbound write failure at a time while revealing a hidden managed entity. Exercise spawn, absolute position correction, head look, each replay category (metadata, equipment, velocity, effects, and attributes), passenger state, vehicle state, leash state, and destroy.
+
+For every stage, verify that a successful spawn or destroy is not sent a second time, later retries resume at the failed stage, and a newer opposite visibility decision cancels the stale repair. Also verify bounded terminal behavior, disconnect cleanup, respawn/world-change cleanup, entity despawn and ID reuse, minecart passenger ordering, bypass convergence, and Java plus Geyser/Floodgate clients.
+
+These injected network-failure and live-client scenarios remain manual unless a handoff records direct server evidence.

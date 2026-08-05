@@ -1,46 +1,130 @@
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
-import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
-import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
-final class EntityTransitionRetryQueue {
-    private final ConcurrentHashMap<UUID, LinkedHashMap<Key, Retry>> retriesByViewer = new ConcurrentHashMap<>();
+final class EntityTransitionRetryQueue<P> {
+    static final int MAX_PER_VIEWER = 256;
+    static final int MAX_GLOBAL = 4096;
 
-    void enqueue(UUID viewerUUID, EntityView<PacketEventsEntity> view, EntityViewTransition.Type type,
-            TrackedEntity<?> entity, int worldEpoch, int attempts) {
-        Key key = new Key(view.isPlayerView(), entity.entityUUID(), type);
-        Retry retry = new Retry(view, type, entity, worldEpoch, attempts);
-        retriesByViewer.compute(viewerUUID, (ignored, retries) -> {
-            LinkedHashMap<Key, Retry> current = retries == null ? new LinkedHashMap<>() : retries;
-            current.put(key, retry);
-            return current;
-        });
+    enum RetryResult {
+        ENQUEUED,
+        SUPERSEDED,
+        CAPACITY_REJECTED
     }
 
-    List<Retry> drain(UUID viewerUUID) {
-        LinkedHashMap<Key, Retry> retries = retriesByViewer.remove(viewerUUID);
-        return retries == null ? List.of() : List.copyOf(retries.values());
+    private final LinkedHashMap<Key, EntityTransitionWork<P>> pending = new LinkedHashMap<>();
+    private final Map<UUID, Integer> countsByViewer = new HashMap<>();
+
+    synchronized RetryResult retry(EntityTransitionWork<P> work) {
+        Key key = key(work.viewerUUID(), work.view(), work.entity().entityUUID());
+        if (pending.containsKey(key)) {
+            // A newer transition for this entity won while this work was in flight.
+            return RetryResult.SUPERSEDED;
+        }
+        if (countsByViewer.getOrDefault(work.viewerUUID(), 0) >= MAX_PER_VIEWER
+                || pending.size() >= MAX_GLOBAL) {
+            // Preserve already-queued partial repairs. The caller reports this repair as terminal
+            // rather than silently evicting older work and losing its reconciliation state.
+            return RetryResult.CAPACITY_REJECTED;
+        }
+        pending.put(key, work);
+        countsByViewer.merge(key.viewerUUID(), 1, Integer::sum);
+        return RetryResult.ENQUEUED;
     }
 
-    boolean hasPending(UUID viewerUUID) {
-        return retriesByViewer.containsKey(viewerUUID);
+    synchronized List<EntityTransitionWork<P>> drainDue(UUID viewerUUID, int currentTick) {
+        if (!countsByViewer.containsKey(viewerUUID)) {
+            return List.of();
+        }
+        List<EntityTransitionWork<P>> due = new ArrayList<>();
+        Iterator<Map.Entry<Key, EntityTransitionWork<P>>> iterator = pending.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Key, EntityTransitionWork<P>> entry = iterator.next();
+            if (!entry.getKey().viewerUUID().equals(viewerUUID) || !entry.getValue().isDue(currentTick)) {
+                continue;
+            }
+            due.add(entry.getValue());
+            iterator.remove();
+            decrement(viewerUUID);
+        }
+        return List.copyOf(due);
     }
 
-    void clear(UUID viewerUUID) {
-        retriesByViewer.remove(viewerUUID);
+    synchronized EntityTransitionWork<P> cancel(UUID viewerUUID, EntityView<?> view, UUID entityUUID) {
+        return remove(key(viewerUUID, view, entityUUID));
     }
 
-    private record Key(boolean playerView, UUID entityUUID, EntityViewTransition.Type type) {
+    synchronized void clearEntities(UUID viewerUUID, int[] entityIDs) {
+        if (entityIDs == null || entityIDs.length == 0 || !countsByViewer.containsKey(viewerUUID)) {
+            return;
+        }
+        Iterator<Map.Entry<Key, EntityTransitionWork<P>>> iterator = pending.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Key, EntityTransitionWork<P>> entry = iterator.next();
+            if (!entry.getKey().viewerUUID().equals(viewerUUID)
+                    || !contains(entityIDs, entry.getValue().entity().entityID())) {
+                continue;
+            }
+            iterator.remove();
+            decrement(viewerUUID);
+        }
     }
 
-    record Retry(EntityView<PacketEventsEntity> view, EntityViewTransition.Type type,
-                 TrackedEntity<?> entity, int worldEpoch, int attempts) {
+    synchronized boolean hasPending(UUID viewerUUID) {
+        return countsByViewer.containsKey(viewerUUID);
+    }
+
+    synchronized void clear(UUID viewerUUID) {
+        Iterator<Key> iterator = pending.keySet().iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next().viewerUUID().equals(viewerUUID)) {
+                iterator.remove();
+            }
+        }
+        countsByViewer.remove(viewerUUID);
+    }
+
+    synchronized int pendingCount() {
+        return pending.size();
+    }
+
+    synchronized int pendingCount(UUID viewerUUID) {
+        return countsByViewer.getOrDefault(viewerUUID, 0);
+    }
+
+    private EntityTransitionWork<P> remove(Key key) {
+        EntityTransitionWork<P> removed = pending.remove(key);
+        if (removed != null) {
+            decrement(key.viewerUUID());
+        }
+        return removed;
+    }
+
+    private void decrement(UUID viewerUUID) {
+        countsByViewer.computeIfPresent(viewerUUID, (ignored, count) -> count == 1 ? null : count - 1);
+    }
+
+    private static Key key(UUID viewerUUID, EntityView<?> view, UUID entityUUID) {
+        return new Key(viewerUUID, view.isPlayerView(), entityUUID);
+    }
+
+    private static boolean contains(int[] values, int target) {
+        for (int value : values) {
+            if (value == target) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record Key(UUID viewerUUID, boolean playerView, UUID entityUUID) {
     }
 }
