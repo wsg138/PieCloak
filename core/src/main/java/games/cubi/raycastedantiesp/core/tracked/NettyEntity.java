@@ -55,6 +55,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     private volatile int leasherID = NO_LEASHER; private static final VarHandle LEASHER_ID = VarHandler.get(NettyEntity.class, "leasherID", int.class);
     private volatile int[] passengerIDs; private static final VarHandle PASSENGER_IDS = VarHandler.get(NettyEntity.class, "passengerIDs", int[].class);
     private volatile int vehicleID = NO_VEHICLE; private static final VarHandle VEHICLE_ID = VarHandler.get(NettyEntity.class, "vehicleID", int.class);
+    private volatile NettyEntity<?> vehicleEntity; private static final VarHandle VEHICLE_ENTITY = VarHandler.get(NettyEntity.class, "vehicleEntity", NettyEntity.class);
 
 
     private int entityData;
@@ -290,7 +291,20 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
 
     @Override
     public void setVehicleID(int vehicleID) {
+        NettyEntity<?> currentVehicle = vehicleEntity();
+        if (currentVehicle != null && currentVehicle.entityID() != vehicleID) {
+            VEHICLE_ENTITY.setRelease(this, null);
+        }
         VEHICLE_ID.setOpaque(this, vehicleID);
+    }
+
+    public void setVehicleEntity(@Nullable NettyEntity<?> vehicleEntity) {
+        VEHICLE_ENTITY.setRelease(this, vehicleEntity);
+        VEHICLE_ID.setOpaque(this, vehicleEntity == null ? NO_VEHICLE : vehicleEntity.entityID());
+    }
+
+    public @Nullable NettyEntity<?> vehicleEntity() {
+        return (NettyEntity<?>) VEHICLE_ENTITY.getAcquire(this);
     }
 
     @Override

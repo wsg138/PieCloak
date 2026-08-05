@@ -33,6 +33,13 @@ class PacketEventsEntityViewControllerTest {
     }
 
     @Test
+    void minecartSupportClassificationExcludesPlayersAndNonMinecarts() {
+        assertTrue(PacketEventsEntityViewController.shouldTrackRelationshipSupport(false, true));
+        assertFalse(PacketEventsEntityViewController.shouldTrackRelationshipSupport(true, true));
+        assertFalse(PacketEventsEntityViewController.shouldTrackRelationshipSupport(false, false));
+    }
+
+    @Test
     void retainingSeenEntitySuppressesHideWithoutDestroying() {
         assertEquals(NONE, PacketEventsEntityViewController.resolveClientTransitionAction(
                 EntityViewTransition.Type.HIDE, true, true));

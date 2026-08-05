@@ -15,6 +15,7 @@ import games.cubi.utils.sets.CopyOnWriteMTIntSet;
  */
 public final class EntityBypassRegistry {
     private static final CopyOnWriteMTIntSet BYPASSED_ENTITY_IDS = CopyOnWriteMTIntSet.get();
+    private static final CopyOnWriteMTIntSet RELATIONSHIP_SUPPORT_ENTITY_IDS = CopyOnWriteMTIntSet.get();
     // Technically, (26.2+) Minecraft only guarantees that an entity ID corresponds to one-and-only-one entity within a single world, and entities in different worlds can have the same ID.
     //              (26.1.2-) Minecraft does not guarantee that an entity ID is unique.
     // However, this requires the int id counter to overflow from Integer.MAX_VALUE all the way back to 0. This is unlikely to occur, and even if it does occur, it is unlikely that the original entities are still alive.
@@ -25,14 +26,24 @@ public final class EntityBypassRegistry {
         BYPASSED_ENTITY_IDS.add(entityID);
     }
 
+    public static void addRelationshipSupportEntity(int entityID) {
+        RELATIONSHIP_SUPPORT_ENTITY_IDS.add(entityID);
+    }
+
     /**
      * For use when an entity is despawned/killed, or in other words completely gone from the server.
      */
     public static boolean markEntityDespawned(int entityID) {
-        return BYPASSED_ENTITY_IDS.remove(entityID);
+        boolean removedBypass = BYPASSED_ENTITY_IDS.remove(entityID);
+        boolean removedSupport = RELATIONSHIP_SUPPORT_ENTITY_IDS.remove(entityID);
+        return removedBypass || removedSupport;
     }
 
     public static boolean isBypassed(int entityID) {
         return BYPASSED_ENTITY_IDS.contains(entityID);
+    }
+
+    public static boolean isRelationshipSupportEntity(int entityID) {
+        return RELATIONSHIP_SUPPORT_ENTITY_IDS.contains(entityID);
     }
 }

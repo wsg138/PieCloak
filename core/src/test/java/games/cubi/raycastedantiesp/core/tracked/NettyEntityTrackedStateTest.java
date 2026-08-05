@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,6 +39,22 @@ class NettyEntityTrackedStateTest {
 
         assertFalse(entity.sneaking());
         assertFalse(entity.glowing());
+    }
+
+    @Test
+    void directVehicleReferenceTracksAndClearsWithVehicleId() {
+        TestEntity passenger = new TestEntity(1);
+        TestEntity vehicle = new TestEntity(2);
+
+        passenger.setVehicleEntity(vehicle);
+
+        assertSame(vehicle, passenger.vehicleEntity());
+        assertEquals(vehicle.entityID(), passenger.vehicleID());
+
+        passenger.setVehicleID(NettyEntity.NO_VEHICLE);
+
+        assertNull(passenger.vehicleEntity());
+        assertEquals(NettyEntity.NO_VEHICLE, passenger.vehicleID());
     }
 
     @Test
@@ -81,7 +99,11 @@ class NettyEntityTrackedStateTest {
 
     private static final class TestEntity extends NettyEntity<Clearable> {
         private TestEntity() {
-            super(null, 0, 0, 0, 1, UUID.randomUUID(), false, 0, true);
+            this(1);
+        }
+
+        private TestEntity(int entityID) {
+            super(null, 0, 0, 0, entityID, UUID.randomUUID(), false, 0, true);
         }
     }
 }

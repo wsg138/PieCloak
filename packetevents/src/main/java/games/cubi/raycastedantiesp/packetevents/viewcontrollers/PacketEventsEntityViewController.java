@@ -324,8 +324,15 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     private boolean shouldBypassSpawn(WrapperPlayServerSpawnEntity packet, boolean isPlayer) {
         int entityID = packet.getEntityId();
+        if (EntityBypassRegistry.isRelationshipSupportEntity(entityID)) {
+            return false;
+        }
         if (isBypassed(entityID)) {
             return true;
+        }
+        if (shouldTrackRelationshipSupport(isPlayer, isMinecartLike(packet.getEntityType()))) {
+            EntityBypassRegistry.addRelationshipSupportEntity(entityID);
+            return false;
         }
         boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
         boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
@@ -338,6 +345,14 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     static boolean isBypassed(int entityID) {
         return EntityBypassRegistry.isBypassed(entityID);
+    }
+
+    static boolean isMinecartLike(EntityType entityType) {
+        return entityType != null && entityType.isInstanceOf(EntityTypes.MINECART_ABSTRACT);
+    }
+
+    static boolean shouldTrackRelationshipSupport(boolean isPlayer, boolean minecartLike) {
+        return !isPlayer && minecartLike;
     }
 
     protected NettyEntity<?> createSelfEntity(PlayerData ownData, int entityID, UUID playerUUID) {

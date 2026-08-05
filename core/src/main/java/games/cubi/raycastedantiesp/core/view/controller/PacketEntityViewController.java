@@ -122,8 +122,9 @@ public abstract class PacketEntityViewController<P> {
         }
 
         NettyEntity<?> entity = Logger.requireNonNull(processEntitySpawn(playerData, packet, world, currentTick), "processEntitySpawn returned null", 3, PacketEntityViewController.class);
+        boolean relationshipSupportEntity = EntityBypassRegistry.isRelationshipSupportEntity(entity.entityID());
 
-        if ((!isPlayer && entityConfig.enabled()) || isPlayer && playerConfig.enabled()) {
+        if (!relationshipSupportEntity && ((!isPlayer && entityConfig.enabled()) || isPlayer && playerConfig.enabled())) {
             Locatable ownLocation = playerData.ownLocation();
             boolean staleOwnLocation = ownLocation == null || ownLocation.world() == null || !ownLocation.world().equals(world);
             double distanceSquared = staleOwnLocation ? Double.POSITIVE_INFINITY : ownLocation.distanceSquared(entity);
@@ -281,18 +282,23 @@ public abstract class PacketEntityViewController<P> {
         entity.setPassengerIDs(passengers);
         int[] unresolvedPassengers = null;
         boolean selfIsPassenger = false;
+        boolean hasTrackedPassenger = false;
         for (int passengerID : passengers) {
             NettyEntity<?> passenger = playerData.entityFromID(passengerID);
             if (passenger == null) {
                 unresolvedPassengers = PrimitiveIntArrayList.add(unresolvedPassengers, passengerID);
                 continue;
             }
+            hasTrackedPassenger = true;
             if (passenger.isSelfEntity()) {
                 selfIsPassenger = true;
             }
-            passenger.setVehicleID(entityID);
+            passenger.setVehicleEntity(entity);
         }
         playerData.nettyData().setUnresolvedPassengers(entityID, unresolvedPassengers);
+        if (EntityBypassRegistry.isRelationshipSupportEntity(entityID) && !hasTrackedPassenger) {
+            forceVisibleBecauseAttached(entity, playerData, currentTick, "relationship support vehicle without managed passengers");
+        }
         checkVehicle(entity, playerData);
         boolean cancelForForcedVehicleShow = selfIsPassenger && forceVisibleBecauseAttached(entity, playerData, currentTick, "self-passenger vehicle");
         if (cancelForForcedVehicleShow) {
@@ -358,7 +364,7 @@ public abstract class PacketEntityViewController<P> {
             }
             NettyEntity<?> previousPassenger = playerData.entityFromID(previousPassengerID);
             if (previousPassenger != null && previousPassenger.vehicleID() == vehicleID) {
-                previousPassenger.setVehicleID(NO_VEHICLE);
+                previousPassenger.setVehicleEntity(null);
             }
         }
     }
@@ -649,7 +655,7 @@ public abstract class PacketEntityViewController<P> {
         if (vehicle == null) {
             return;
         }
-        insertedEntity.setVehicleID(unresolvedVehicleID);
+        insertedEntity.setVehicleEntity(vehicle);
         playerData.nettyData().removeUnresolvedPassengerLink(insertedEntity.entityID(), unresolvedVehicleID);
         if (vehicle.isSelfEntity() && forceVisibleBecauseAttached(insertedEntity, playerData, insertedEntity.lastChecked(), "self-vehicle unresolved passenger")) {
             return;
