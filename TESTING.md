@@ -2,6 +2,16 @@
 
 Use a normal client plus a pie-chart/base-finding client or packet capture where possible.
 
+## Build Baseline
+
+- Initialize all Git submodules recursively.
+- Generate LeafPile sources with Java 21 before the Gradle build.
+- Run `./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon`.
+- Confirm the shaded JAR is named `RaycastedAntiESP-*.jar`, not `Incorrectly-Compiled-Without-ShadowJar`.
+- Confirm generated `plugin.yml` names `PieCloak` and declares API version `1.21.11`.
+- Confirm `build-properties/platform.yml` records Minecraft `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, Java `21`, and the exact Git revision.
+- Treat `runPaper`/`runServer` as a local Paper 1.21.11 smoke-test convenience, not proof of Leaf, Geyser, or production compatibility.
+
 ## Server Behavior
 
 - Normal mobs still spawn and tick.
@@ -13,6 +23,7 @@ Use a normal client plus a pie-chart/base-finding client or packet capture where
 - Allays still work.
 - Players are never hidden.
 - Non-allowlisted entities and block entities behave normally.
+- Java and Bedrock players through Geyser/Floodgate observe the same managed visibility outcomes.
 
 ## Target Filter
 
@@ -48,3 +59,25 @@ Use a normal client plus a pie-chart/base-finding client or packet capture where
 - Destroy the minecart while mounted, then repeat by removing the passenger first; neither case may leave stale visibility.
 - Repeat at least 100 hide/show cycles and confirm replay state and heap usage remain bounded.
 - Force one SHOW replay failure in a development build and verify other transitions still process and the failed SHOW retries.
+
+## Block Transition Repair Regression
+
+- Inject a write failure for a fake-block HIDE packet and verify later packed transitions still run and the failed tile retries.
+- Inject a failure before the real-block SHOW packet and verify the repair restarts from the block stage.
+- Inject a failure only for SHOW block-entity data and verify retry sends only the missing data rather than duplicating the real block.
+- Disable tile checks while several tiles are hidden, fail one repair write, and verify every other tile is repaired while the failed tile remains queued.
+- Toggle checks enabled → disabled → enabled while a repair is pending and verify the old generation is discarded.
+- Saturate one viewer with more than 256 distinct failed block repairs and verify queued staged repairs are preserved, newest failures are reported, and each repair stops after eight failed attempts.
+- Change worlds or disconnect with repairs pending and verify no old-world repair is sent afterward.
+- Send standalone managed block-entity data without cached tile state and verify it is cancelled and replaced with the hidden block.
+- Send virtual/non-managed block-entity data and verify it still reaches Java and Bedrock clients.
+- Inject an unexpected `MAP_CHUNK_BULK` packet and verify it passes through without throwing while diagnostics remain bounded.
+- Repeat the package-specific concurrency and retry tests at least 25 times before release.
+
+## Entity transition failure injection
+
+For package 03 validation, inject one outbound write failure at a time while revealing a hidden managed entity. Exercise spawn, absolute position correction, head look, each replay category (metadata, equipment, velocity, effects, and attributes), passenger state, vehicle state, leash state, and destroy.
+
+For every stage, verify that a successful spawn or destroy is not sent a second time, later retries resume at the failed stage, and a newer opposite visibility decision cancels the stale repair. Also verify bounded terminal behavior, disconnect cleanup, respawn/world-change cleanup, entity despawn and ID reuse, minecart passenger ordering, bypass convergence, and Java plus Geyser/Floodgate clients.
+
+These injected network-failure and live-client scenarios remain manual unless a handoff records direct server evidence.

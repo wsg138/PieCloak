@@ -1,38 +1,61 @@
 package games.cubi.raycastedantiesp.core.view;
 
-import games.cubi.logs.Logger;
+import java.util.Objects;
+import java.util.function.IntSupplier;
 
 public final class ViewRegistry {
-    private static EntityView.Factory entityViewFactory;
-    private static EntityView.Factory playerEntityViewFactory;
-    private static BlockView.Factory blockViewFactory;
+    private static volatile EntityView.Factory entityViewFactory;
+    private static volatile EntityView.Factory playerEntityViewFactory;
+    private static volatile BlockView.Factory blockViewFactory;
 
     private ViewRegistry() {}
 
-    public static void initialise(BlockView.Factory blockViewFactory1, EntityView.Factory entityViewFactory1, EntityView.Factory playerEntityViewFactory1) {
-        blockViewFactory = blockViewFactory1;
-        entityViewFactory = entityViewFactory1;
-        playerEntityViewFactory = playerEntityViewFactory1;
+    public static void initialise(BlockView.Factory blockFactory, EntityView.Factory entityFactory,
+                                               EntityView.Factory playerFactory) {
+        synchronized (ViewRegistry.class) {
+            if (isInitialised()) {
+                throw new IllegalStateException("ViewRegistry is already initialised");
+            }
+            blockViewFactory = Objects.requireNonNull(blockFactory, "blockFactory");
+            entityViewFactory = Objects.requireNonNull(entityFactory, "entityFactory");
+            playerEntityViewFactory = Objects.requireNonNull(playerFactory, "playerFactory");
+        }
     }
 
-    public static BlockView createBlockView() {
-        if (blockViewFactory == null) {
-            Logger.error(new IllegalStateException("Block view factory is null. Did you forget to initialise ViewRegistry?"), 1, ViewRegistry.class);
+    @SuppressWarnings("PMD.NullAssignment") // Reset intentionally releases all lifecycle-owned factories.
+    public static void reset() {
+        synchronized (ViewRegistry.class) {
+            blockViewFactory = null;
+            entityViewFactory = null;
+            playerEntityViewFactory = null;
         }
-        return blockViewFactory.createBlockView();
     }
 
-    public static EntityView<?> createEntityView() {
-        if (entityViewFactory == null) {
-            Logger.error(new IllegalStateException("Entity view factory is null. Did you forget to initialise ViewRegistry?"), 1, ViewRegistry.class);
-        }
-        return entityViewFactory.createEntityView();
+    public static boolean isInitialised() {
+        return blockViewFactory != null && entityViewFactory != null && playerEntityViewFactory != null;
     }
 
-    public static EntityView<?> createPlayerEntityView() {
-        if (playerEntityViewFactory == null) {
-            Logger.error(new IllegalStateException("Player entity view factory is null. Did you forget to initialise ViewRegistry?"), 1, ViewRegistry.class);
+    public static BlockView createBlockView(IntSupplier worldEpochSupplier) {
+        BlockView.Factory factory = blockViewFactory;
+        if (factory == null) {
+            throw new IllegalStateException("Block view factory is null. Did you forget to initialise ViewRegistry?");
         }
-        return playerEntityViewFactory.createEntityView();
+        return factory.createBlockView(worldEpochSupplier);
+    }
+
+    public static EntityView<?> createEntityView(IntSupplier worldEpochSupplier) {
+        EntityView.Factory factory = entityViewFactory;
+        if (factory == null) {
+            throw new IllegalStateException("Entity view factory is null. Did you forget to initialise ViewRegistry?");
+        }
+        return factory.createEntityView(worldEpochSupplier);
+    }
+
+    public static EntityView<?> createPlayerEntityView(IntSupplier worldEpochSupplier) {
+        EntityView.Factory factory = playerEntityViewFactory;
+        if (factory == null) {
+            throw new IllegalStateException("Player entity view factory is null. Did you forget to initialise ViewRegistry?");
+        }
+        return factory.createEntityView(worldEpochSupplier);
     }
 }

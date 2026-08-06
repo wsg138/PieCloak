@@ -7,7 +7,7 @@ import org.jetbrains.annotations.Nullable;
  * For runnable tasks which should be run immediately after an entity is spawned.
  */
 public interface EntitySpawnTask extends Runnable {
-    int TICKS_BEFORE_EVICTION = 3;
+    int TICKS_BEFORE_EVICTION = 16;
 
     int getSubmittedTick();
 
@@ -36,7 +36,11 @@ public interface EntitySpawnTask extends Runnable {
             Logger.warning("A task was evicted from the Netty task queue due to being too old! This should not happen under normal circumstances and may indicate a problem with the system being overloaded or tasks taking too long to execute. Current tick=" + currentTick + " Task=" + current, 3, EntitySpawnTask.class);
             EntitySpawnTask next = current.getNext();
             current.setNext(null);
-            current.run(); // perhaps the task is salvageable even if we missed the correct caller
+            try {
+                current.run(); // perhaps the task is salvageable even if we missed the correct caller
+            } catch (Exception e) {
+                Logger.error("Error while running evicted future netty task " + current, e, 3, EntitySpawnTask.class);
+            }
             current = next;
         }
         return current;

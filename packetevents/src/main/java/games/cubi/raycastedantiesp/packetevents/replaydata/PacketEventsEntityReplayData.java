@@ -49,8 +49,7 @@ public sealed interface PacketEventsEntityReplayData extends Clearable permits P
                     equipment.put(entry.getSlot(), new Equipment(entry.getSlot(), entry.getItem().copy()));
                 }
             } else if (packet instanceof WrapperPlayServerEntityVelocity wrapper) {
-                Vector3d packetVelocity = wrapper.getVelocity();
-                addVelocity(packetVelocity);
+                addVelocity(wrapper.getVelocity());
             } else if (packet instanceof WrapperPlayServerEntityEffect wrapper) {
                 effects.put(wrapper.getPotionType(), copyEffect(wrapper, wrapper.getEntityId()));
             } else if (packet instanceof WrapperPlayServerRemoveEntityEffect wrapper) {
@@ -84,7 +83,7 @@ public sealed interface PacketEventsEntityReplayData extends Clearable permits P
 
         @Override
         public synchronized List<PacketWrapper<?>> snapshotPackets(int entityID) {
-            List<PacketWrapper<?>> packets = new ArrayList<>(5);
+            List<PacketWrapper<?>> packets = new ArrayList<>(5 + effects.size());
             if (!metadata.isEmpty()) {
                 packets.add(new WrapperPlayServerEntityMetadata(
                         entityID,
@@ -100,7 +99,10 @@ public sealed interface PacketEventsEntityReplayData extends Clearable permits P
                 ));
             }
             if (velocity != null) {
-                packets.add(new WrapperPlayServerEntityVelocity(entityID, new Vector3d(velocity.getX(), velocity.getY(), velocity.getZ())));
+                packets.add(new WrapperPlayServerEntityVelocity(
+                        entityID,
+                        new Vector3d(velocity.getX(), velocity.getY(), velocity.getZ())
+                ));
             }
             for (WrapperPlayServerEntityEffect effect : effects.values()) {
                 packets.add(copyEffect(effect, entityID));

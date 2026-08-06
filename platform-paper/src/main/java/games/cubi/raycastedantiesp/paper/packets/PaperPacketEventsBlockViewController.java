@@ -1,64 +1,62 @@
 package games.cubi.raycastedantiesp.paper.packets;
 
 import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
-import com.github.retrooper.packetevents.protocol.player.User;
-import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
+import com.github.retrooper.packetevents.event.PacketSendEvent;
+import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsBlockViewController;
-import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
-import games.cubi.raycastedantiesp.paper.staging.PacketEventsPaperBlockInfoResolver;
+import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
-import org.bukkit.World;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.world.WorldLoadEvent;
-import org.bukkit.event.world.WorldUnloadEvent;
 
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntSupplier;
 
-public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewController implements Listener {
-    private final Map<NamespacedKey, UUID> worldIdByWorldKey = new ConcurrentHashMap<>();
+public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewController implements AutoCloseable {
     private final int stoneBlockId = SpigotConversionUtil.fromBukkitBlockData(Material.STONE.createBlockData()).getGlobalId();
     private final int deepslateBlockId = SpigotConversionUtil.fromBukkitBlockData(Material.DEEPSLATE.createBlockData()).getGlobalId();
+    private final PacketListenerCommon registration;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
-    public PaperPacketEventsBlockViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
-        super(new PacketEventsPaperBlockInfoResolver(), currentTickSupplier, targetFilter);
-        Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
-        Bukkit.getWorlds().forEach(this::registerWorld);
-        PacketEvents.getAPI().getEventManager().registerListener(this, PacketListenerPriority.HIGHEST);
+    public PaperPacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks, IntSupplier currentTickSupplier) {
+        super(blockInfoResolver, trackAllBlocks, currentTickSupplier);
+        PacketListenerCommon createdRegistration = asAbstract(PacketListenerPriority.HIGHEST);
+        try {
+            registration = PacketEvents.getAPI().getEventManager().registerListener(createdRegistration);
+        } catch (RuntimeException | Error throwable) {
+            try {
+                PacketEvents.getAPI().getEventManager().unregisterListener(createdRegistration);
+            } catch (RuntimeException | Error cleanupFailure) {
+                throwable.addSuppressed(cleanupFailure);
+            }
+            closed.set(true);
+            throw throwable;
+        }
     }
 
     @Override
-    protected UUID resolveWorldUUID(User user) {
-        if (user.getDimensionType() == null || user.getDimensionType().getName() == null) {
-            return null;
+    public void onPacketSend(PacketSendEvent event) {
+        if (PacketEventsRespawnStateInvalidator.isRespawnPacket(event.getPacketType())) {
+            UUID playerUUID = event.getUser().getUUID();
+            if (playerUUID != null) {
+                removeViewer(playerUUID);
+            }
+            return;
         }
-        NamespacedKey worldKey = NamespacedKey.fromString(user.getDimensionType().getName().toString());
-        return worldKey == null ? null : worldIdByWorldKey.get(worldKey);
+        super.onPacketSend(event);
+    }
+
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            PacketEvents.getAPI().getEventManager().unregisterListener(registration);
+        }
     }
 
     @Override
     protected int getHiddenBlockId(int blockY) {
         return blockY > 0 ? stoneBlockId : deepslateBlockId;
-    }
-
-    @EventHandler
-    public void onWorldLoad(WorldLoadEvent event) {
-        registerWorld(event.getWorld());
-    }
-
-    @EventHandler
-    public void onWorldUnload(WorldUnloadEvent event) {
-        worldIdByWorldKey.remove(event.getWorld().getKey());
-    }
-
-    private void registerWorld(World world) {
-        worldIdByWorldKey.put(world.getKey(), world.getUID());
     }
 }

@@ -7,16 +7,17 @@ public class Core {
 
     public static Core instance;
 
-    private Core(PlatformLogger logger) {
-        Logger.init(logger);
+    private Core() {
     }
 
     public static Core initialize(PlatformLogger logger) {
-        if (instance != null) {
+        synchronized (Core.class) {
+            Logger.init(logger);
+            if (instance == null) {
+                instance = new Core();
+            }
             return instance;
         }
-        instance = new Core(logger);
-        return instance;
     }
 
     public static Core getInstance() {

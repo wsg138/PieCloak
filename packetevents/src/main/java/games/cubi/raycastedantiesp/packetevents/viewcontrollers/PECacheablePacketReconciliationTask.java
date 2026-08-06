@@ -1,37 +1,44 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP.
+ * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
+ * See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import com.github.retrooper.packetevents.wrapper.PacketWrapper;
-import games.cubi.raycastedantiesp.core.locatables.NettyEntityLocatable;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata;
+import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
+import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.utils.BaseEntitySpawnTask;
-import games.cubi.raycastedantiesp.packetevents.locatables.PacketEventsEntity;
-import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
+import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 
 final class PECacheablePacketReconciliationTask extends BaseEntitySpawnTask {
     private final PlayerData playerData;
     private final int entityID;
-    private final String packetType;
-    private final PacketEventsEntityReplayData pendingReplayData;
+    private final PacketWrapper<?> packet;
 
     PECacheablePacketReconciliationTask(PlayerData playerData, int entityID, PacketWrapper<?> packet, int submittedTick) {
         super(submittedTick);
         this.playerData = playerData;
         this.entityID = entityID;
-        this.packetType = packet.getClass().getSimpleName();
-        this.pendingReplayData = PacketEventsEntityReplayData.create();
-        this.pendingReplayData.addPacket(packet);
+        this.packet = packet;
     }
 
     @Override
     public void run() {
-        NettyEntityLocatable<?,?> entity = playerData.trackedEntityFromID(entityID);
+        NettyEntity<?> entity = playerData.entityFromID(entityID);
         if (entity == null) {
+            Logger.error("Reconciliation fail: Attempted to cache packet for unknown entity, id=" + entityID + " packet=" + packet.getClass().getSimpleName() + ".", 3, this.getClass());
             return;
         }
-        PacketEventsEntityReplayData replayData = PacketEventsEntityViewController.get().ensureReplayData((PacketEventsEntity) entity);
-        for (PacketWrapper<?> packet : pendingReplayData.snapshotPackets(entityID)) {
-            replayData.addPacket(packet);
+        if (packet instanceof WrapperPlayServerEntityMetadata metadataPacket) {
+            PacketEventsEntityViewController.applyTrackedMetadata(entity, metadataPacket.getEntityMetadata());
         }
+        PacketEventsEntityViewController.get().ensureReplayData((PacketEventsEntity) entity).addPacket(packet);
     }
 
     @Override
@@ -39,7 +46,7 @@ final class PECacheablePacketReconciliationTask extends BaseEntitySpawnTask {
         return "PECacheablePacketReconciliationTask{" +
                 "submittedTick=" + submittedTick +
                 ", entityID=" + entityID +
-                ", packetType=" + packetType +
+                ", packetType=" + packet.getClass().getSimpleName() +
                 ", playerUUID=" + playerData.getPlayerUUID() +
                 '}';
     }

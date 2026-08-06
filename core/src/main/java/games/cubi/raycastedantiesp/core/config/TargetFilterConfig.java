@@ -1,3 +1,9 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2025-2026 Cubicake and Contributors.
+ * This file is part of PieCloak, a modified fork of RaycastedAntiESP.
+ */
+
 package games.cubi.raycastedantiesp.core.config;
 
 import org.spongepowered.configurate.ConfigurationNode;
@@ -5,6 +11,9 @@ import org.spongepowered.configurate.ConfigurationNode;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * PieCloak's allowlist of packet-visible targets managed by the anti-ESP engine.
+ */
 public record TargetFilterConfig(
         boolean enabled,
         Mode mode,
@@ -12,12 +21,32 @@ public record TargetFilterConfig(
         List<String> blockEntities,
         List<String> blockEntityGroups
 ) implements Config {
+    public static final ConfigExtension<TargetFilterConfig> EXTENSION = new ConfigExtension<>() {
+        @Override
+        public Class<TargetFilterConfig> type() {
+            return TargetFilterConfig.class;
+        }
+
+        @Override
+        public TargetFilterConfig load(ConfigurationNode config, BlockProcessorConfig blockProcessorConfig) {
+            return TargetFilterConfig.load(config);
+        }
+
+        @Override
+        public boolean requiresRestart(TargetFilterConfig startupConfig, TargetFilterConfig nextConfig) {
+            return !startupConfig.equals(nextConfig);
+        }
+    };
+
+    public TargetFilterConfig {
+        entities = List.copyOf(entities);
+        blockEntities = List.copyOf(blockEntities);
+        blockEntityGroups = List.copyOf(blockEntityGroups);
+    }
+
     public static TargetFilterConfig load(ConfigurationNode root) {
         ConfigurationNode filter = ConfigReader.node(root, "target-filter");
         Mode mode = Mode.fromConfigName(ConfigReader.string(ConfigReader.node(filter, "mode"), "target-filter.mode"));
-        if (mode != Mode.ALLOWLIST) {
-            throw new ConfigLoadException("target-filter.mode only supports ALLOWLIST");
-        }
         return new TargetFilterConfig(
                 ConfigReader.bool(ConfigReader.node(filter, "enabled"), "target-filter.enabled"),
                 mode,
@@ -28,8 +57,8 @@ public record TargetFilterConfig(
     }
 
     public static String normalizeKey(String raw) {
-        String s = raw.trim().toLowerCase(Locale.ROOT);
-        return s.startsWith("minecraft:") ? s.substring("minecraft:".length()) : s;
+        String value = raw.trim().toLowerCase(Locale.ROOT);
+        return value.startsWith("minecraft:") ? value.substring("minecraft:".length()) : value;
     }
 
     public enum Mode implements ConfigEnum {
@@ -52,7 +81,7 @@ public record TargetFilterConfig(
 
         @Override
         public String[] getValues() {
-            return new String[] {configName};
+            return new String[]{configName};
         }
     }
 }
