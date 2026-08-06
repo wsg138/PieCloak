@@ -14,6 +14,7 @@ import org.bukkit.Bukkit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 public final class FancyCompatibility implements AutoCloseable {
@@ -38,19 +39,18 @@ public final class FancyCompatibility implements AutoCloseable {
     }
 
     private void startIfEnabled(String pluginName, String integrationClassName, Predicate<String> pluginEnabled, ClassLoader classLoader) {
-        AutoCloseable integration = loadIfEnabled(pluginName, integrationClassName, pluginEnabled, classLoader);
-        if (integration != null) {
-            integrations.add(integration);
-        }
+        loadIfEnabled(pluginName, integrationClassName, pluginEnabled, classLoader, integrations::add);
     }
 
-    static AutoCloseable loadIfEnabled(
+    static void loadIfEnabled(
             String pluginName,
             String integrationClassName,
             Predicate<String> pluginEnabled,
-            ClassLoader classLoader) {
+            ClassLoader classLoader,
+            Consumer<AutoCloseable> integrationOwner) {
+        Objects.requireNonNull(integrationOwner, "integrationOwner");
         if (!pluginEnabled.test(pluginName)) {
-            return null;
+            return;
         }
 
         try {
@@ -59,8 +59,7 @@ public final class FancyCompatibility implements AutoCloseable {
             if (!(integration instanceof AutoCloseable closeable)) {
                 throw new IllegalStateException("Optional integration does not implement AutoCloseable: " + integrationClassName);
             }
-            Logger.info(pluginName + " compatibility enabled.", 5);
-            return closeable;
+            integrationOwner.accept(closeable);
         } catch (ReflectiveOperationException | LinkageError | RuntimeException throwable) {
             Logger.error(
                     "Unable to initialize optional " + pluginName + " compatibility. PieCloak will continue without it.",
@@ -68,7 +67,6 @@ public final class FancyCompatibility implements AutoCloseable {
                     2,
                     FancyCompatibility.class
             );
-            return null;
         }
     }
 

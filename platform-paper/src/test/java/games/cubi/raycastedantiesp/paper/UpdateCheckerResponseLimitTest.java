@@ -51,16 +51,16 @@ class UpdateCheckerResponseLimitTest {
     }
 
     @Test
-    void streamingResponseStopsAfterOneByteBeyondLimit() {
-        CountingInputStream input = new CountingInputStream(UpdateChecker.MAX_RESPONSE_BYTES + 100);
+    void streamingResponseStopsAfterOneByteBeyondLimit() throws Exception {
+        try (CountingInputStream input = new CountingInputStream(UpdateChecker.MAX_RESPONSE_BYTES + 100)) {
+            IOException exception = assertThrows(
+                    IOException.class,
+                    () -> UpdateChecker.readUtf8Body(input, UpdateChecker.MAX_RESPONSE_BYTES)
+            );
 
-        IOException exception = assertThrows(
-                IOException.class,
-                () -> UpdateChecker.readUtf8Body(input, UpdateChecker.MAX_RESPONSE_BYTES)
-        );
-
-        assertTrue(exception.getMessage().contains("exceeded"));
-        assertEquals(UpdateChecker.MAX_RESPONSE_BYTES + 1, input.bytesRead());
+            assertTrue(exception.getMessage().contains("exceeded"));
+            assertEquals(UpdateChecker.MAX_RESPONSE_BYTES + 1, input.bytesRead());
+        }
     }
 
     @Test
