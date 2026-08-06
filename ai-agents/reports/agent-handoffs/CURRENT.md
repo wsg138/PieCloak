@@ -2,6 +2,8 @@
 
 Read this report next:
 
-`ai-agents/reports/agent-handoffs/0011-20260806T051806Z-codacy-provenance-review-reopen.md`
+`ai-agents/reports/agent-handoffs/0013-20260806T132600Z-final-codacy-verification.md`
 
-The package-09 owner-ready verdict is superseded for the Codacy review boundary. Owner review found an unclassified Codacy `action_required` result at PR head `c650595a9a2d010ac5adef6725f1a63abaf294a7`: check run `92522261869` reports 573 added and 68 solved issues. Packages 10 and 11 are now defined, package 10 is selected, and PR #11 must remain NOT READY until exact provenance, remediation, and independent verification are complete.
+Package 11 independently verified the complete Codacy provenance and remediation evidence at PR head `ee5c80f8c96cdd565eb95edcb1cf8128469741bb`. All 183 initial PieCloak findings and all 11 findings surfaced during remediation are fixed. The complete final dataset contains 376 findings, all reproduced against the authoritative upstream tree, with zero PieCloak-attributed findings remaining.
+
+The repository is `READY_FOR_OWNER`. No agent package is selected. PR #11 remains open and unmerged; owner review and completion or explicit acceptance of the remaining live/manual validation are the next route.
