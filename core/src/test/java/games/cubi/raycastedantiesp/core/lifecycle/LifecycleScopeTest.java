@@ -56,4 +56,44 @@ class LifecycleScopeTest {
         assertEquals(1, freshCloses.get());
         assertEquals(1, oldCloses.get());
     }
+
+    @Test
+    void closedInstanceCannotReceiveWorkWhileFreshInstanceCan() {
+        FakeListener oldListener = new FakeListener();
+        LifecycleScope oldScope = new LifecycleScope();
+        oldScope.own(oldListener);
+
+        oldListener.receive();
+        oldScope.close();
+        oldListener.receive();
+
+        FakeListener freshListener = new FakeListener();
+        LifecycleScope freshScope = new LifecycleScope();
+        freshScope.own(freshListener);
+        freshListener.receive();
+
+        assertEquals(1, oldListener.received());
+        assertEquals(1, freshListener.received());
+        freshScope.close();
+    }
+
+    private static final class FakeListener implements AutoCloseable {
+        private int received;
+        private boolean active = true;
+
+        void receive() {
+            if (active) {
+                received++;
+            }
+        }
+
+        int received() {
+            return received;
+        }
+
+        @Override
+        public void close() {
+            active = false;
+        }
+    }
 }

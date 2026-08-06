@@ -23,9 +23,13 @@ public abstract class PaperListener implements Listener, AutoCloseable {
             Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
             return (T) this;
         } catch (RuntimeException | Error throwable) {
-            HandlerList.unregisterAll(this);
             registered.set(false);
             closed.set(true);
+            try {
+                HandlerList.unregisterAll(this);
+            } catch (RuntimeException | Error cleanupFailure) {
+                throwable.addSuppressed(cleanupFailure);
+            }
             throw throwable;
         }
     }

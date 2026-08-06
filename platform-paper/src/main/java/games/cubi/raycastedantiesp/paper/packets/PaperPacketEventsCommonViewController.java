@@ -29,8 +29,12 @@ public final class PaperPacketEventsCommonViewController extends PacketEventsCom
         try {
             Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
         } catch (RuntimeException | Error throwable) {
-            HandlerList.unregisterAll(this);
             closed.set(true);
+            try {
+                HandlerList.unregisterAll(this);
+            } catch (RuntimeException | Error cleanupFailure) {
+                throwable.addSuppressed(cleanupFailure);
+            }
             throw throwable;
         }
     }

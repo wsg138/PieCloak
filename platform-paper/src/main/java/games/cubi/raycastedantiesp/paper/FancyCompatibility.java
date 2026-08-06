@@ -32,14 +32,27 @@ public final class FancyCompatibility implements AutoCloseable {
             holograms = new Holograms().register();
             npcs = startedNpcs;
         } catch (RuntimeException | Error throwable) {
-            startedNpcs.close();
+            try {
+                startedNpcs.close();
+            } catch (RuntimeException | Error cleanupFailure) {
+                throwable.addSuppressed(cleanupFailure);
+            }
             throw throwable;
         }
     }
 
     @Override
     public void close() {
-        holograms.close();
+        try {
+            holograms.close();
+        } catch (RuntimeException | Error throwable) {
+            try {
+                npcs.close();
+            } catch (RuntimeException | Error cleanupFailure) {
+                throwable.addSuppressed(cleanupFailure);
+            }
+            throw throwable;
+        }
         npcs.close();
     }
 
