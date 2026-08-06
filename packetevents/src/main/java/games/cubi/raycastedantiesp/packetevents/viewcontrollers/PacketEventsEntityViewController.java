@@ -129,7 +129,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         if (shouldProcessManagedPackets(playerData.hasBypassPermission())) {
             handleEntityPackets(event, event.getUser(), playerData, world, currentTick);
         } else {
-            handleBypassPacketLifecycle(event, event.getUser(), playerData, currentTick);
+            handleBypassPacketLifecycle(event, playerData, currentTick);
             enableBypass(playerData, currentTick);
         }
 
@@ -187,16 +187,11 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         }
     }
 
-    private void handleBypassPacketLifecycle(PacketSendEvent event, User viewer, PlayerData playerData, int currentTick) {
+    private void handleBypassPacketLifecycle(PacketSendEvent event, PlayerData playerData, int currentTick) {
         if (event.getPacketType() == PacketType.Play.Server.DESTROY_ENTITIES) {
             handleDestroyEntities(new WrapperPlayServerDestroyEntities(event).getEntityIds(), playerData, currentTick);
         } else if (event.getPacketType() == PacketType.Play.Server.RESPAWN) {
             transitionRetries.clear(playerData.getPlayerUUID());
-            WrapperPlayServerRespawn packet = new WrapperPlayServerRespawn(event);
-            String worldName = packet.getWorldName().orElse(null);
-            handleWorldStatePacket(viewer.getUUID(), worldName,
-                    worldName == null ? null : COMMON.resolveWorldUUID(worldName),
-                    packet.getDimensionType().getMinY(), currentTick);
         }
     }
 
@@ -278,7 +273,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             }
             case PacketType.Play.Server.ENTITY_HEAD_LOOK -> {
                 WrapperPlayServerEntityHeadLook packet = new WrapperPlayServerEntityHeadLook(event);
-                if (!isBypassed(packet.getEntityId()) && handleEntityHeadLook(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
+                if (!isBypassed(packet.getEntityId()) && handleEntityHeadLook(packet, playerData) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_METADATA -> {
@@ -327,12 +322,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 if (handleLeashEntity(wrapper.getAttachedId(), holderEntityID, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
-            case PacketType.Play.Server.RESPAWN -> {
-                transitionRetries.clear(playerData.getPlayerUUID());
-                WrapperPlayServerRespawn packet = new WrapperPlayServerRespawn(event);
-                String worldName = packet.getWorldName().orElse(null);
-                handleWorldStatePacket(viewer.getUUID(), worldName, worldName == null ? null : COMMON.resolveWorldUUID(worldName), packet.getDimensionType().getMinY(), currentTick);
-            }
+            case PacketType.Play.Server.RESPAWN -> transitionRetries.clear(playerData.getPlayerUUID());
             default -> {}
         }
     }
