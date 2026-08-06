@@ -2,6 +2,6 @@
 
 Read this report next:
 
-`ai-agents/reports/agent-handoffs/0010-20260806T044700Z-final-integration-release-review.md`
+`ai-agents/reports/agent-handoffs/0011-20260806T051806Z-codacy-provenance-review-reopen.md`
 
-Package 09 completed the superseding final integration and release review at exact PR head `c650595a9a2d010ac5adef6725f1a63abaf294a7`. Missing/unresolved respawn metadata now invalidates the prior generation, Paper routes each respawn through one shared invalidator, the intermediate compile regression was fixed, exact-head Build and Static analysis run 60 passed, the final artifact and Minecraft 1.21.11 metadata were verified, and PR #11's description records `READY FOR OWNER REVIEW`. No next worker package is selected; owner review and live Leaf/Java/Geyser validation remain required.
+The package-09 owner-ready verdict is superseded for the Codacy review boundary. Owner review found an unclassified Codacy `action_required` result at PR head `c650595a9a2d010ac5adef6725f1a63abaf294a7`: check run `92522261869` reports 573 added and 68 solved issues. Packages 10 and 11 are now defined, package 10 is selected, and PR #11 must remain NOT READY until exact provenance, remediation, and independent verification are complete.
