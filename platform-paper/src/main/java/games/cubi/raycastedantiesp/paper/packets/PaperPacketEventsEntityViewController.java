@@ -23,7 +23,8 @@ public class PaperPacketEventsEntityViewController extends PacketEventsEntityVie
 
     public static PaperPacketEventsEntityViewController create(
             IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
-        return EntityControllerOwnership.create(currentTickSupplier, targetFilter);
+        return EntityControllerOwnership.construct(
+                () -> new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter));
     }
 
     private PaperPacketEventsEntityViewController(

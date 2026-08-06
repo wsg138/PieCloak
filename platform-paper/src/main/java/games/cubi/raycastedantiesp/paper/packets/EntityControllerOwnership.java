@@ -1,10 +1,7 @@
 package games.cubi.raycastedantiesp.paper.packets;
 
 import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewController;
-import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
-
-import java.util.function.IntSupplier;
 
 /**
  * Binds the current controller implementation's two private singleton slots to one lifecycle.
@@ -23,10 +20,10 @@ final class EntityControllerOwnership {
     private EntityControllerOwnership() {
     }
 
-    static PaperPacketEventsEntityViewController create(
-            IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+    static PaperPacketEventsEntityViewController construct(
+            ControllerOwnership.Factory<PaperPacketEventsEntityViewController> factory) {
         return OWNERSHIP.construct(
-                () -> new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter),
+                factory,
                 controller -> {
                     PacketEventsEntityViewController published = PacketEventsEntityViewController.get();
                     if (published != controller) {
