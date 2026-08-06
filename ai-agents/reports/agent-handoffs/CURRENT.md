@@ -2,6 +2,6 @@
 
 Read this report next:
 
-`ai-agents/reports/agent-handoffs/0008-20260806T034000Z-controller-ownership-reenable.md`
+`ai-agents/reports/agent-handoffs/0009-20260806T041555Z-respawn-visibility-state-invalidation.md`
 
-Package 07 completed controller ownership, rollback, exact-once listener cleanup, and same-JVM re-enable fencing at PR head `a6056313378f3fbdbbbb3698a67ca675533ad351`. Exact-head build and static analysis passed. Package `08-respawn-visibility-state-invalidation` is selected with state `READY_FOR_AGENT`.
+Package 08 completed every-respawn client-state invalidation at PR head `35127dd6bff64e9f2d6dd4a1fe5e4ea48995aeb3`. Same-world and bypass respawns now advance the epoch, clear tracked and reconciliation state, discard stale retry/relationship work, and fence deferred callbacks. Exact-head Build and Static analysis run 56 passed. Package `09-final-integration-pr-cleanup-release-review` is selected with state `READY_FOR_AGENT`; PR #11 remains `NOT READY` until that package issues a new final verdict.

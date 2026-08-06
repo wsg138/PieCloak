@@ -11,3 +11,4 @@ Newest report last.
 - `0006-20260806T015743Z-final-integration-review.md` — package 06 completed its review and recorded the former `READY_FOR_OWNER` verdict; that verdict was later superseded by owner review.
 - `0007-20260806T024300Z-owner-review-remediation-reopen.md` — owner review confirmed controller re-enable and same-world respawn blockers; packages 07–09 added; package 07 selected.
 - `0008-20260806T034000Z-controller-ownership-reenable.md` — package 07 complete; controller ownership rollback/release and same-JVM re-enable fencing validated; package 08 selected.
+- `0009-20260806T041555Z-respawn-visibility-state-invalidation.md` — package 08 complete; every-respawn epoch invalidation, stale-work cleanup, and entity-ID reuse protection validated; package 09 selected.
