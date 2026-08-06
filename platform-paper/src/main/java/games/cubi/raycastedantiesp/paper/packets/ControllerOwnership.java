@@ -74,17 +74,10 @@ final class ControllerOwnership {
                 return owner;
             } catch (Throwable failure) {
                 if (owner != null) {
-                    try {
-                        rollbackExternalResource.run(owner);
-                    } catch (Throwable rollbackFailure) {
-                        failure.addSuppressed(rollbackFailure);
-                    }
+                    T constructedOwner = owner;
+                    failure = attempt(failure, () -> rollbackExternalResource.run(constructedOwner));
                 }
-                try {
-                    restore(previousPrimary, previousSecondary);
-                } catch (Throwable restoreFailure) {
-                    failure.addSuppressed(restoreFailure);
-                }
+                failure = restore(previousPrimary, previousSecondary, failure);
                 throwUnchecked(failure);
                 throw new AssertionError("unreachable");
             }
@@ -95,42 +88,25 @@ final class ControllerOwnership {
         Objects.requireNonNull(expectedOwner, "expectedOwner");
         Objects.requireNonNull(externalCleanup, "externalCleanup");
 
-        Throwable failure = null;
-        try {
-            externalCleanup.run();
-        } catch (Throwable cleanupFailure) {
-            failure = cleanupFailure;
-        }
-
-        try {
-            release(expectedOwner);
-        } catch (Throwable releaseFailure) {
-            if (failure == null) {
-                failure = releaseFailure;
-            } else {
-                failure.addSuppressed(releaseFailure);
-            }
-        }
-
+        Throwable failure = attempt(null, externalCleanup);
+        failure = attempt(failure, () -> releasePrimaryOwned(expectedOwner));
+        failure = attempt(failure, () -> releaseSecondaryOwned(expectedOwner));
         if (failure != null) {
             throwUnchecked(failure);
         }
     }
 
-    void release(Object expectedOwner) {
-        Objects.requireNonNull(expectedOwner, "expectedOwner");
-        synchronized (lock) {
-            // Clear the primary slot first. The secondary getter lazily copies the primary value;
-            // this order prevents a concurrent getter from permanently re-publishing the old owner.
-            if (primary.get() == expectedOwner) {
-                primary.set(null);
-            }
-            if (secondary.get() == expectedOwner) {
-                secondary.set(null);
-            }
-        }
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    void releasePrimaryOwned(Object expectedOwner) {
+        releaseSlotOwned(primary, expectedOwner);
     }
 
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    void releaseSecondaryOwned(Object expectedOwner) {
+        releaseSlotOwned(secondary, expectedOwner);
+    }
+
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
     void verifyConsistentOrEmpty() {
         synchronized (lock) {
             Object currentPrimary = primary.get();
@@ -141,10 +117,19 @@ final class ControllerOwnership {
         }
     }
 
-    private void restore(Object previousPrimary, Object previousSecondary) {
-        // Restore in the same order as release so a lazy secondary lookup cannot capture a failed owner.
-        primary.set(previousPrimary);
-        secondary.set(previousSecondary);
+    private Throwable restore(Object previousPrimary, Object previousSecondary, Throwable failure) {
+        // Restore both slots independently. A failure restoring one field must not strand the other.
+        failure = attempt(failure, () -> primary.set(previousPrimary));
+        return attempt(failure, () -> secondary.set(previousSecondary));
+    }
+
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    private void releaseSlotOwned(Slot slot, Object expectedOwner) {
+        synchronized (lock) {
+            if (slot.get() == expectedOwner) {
+                slot.set(null);
+            }
+        }
     }
 
     static Slot reflectiveStaticSlot(Class<?> declaringClass, String fieldName) {
@@ -184,7 +169,20 @@ final class ControllerOwnership {
         }
     }
 
-    private static void throwUnchecked(Throwable failure) {
+    private static Throwable attempt(Throwable previous, Cleanup action) {
+        try {
+            action.run();
+            return previous;
+        } catch (Throwable failure) {
+            if (previous == null) {
+                return failure;
+            }
+            previous.addSuppressed(failure);
+            return previous;
+        }
+    }
+
+    static void throwUnchecked(Throwable failure) {
         if (failure instanceof RuntimeException runtimeException) {
             throw runtimeException;
         }

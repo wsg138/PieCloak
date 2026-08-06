@@ -12,11 +12,11 @@ import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewControll
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
 
 /**
- * Binds the current controller implementation's two private singleton slots to one lifecycle.
+ * Binds the current controller implementation's two singleton slots to one lifecycle.
  *
- * <p>These fields have no supported release API in the inherited upstream implementation. The
- * fixed-name reflective binding is intentionally isolated at the Paper adapter boundary so a later
- * upstream or platform upgrade fails explicitly here instead of leaving stale controller state.</p>
+ * <p>The upstream fields do not expose release APIs, so the fixed-name reflective binding is kept
+ * isolated at the Paper adapter boundary. Release remains explicit and ownership-aware for each
+ * field, and a later upstream change fails here instead of silently retaining stale state.</p>
  */
 final class EntityControllerOwnership {
     private static final ControllerOwnership OWNERSHIP = new ControllerOwnership(
@@ -42,8 +42,16 @@ final class EntityControllerOwnership {
         );
     }
 
-    static void close(PaperPacketEventsEntityViewController owner, ControllerOwnership.Cleanup cleanup) {
-        OWNERSHIP.closeOwned(owner, cleanup);
+    static void close(PaperPacketEventsEntityViewController owner, ControllerOwnership.Cleanup listenerCleanup) {
+        OWNERSHIP.closeOwned(owner, listenerCleanup);
+    }
+
+    static void releaseCoreOwnership(PaperPacketEventsEntityViewController owner) {
+        OWNERSHIP.releasePrimaryOwned(owner);
+    }
+
+    static void releasePacketEventsOwnership(PaperPacketEventsEntityViewController owner) {
+        OWNERSHIP.releaseSecondaryOwned(owner);
     }
 
     static void verifyBindings() {

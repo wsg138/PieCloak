@@ -14,12 +14,10 @@ import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
 
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntSupplier;
 
-public class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController implements AutoCloseable {
-    private final PacketListenerCommon registration;
-    private final AtomicBoolean closed = new AtomicBoolean();
+public final class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController implements AutoCloseable {
+    private final ListenerRegistration<PacketListenerCommon> registration;
 
     public static PaperPacketEventsEntityViewController create(
             IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
@@ -30,28 +28,20 @@ public class PaperPacketEventsEntityViewController extends PacketEventsEntityVie
     private PaperPacketEventsEntityViewController(
             IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
         super(currentTickSupplier, targetFilter);
-        PacketListenerCommon createdRegistration = asAbstract(PacketListenerPriority.HIGHEST);
-        try {
-            registration = PacketEvents.getAPI().getEventManager().registerListener(createdRegistration);
-        } catch (RuntimeException | Error throwable) {
-            try {
-                PacketEvents.getAPI().getEventManager().unregisterListener(createdRegistration);
-            } catch (RuntimeException | Error cleanupFailure) {
-                throwable.addSuppressed(cleanupFailure);
-            }
-            closed.set(true);
-            throw throwable;
-        }
+        PacketListenerCommon listener = asAbstract(PacketListenerPriority.HIGHEST);
+        registration = ListenerRegistration.register(
+                listener,
+                candidate -> PacketEvents.getAPI().getEventManager().registerListener(candidate),
+                registered -> PacketEvents.getAPI().getEventManager().unregisterListener(registered)
+        );
     }
 
     @Override
     public void close() {
-        EntityControllerOwnership.close(this, this::rollbackRegistration);
+        EntityControllerOwnership.close(this, registration::close);
     }
 
     void rollbackRegistration() {
-        if (closed.compareAndSet(false, true)) {
-            PacketEvents.getAPI().getEventManager().unregisterListener(registration);
-        }
+        registration.close();
     }
 }

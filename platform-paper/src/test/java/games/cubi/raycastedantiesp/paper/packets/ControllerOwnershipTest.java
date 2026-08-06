@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -30,6 +32,30 @@ class ControllerOwnershipTest {
     }
 
     private static final class Owner {
+    }
+
+    private static final class TestSlot implements ControllerOwnership.Slot {
+        private Object value;
+        private RuntimeException setFailure;
+        private final AtomicInteger setAttempts = new AtomicInteger();
+
+        TestSlot(Object value) {
+            this.value = value;
+        }
+
+        @Override
+        public Object get() {
+            return value;
+        }
+
+        @Override
+        public void set(Object value) {
+            setAttempts.incrementAndGet();
+            if (setFailure != null) {
+                throw setFailure;
+            }
+            this.value = value;
+        }
     }
 
     @AfterEach
@@ -53,6 +79,7 @@ class ControllerOwnershipTest {
         Owner second = construct(ownership);
         assertSame(second, Holder.primary);
         assertSame(second, Holder.secondary);
+        ownership.closeOwned(second, () -> { });
     }
 
     @Test
@@ -72,6 +99,7 @@ class ControllerOwnershipTest {
         assertSame(expected, actual);
         assertNull(Holder.primary);
         assertNull(Holder.secondary);
+        assertDoesNotThrow(() -> ownership.closeOwned(construct(ownership), () -> { }));
     }
 
     @Test
@@ -97,10 +125,11 @@ class ControllerOwnershipTest {
         assertTrue(rolledBack.get());
         assertNull(Holder.primary);
         assertNull(Holder.secondary);
+        assertDoesNotThrow(() -> ownership.closeOwned(construct(ownership), () -> { }));
     }
 
     @Test
-    void repeatedCloseIsIdempotent() {
+    void repeatedOwnershipReleaseIsHarmless() {
         ControllerOwnership ownership = ownership();
         Owner owner = construct(ownership);
 
@@ -121,10 +150,11 @@ class ControllerOwnershipTest {
 
         assertSame(replacement, Holder.primary);
         assertSame(replacement, Holder.secondary);
+        ownership.closeOwned(replacement, () -> { });
     }
 
     @Test
-    void cleanupFailureStillReleasesOwnershipAndPropagates() {
+    void cleanupFailureStillReleasesBothOwnershipSlotsAndPropagates() {
         ControllerOwnership ownership = ownership();
         Owner owner = construct(ownership);
         RuntimeException expected = new RuntimeException("listener unregister failed");
@@ -135,6 +165,51 @@ class ControllerOwnershipTest {
         assertSame(expected, actual);
         assertNull(Holder.primary);
         assertNull(Holder.secondary);
+    }
+
+    @Test
+    void secondSingletonReleaseIsAttemptedWhenFirstReleaseFails() {
+        Owner owner = new Owner();
+        TestSlot primary = new TestSlot(owner);
+        TestSlot secondary = new TestSlot(owner);
+        RuntimeException expected = new RuntimeException("primary release failed");
+        primary.setFailure = expected;
+        ControllerOwnership ownership = new ControllerOwnership(LOCK, primary, secondary);
+
+        RuntimeException actual = assertThrows(RuntimeException.class,
+                () -> ownership.closeOwned(owner, () -> { }));
+
+        assertSame(expected, actual);
+        assertSame(owner, primary.get());
+        assertNull(secondary.get());
+        assertEquals(1, primary.setAttempts.get());
+        assertEquals(1, secondary.setAttempts.get());
+    }
+
+    @Test
+    void rollbackAttemptsBothSingletonRestoresWhenFirstRestoreFails() {
+        TestSlot primary = new TestSlot(null);
+        TestSlot secondary = new TestSlot(null);
+        RuntimeException restoreFailure = new RuntimeException("primary restore failed");
+        ControllerOwnership ownership = new ControllerOwnership(LOCK, primary, secondary);
+        RuntimeException constructionFailure = new RuntimeException("construction failed");
+
+        RuntimeException actual = assertThrows(RuntimeException.class, () -> ownership.construct(
+                () -> {
+                    primary.value = new Owner();
+                    primary.setFailure = restoreFailure;
+                    throw constructionFailure;
+                },
+                owner -> secondary.value = owner,
+                owner -> { }
+        ));
+
+        assertSame(constructionFailure, actual);
+        assertEquals(1, actual.getSuppressed().length);
+        assertSame(restoreFailure, actual.getSuppressed()[0]);
+        assertEquals(1, primary.setAttempts.get());
+        assertEquals(1, secondary.setAttempts.get());
+        assertNull(secondary.get());
     }
 
     @Test
