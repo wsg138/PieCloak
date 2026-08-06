@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static games.cubi.raycastedantiesp.packetevents.viewcontrollers.BlockTransitionRetryQueue.Operation.HIDE;
 import static games.cubi.raycastedantiesp.packetevents.viewcontrollers.BlockTransitionRetryQueue.Operation.SHOW;
@@ -83,17 +84,37 @@ class BlockTransitionRetryQueueTest {
     }
 
     @Test
-    void retryQueueIsBoundedPerViewer() {
+    void retryQueuePreservesExistingWorkWhenCapacityIsReached() {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();
-        boolean evicted = false;
-        for (int index = 0; index <= BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER; index++) {
-            evicted |= queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), index + 1,
-                    2, 7L, 1, 0);
+        for (int index = 0; index < BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER; index++) {
+            assertFalse(queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), index + 1,
+                    2, 7L, 1, 0));
         }
 
-        assertTrue(evicted);
+        boolean rejected = queue.enqueue(viewer, SHOW, BLOCK, tileEntity(),
+                BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER + 1, 2, 7L, 1, 0);
+
+        assertTrue(rejected);
         assertEquals(BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER, queue.size(viewer));
+        List<Integer> expectedBlockIDs = IntStream.rangeClosed(
+                1, BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER).boxed().toList();
+        assertEquals(expectedBlockIDs, queue.drainDue(viewer, 2, 1).stream()
+                .map(BlockTransitionRetryQueue.Retry::expectedBlockID)
+                .toList());
+    }
+
+    @Test
+    void retryAttemptsAreBounded() {
+        BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
+        UUID viewer = UUID.randomUUID();
+
+        assertFalse(queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L,
+                BlockTransitionRetryQueue.MAX_FAILURES - 1, 0));
+        assertTrue(queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 6, 2, 7L,
+                BlockTransitionRetryQueue.MAX_FAILURES, 0));
+
+        assertEquals(1, queue.size(viewer));
     }
 
     @Test

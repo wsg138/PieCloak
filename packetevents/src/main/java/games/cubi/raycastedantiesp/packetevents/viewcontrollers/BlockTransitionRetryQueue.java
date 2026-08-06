@@ -12,6 +12,7 @@ import java.util.UUID;
 
 final class BlockTransitionRetryQueue {
     static final int MAX_RETRIES_PER_VIEWER = 256;
+    static final int MAX_FAILURES = 8;
     private static final int MAX_BACKOFF_TICKS = 20;
 
     enum Operation {
@@ -27,11 +28,16 @@ final class BlockTransitionRetryQueue {
 
     private final Map<UUID, LinkedHashMap<Key, Retry>> retriesByViewer = new LinkedHashMap<>();
 
+    /**
+     * @return true when the retry was rejected because its identity was invalid, its failure limit
+     * was reached, or the per-viewer queue was already full; false when it was added or merged.
+     */
     synchronized boolean enqueue(UUID viewerUUID, Operation operation, Stage stage,
             TrackedTileEntity<?> tileEntity, int expectedBlockID, int worldEpoch, long modeToken,
             int attempts, int currentTick) {
-        if (viewerUUID == null || tileEntity == null || !PlayerData.isStableWorldEpoch(worldEpoch)) {
-            return false;
+        if (viewerUUID == null || tileEntity == null || !PlayerData.isStableWorldEpoch(worldEpoch)
+                || attempts >= MAX_FAILURES) {
+            return true;
         }
 
         LinkedHashMap<Key, Retry> retries = retriesByViewer.computeIfAbsent(
@@ -51,18 +57,14 @@ final class BlockTransitionRetryQueue {
             return false;
         }
 
-        boolean evicted = false;
         if (retries.size() >= MAX_RETRIES_PER_VIEWER) {
-            Iterator<Key> iterator = retries.keySet().iterator();
-            if (iterator.hasNext()) {
-                iterator.next();
-                iterator.remove();
-                evicted = true;
-            }
+            // Preserve already-queued staged repairs. Reject the newest failure instead of
+            // discarding an older repair whose block write may already have committed.
+            return true;
         }
         retries.put(key, new Retry(operation, stage, tileEntity, expectedBlockID,
                 worldEpoch, modeToken, attempts, nextAttemptTick));
-        return evicted;
+        return false;
     }
 
     synchronized List<Retry> drainDue(UUID viewerUUID, int currentWorldEpoch, int currentTick) {

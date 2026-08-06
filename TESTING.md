@@ -67,6 +67,7 @@ Use a normal client plus a pie-chart/base-finding client or packet capture where
 - Inject a failure only for SHOW block-entity data and verify retry sends only the missing data rather than duplicating the real block.
 - Disable tile checks while several tiles are hidden, fail one repair write, and verify every other tile is repaired while the failed tile remains queued.
 - Toggle checks enabled → disabled → enabled while a repair is pending and verify the old generation is discarded.
+- Saturate one viewer with more than 256 distinct failed block repairs and verify queued staged repairs are preserved, newest failures are reported, and each repair stops after eight failed attempts.
 - Change worlds or disconnect with repairs pending and verify no old-world repair is sent afterward.
 - Send standalone managed block-entity data without cached tile state and verify it is cancelled and replaced with the hidden block.
 - Send virtual/non-managed block-entity data and verify it still reaches Java and Bedrock clients.

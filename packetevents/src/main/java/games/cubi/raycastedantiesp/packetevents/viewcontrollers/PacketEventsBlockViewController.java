@@ -354,15 +354,30 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                     ? writeFailure.stage()
                     : stage;
             int nextAttempt = attempts == Integer.MAX_VALUE ? attempts : attempts + 1;
-            boolean evicted = transitionRetries.enqueue(viewerUUID, operation, failedStage, tileEntity,
+            Exception loggedException = exception;
+            if (exception instanceof TransitionWriteException
+                    && exception.getCause() instanceof Exception cause) {
+                loggedException = cause;
+            }
+            if (nextAttempt >= BlockTransitionRetryQueue.MAX_FAILURES) {
+                Logger.error("Block visibility synchronization reached its terminal retry limit. viewer=" + viewerUUID
+                                + " position=" + tileEntity.blockX() + "," + tileEntity.blockY() + ","
+                                + tileEntity.blockZ()
+                                + " blockID=" + expectedBlockID
+                                + " operation=" + operation
+                                + " stage=" + failedStage
+                                + " attempts=" + nextAttempt,
+                        loggedException, 1, PacketEventsBlockViewController.class);
+                return;
+            }
+
+            boolean rejected = transitionRetries.enqueue(viewerUUID, operation, failedStage, tileEntity,
                     expectedBlockID, transitionWorldEpoch, modeToken, nextAttempt, currentTick);
-            if (nextAttempt == 1 || nextAttempt % 20 == 0) {
-                Exception loggedException = exception;
-                if (exception instanceof TransitionWriteException
-                        && exception.getCause() instanceof Exception cause) {
-                    loggedException = cause;
-                }
-                Logger.error("Block visibility synchronization failed and was queued for retry. viewer=" + viewerUUID
+            if (nextAttempt == 1) {
+                Logger.error("Block visibility synchronization failed "
+                                + (rejected ? "and could not be queued for retry. viewer="
+                                            : "and was queued for retry. viewer=")
+                                + viewerUUID
                                 + " position=" + tileEntity.blockX() + "," + tileEntity.blockY() + ","
                                 + tileEntity.blockZ()
                                 + " blockID=" + expectedBlockID
@@ -371,11 +386,11 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                                 + " attempts=" + nextAttempt,
                         loggedException, 1, PacketEventsBlockViewController.class);
             }
-            if (evicted) {
+            if (rejected) {
                 int diagnostic = retryOverflowDiagnostics.incrementAndGet();
                 if (diagnostic <= MAX_DIAGNOSTICS_PER_KIND) {
-                    Logger.warning("Block transition retry queue reached its per-viewer limit and evicted its oldest "
-                                    + "repair. viewer=" + viewerUUID + " limit="
+                    Logger.warning("Block transition retry queue reached its per-viewer limit and rejected its newest "
+                                    + "repair to preserve existing staged repairs. viewer=" + viewerUUID + " limit="
                                     + BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER
                                     + diagnosticSuffix(diagnostic),
                             2, PacketEventsBlockViewController.class);
