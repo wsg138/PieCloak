@@ -20,6 +20,7 @@ import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.config.ConfigManager;
 import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
+import games.cubi.raycastedantiesp.core.logging.CubiLog;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
@@ -359,11 +360,11 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             processTileEntityOperation(playerData, viewer, retry.operation(), retry.tileEntity(),
                     retry.modeToken(), retry.stage(), retry.expectedBlockID(), retry.worldEpoch());
         } catch (TransitionWriteException exception) {
-            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+            handleTransitionFailure(playerData, new TransitionFailure(
                     retry.operation(), retry.tileEntity(), retry.modeToken(), currentTick, retry.attempts(),
                     exception.stage(), retry.expectedBlockID(), retry.worldEpoch(), loggedCause(exception)));
         } catch (RuntimeException exception) {
-            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+            handleTransitionFailure(playerData, new TransitionFailure(
                     retry.operation(), retry.tileEntity(), retry.modeToken(), currentTick, retry.attempts(),
                     retry.stage(), retry.expectedBlockID(), retry.worldEpoch(), exception));
         }
@@ -377,11 +378,11 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             processTileEntityOperation(playerData, viewer, operation, tileEntity,
                     modeToken, stage, expectedBlockID, transitionWorldEpoch);
         } catch (TransitionWriteException exception) {
-            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+            handleTransitionFailure(playerData, new TransitionFailure(
                     operation, tileEntity, modeToken, currentTick, 0,
                     exception.stage(), expectedBlockID, transitionWorldEpoch, loggedCause(exception)));
         } catch (RuntimeException exception) {
-            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+            handleTransitionFailure(playerData, new TransitionFailure(
                     operation, tileEntity, modeToken, currentTick, 0,
                     stage, expectedBlockID, transitionWorldEpoch, exception));
         }
@@ -391,7 +392,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         return exception.getCause() instanceof Exception cause ? cause : exception;
     }
 
-    private void handleTransitionFailure(PlayerData playerData, User viewer, TransitionFailure failure) {
+    private void handleTransitionFailure(PlayerData playerData, TransitionFailure failure) {
         int nextAttempt = failure.attempts() == Integer.MAX_VALUE
                 ? failure.attempts()
                 : failure.attempts() + 1;
@@ -420,10 +421,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 failure.loggedException(), 1, PacketEventsBlockViewController.class);
     }
 
-    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
     private static void logInitialTransitionFailure(
             PlayerData playerData, TransitionFailure failure, int nextAttempt, boolean rejected) {
-        Logger.error("Block visibility synchronization failed "
+        CubiLog.recordError("Block visibility synchronization failed "
                         + (rejected ? "and could not be queued for retry. viewer="
                                     : "and was queued for retry. viewer=")
                         + playerData.getPlayerUUID() + transitionDescription(failure, nextAttempt),
@@ -439,11 +439,10 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 + " attempts=" + attempts;
     }
 
-    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
     private void logRetryOverflow(UUID viewerUUID) {
         int diagnostic = retryOverflowDiagnostics.incrementAndGet();
         if (diagnostic <= MAX_DIAGNOSTICS_PER_KIND) {
-            Logger.warning("Block transition retry queue reached its per-viewer limit and rejected its newest "
+            CubiLog.recordWarning("Block transition retry queue reached its per-viewer limit and rejected its newest "
                             + "repair to preserve existing staged repairs. viewer=" + viewerUUID + " limit="
                             + BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER
                             + diagnosticSuffix(diagnostic),

@@ -21,7 +21,6 @@ import java.util.Objects;
  */
 final class ControllerOwnership {
     private static final Runnable NO_UNSAFE_CLEANUP = () -> { };
-    private static final String IDENTITY_COMPARISON_SUPPRESSION = "PMD.CompareObjectsWithEquals";
 
     @FunctionalInterface
     interface Factory<T> {
@@ -59,7 +58,6 @@ final class ControllerOwnership {
         return construct(factory, publishSecondary, rollbackExternalResource, NO_UNSAFE_CLEANUP);
     }
 
-    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     <T> T construct(Factory<T> factory, OwnerAction<T> publishSecondary,
             OwnerAction<T> rollbackExternalResource, Runnable markUnsafeCleanup) {
         Objects.requireNonNull(factory, "factory");
@@ -78,7 +76,7 @@ final class ControllerOwnership {
             try {
                 owner = Objects.requireNonNull(factory.create(), "factory returned null");
                 publishSecondary.run(owner);
-                if (primary.get() != owner || secondary.get() != owner) {
+                if (!sameIdentity(primary.get(), owner) || !sameIdentity(secondary.get(), owner)) {
                     throw new IllegalStateException("Entity controller construction did not publish one consistent owner");
                 }
                 return owner;
@@ -121,34 +119,35 @@ final class ControllerOwnership {
         }
     }
 
-    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     void releasePrimaryOwned(Object expectedOwner) {
         releaseSlotOwned(primary, expectedOwner);
     }
 
-    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     void releaseSecondaryOwned(Object expectedOwner) {
         releaseSlotOwned(secondary, expectedOwner);
     }
 
-    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     void verifyConsistentOrEmpty() {
         synchronized (lock) {
             Object currentPrimary = primary.get();
             Object currentSecondary = secondary.get();
-            if (currentPrimary != currentSecondary) {
+            if (!sameIdentity(currentPrimary, currentSecondary)) {
                 throw new IllegalStateException("Entity controller ownership is partial or contains different owners");
             }
         }
     }
 
-    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     private void releaseSlotOwned(Slot slot, Object expectedOwner) {
         synchronized (lock) {
-            if (slot.get() == expectedOwner) {
+            if (sameIdentity(slot.get(), expectedOwner)) {
                 slot.set(null);
             }
         }
+    }
+
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    private static boolean sameIdentity(Object first, Object second) {
+        return first == second;
     }
 
     static Slot reflectiveStaticSlot(Class<?> declaringClass, String fieldName) {

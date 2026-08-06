@@ -16,15 +16,12 @@ import games.cubi.raycastedantiesp.core.config.DebugConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.PlayerConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
-import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
+import games.cubi.raycastedantiesp.core.logging.CubiLog;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.raycast.ParticleSpawner;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
-import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.view.BlockView;
-import games.cubi.raycastedantiesp.core.view.EntityView;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,6 +42,7 @@ public abstract class AsyncEngine implements Engine {
 
     private final ConfigManager config;
     private final ParticleSpawner particleSpawner;
+    private final AsyncVisibilityChecks visibilityChecks;
     private final IntSupplier currentTickSupplier;
     private final AtomicInteger runningTick = new AtomicInteger(-1);
     private final AtomicInteger tickState = new AtomicInteger(TICK_IDLE);
@@ -58,6 +56,7 @@ public abstract class AsyncEngine implements Engine {
     public AsyncEngine(ConfigManager config, ParticleSpawner particleSpawner, IntSupplier currentTickSupplier, AsyncRunner asyncRunner) {
         this.config = config;
         this.particleSpawner = particleSpawner;
+        this.visibilityChecks = new AsyncVisibilityChecks(particleSpawner);
         this.currentTickSupplier = currentTickSupplier;
         this.asyncRunner = asyncRunner;
     }
@@ -373,7 +372,6 @@ public abstract class AsyncEngine implements Engine {
         }
     }
 
-    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs level filtering inside Logger.warning.
     private void completeTick(int currentTick, TickTimings timings, TimingStats timingStats) {
         try {
             long completionNanos = System.nanoTime();
@@ -381,13 +379,13 @@ public abstract class AsyncEngine implements Engine {
                 TickTimingSnapshot snapshot = timings.snapshot(currentTickSupplier.getAsInt(), completionNanos);
                 String aggregateReport = timingStats.recordCompleted(snapshot, completionNanos);
                 if (snapshot.wallNanos() > SLOW_TICK_NANOS) {
-                    Logger.warning(snapshot.toSlowTickMessage(), 5, AsyncEngine.class);
+                    CubiLog.recordWarning(snapshot.toSlowTickMessage(), 5, AsyncEngine.class);
                 }
                 logAggregateReport(aggregateReport);
             } else {
                 long elapsedNanos = completionNanos - tickNanos.get();
                 if (elapsedNanos > SLOW_TICK_NANOS) {
-                    Logger.warning("Tick completed in " + (elapsedNanos / 1_000_000.0) + " ms. If you see this warning frequently, consider reducing the raycasting load by adjusting the configuration.", 5, AsyncEngine.class);
+                    CubiLog.recordWarning("Tick completed in " + (elapsedNanos / 1_000_000.0) + " ms. If you see this warning frequently, consider reducing the raycasting load by adjusting the configuration.", 5, AsyncEngine.class);
                 }
             }
         } finally {
@@ -511,10 +509,10 @@ public abstract class AsyncEngine implements Engine {
         timings.incrementProcessedPlayers();
         BlockView blockView = playerData.blockView();
         try {
-            processEntitySection(
+            visibilityChecks.processEntitySection(
                     playerData, playerLocation, blockView, entityConfig,
                     debugParticles, currentTick, worldEpoch, timings);
-            processPlayerSection(
+            visibilityChecks.processPlayerSection(
                     playerData, playerLocation, blockView, playerConfig,
                     debugParticles, currentTick, worldEpoch, timings);
             processTileSection(
@@ -523,42 +521,6 @@ public abstract class AsyncEngine implements Engine {
         } finally {
             flushPlayerTransitions(playerData, blockView);
         }
-    }
-
-    private void processEntitySection(
-            PlayerData playerData,
-            Locatable playerLocation,
-            BlockView blockView,
-            EntityConfig entityConfig,
-            boolean debugParticles,
-            int currentTick,
-            int worldEpoch,
-            TickTimingBatch timings) {
-        if (!entityConfig.enabled()) {
-            return;
-        }
-        long sectionStartNanos = timings.startEntitySection();
-        checkEntities(playerData, playerLocation, entityConfig, debugParticles,
-                blockView, currentTick, worldEpoch, timings);
-        timings.finishEntitySection(sectionStartNanos);
-    }
-
-    private void processPlayerSection(
-            PlayerData playerData,
-            Locatable playerLocation,
-            BlockView blockView,
-            PlayerConfig playerConfig,
-            boolean debugParticles,
-            int currentTick,
-            int worldEpoch,
-            TickTimingBatch timings) {
-        if (!playerConfig.enabled()) {
-            return;
-        }
-        long sectionStartNanos = timings.startPlayerSection();
-        checkPlayers(playerData, playerLocation, playerConfig, debugParticles,
-                blockView, currentTick, worldEpoch, timings);
-        timings.finishPlayerSection(sectionStartNanos);
     }
 
     private void processTileSection(
@@ -583,70 +545,6 @@ public abstract class AsyncEngine implements Engine {
         playerData.entityView().flushPendingTransitions();
         playerData.playerView().flushPendingTransitions();
         blockView.flushPendingTransitions();
-    }
-
-    private void checkEntities(PlayerData player, Locatable playerLocation, EntityConfig entityConfig, boolean debugParticles, BlockView blockView, int currentTick, int worldEpoch, TickTimingBatch timings) {
-        EntityView<?> entityView = player.entityView();
-
-        int checked = entityView.forEachNeedingRecheckEntity(entityConfig.getVisibleRecheckIntervalTicks(), currentTick, !(timings instanceof TickTimingBatchNoOp), worldEpoch, entity -> {
-            if (EntityBypassRegistry.isRelationshipSupportEntity(entity.entityID())) {
-                if (PrimitiveIntArrayList.isEmpty(entity.passengerIDs())) {
-                    entityView.setVisibility(entity, true, currentTick, worldEpoch);
-                }
-                return;
-            }
-            if (entity.glowing()) {
-                setEntityAndSupportVehicleVisibility(entityView, entity, true, currentTick, worldEpoch);
-                return;
-            }
-            if (attachedToAlwaysVisibleEntityOrSelf(player, entityView, entity, currentTick, worldEpoch)) {
-                return;
-            }
-
-            timings.incrementEntityRaycasts();
-            boolean canSee = RaycastUtil.raycast(playerLocation, entity, entityConfig.getMaxOccludingCount(), entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(), debugParticles, blockView, entity.getYOffset(), 1, particleSpawner);
-            setEntityAndSupportVehicleVisibility(entityView, entity, canSee, currentTick, worldEpoch);
-        });
-        timings.addEntityChecked(checked);
-    }
-
-    private void setEntityAndSupportVehicleVisibility(EntityView<?> entityView, NettyEntity<?> entity,
-            boolean visible, int currentTick, int worldEpoch) {
-        NettyEntity<?> vehicle = entity.vehicleEntity();
-        if (vehicle != null && EntityBypassRegistry.isRelationshipSupportEntity(vehicle.entityID())) {
-            entityView.setVisibility(vehicle, visible, currentTick, worldEpoch);
-        }
-        entityView.setVisibility(entity, visible, currentTick, worldEpoch);
-    }
-
-    private void checkPlayers(PlayerData player, Locatable playerLocation, PlayerConfig playerConfig, boolean debugParticles, BlockView blockView, int currentTick, int worldEpoch, TickTimingBatch timings) {
-        EntityView<?> playerView = player.playerView();
-
-        int checked = playerView.forEachNeedingRecheckEntity(playerConfig.getVisibleRecheckIntervalTicks(), currentTick, !(timings instanceof TickTimingBatchNoOp), worldEpoch, otherPlayer -> {
-            if (otherPlayer.glowing() || (playerConfig.onlyCheckSneaking() && !otherPlayer.sneaking())) {
-                playerView.setVisibility(otherPlayer, true, currentTick, worldEpoch);
-                return;
-            }
-            if (attachedToAlwaysVisibleEntityOrSelf(player, playerView, otherPlayer, currentTick, worldEpoch)) {
-                return;
-            }
-            timings.incrementPlayerRaycasts();
-            boolean canSee = RaycastUtil.raycast(playerLocation, otherPlayer, playerConfig.getMaxOccludingCount(), playerConfig.getAlwaysShowRadius(), playerConfig.getRaycastRadius(), debugParticles, blockView, 1.5f, 1, particleSpawner);
-            playerView.setVisibility(otherPlayer, canSee, currentTick, worldEpoch);
-        });
-        timings.addPlayerChecked(checked);
-    }
-
-    private boolean attachedToAlwaysVisibleEntityOrSelf(PlayerData player, EntityView<?> view, NettyEntity<?> entity, int currentTick, int worldEpoch) {
-        int selfEntityID = player.nettyData().getSelfEntityID();
-        if (!player.nettyData().isSelfEntityID(entity.leashingEntity())
-                && !player.nettyData().isSelfEntityID(entity.vehicleID())
-                && !EntityBypassRegistry.isBypassed(entity.vehicleID())
-                && !PrimitiveIntArrayList.contains(entity.passengerIDs(), selfEntityID)) {
-            return false;
-        }
-        view.setVisibility(entity, true, currentTick, worldEpoch);
-        return true;
     }
 
     private void checkTileEntities(PlayerData player, Locatable playerLocation, TileEntityConfig tileEntityConfig, boolean debugParticles, BlockView blockView, int currentTick, int worldEpoch, TickTimingBatch timings) {

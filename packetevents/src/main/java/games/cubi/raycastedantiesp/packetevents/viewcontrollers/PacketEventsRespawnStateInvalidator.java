@@ -5,6 +5,7 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerRespawn;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.players.ClientStateResetter;
+import games.cubi.raycastedantiesp.core.logging.CubiLog;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 
@@ -94,12 +95,11 @@ public final class PacketEventsRespawnStateInvalidator {
         }
     }
 
-    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging applies its configured level filter internally.
     private static UUID resolveViewerWorld(PacketSendEvent event, UUID playerUUID) {
         try {
             return PacketEventsCommonViewController.get().resolveWorldUUID(event.getUser());
         } catch (RuntimeException exception) {
-            Logger.error("Could not resolve the viewer world for respawn invalidation. uuid="
+            CubiLog.recordError("Could not resolve the viewer world for respawn invalidation. uuid="
                     + playerUUID, exception, 1, PacketEventsRespawnStateInvalidator.class);
             return null;
         }

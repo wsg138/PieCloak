@@ -13,7 +13,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
 
+@SuppressWarnings("PMD.TestClassWithoutTestCases")
 public final class TestEntityViewProxy implements InvocationHandler {
+    private static final int SHORT_METHOD_NAME_LENGTH = 6;
+    private static final int MEDIUM_METHOD_NAME_LENGTH = 12;
     private final Map<Integer, TrackedEntity<?>> entitiesByID = new ConcurrentHashMap<>();
     private final Map<UUID, TrackedEntity<?>> entitiesByUUID = new ConcurrentHashMap<>();
     private final IntSupplier epochSupplier;
@@ -45,10 +48,10 @@ public final class TestEntityViewProxy implements InvocationHandler {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) {
         String name = method.getName();
-        if (name.length() <= 6) {
+        if (name.length() <= SHORT_METHOD_NAME_LENGTH) {
             return invokeShort(name, method, args);
         }
-        if (name.length() <= 12) {
+        if (name.length() <= MEDIUM_METHOD_NAME_LENGTH) {
             return invokeMedium(name, method, args);
         }
         return invokeLong(name, method, args);

@@ -3,6 +3,7 @@ package games.cubi.raycastedantiesp.packetevents.testsupport;
 import java.util.Map;
 import java.util.Objects;
 
+@SuppressWarnings("PMD.TestClassWithoutTestCases")
 public final class TestProxySupport {
     private static final Map<Class<?>, Object> PRIMITIVE_DEFAULTS = Map.of(
             boolean.class, false,
