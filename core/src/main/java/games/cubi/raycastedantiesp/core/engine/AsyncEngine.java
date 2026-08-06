@@ -17,11 +17,11 @@ import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.PlayerConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
-import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.raycast.ParticleSpawner;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
+import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
@@ -29,6 +29,8 @@ import games.cubi.raycastedantiesp.core.view.EntityView;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntSupplier;
@@ -43,10 +45,12 @@ public abstract class AsyncEngine implements Engine {
     private final ConfigManager config;
     private final ParticleSpawner particleSpawner;
     private final IntSupplier currentTickSupplier;
-    private final AtomicInteger tickThreadsRunning = new AtomicInteger(0);
     private final AtomicInteger runningTick = new AtomicInteger(-1);
     private final AtomicInteger tickState = new AtomicInteger(TICK_IDLE);
     private final AtomicLong tickNanos = new AtomicLong(0);
+    private final AtomicBoolean tickWorkActive = new AtomicBoolean();
+    private final AtomicBoolean shutdownRequested = new AtomicBoolean();
+    private final Object shutdownMonitor = new Object();
     private final AsyncRunner asyncRunner;
     private final TimingStatsSelector timingStatsSelector = new TimingStatsSelector();
 
@@ -61,11 +65,19 @@ public abstract class AsyncEngine implements Engine {
      * Reserves the next engine tick before it is handed to the async scheduler.
      *
      * @return true if the caller now owns the only pending tick slot; false if an existing pending
-     * or running tick should cover this attempt.
+     * or running tick should cover this attempt, or shutdown has begun.
      */
     public boolean markTickRunning() {
+        if (shutdownRequested.get()) {
+            return false;
+        }
         if (tickState.compareAndSet(TICK_IDLE, TICK_PENDING)) {
-            return true;
+            if (!shutdownRequested.get()) {
+                return true;
+            }
+            tickState.compareAndSet(TICK_PENDING, TICK_IDLE);
+            signalShutdownWaiters();
+            return false;
         }
         recordSkippedTick(-1, System.nanoTime());
         return false;
@@ -73,12 +85,54 @@ public abstract class AsyncEngine implements Engine {
 
     /**
      * Releases a pending tick reservation when async scheduling fails before {@link #tick(int, long)}
-     * can claim it.
+     * can claim it. The operation is idempotent during shutdown.
      */
     public void cancelPendingTickReservation() {
-        if (!tickState.compareAndSet(TICK_PENDING, TICK_IDLE)) {
+        if (tickState.compareAndSet(TICK_PENDING, TICK_IDLE)) {
+            signalShutdownWaiters();
+            return;
+        }
+        if (!shutdownRequested.get() && tickState.get() != TICK_IDLE) {
             Logger.warning("Attempted to cancel a pending tick reservation, but the tick was no longer pending.", 5, AsyncEngine.class);
         }
+    }
+
+    /**
+     * Stops accepting new ticks and waits a bounded amount of time for accepted worker batches to
+     * stop touching shared visibility state.
+     *
+     * @return true when the engine is quiescent; false when the timeout elapsed and callers must
+     * keep shared registries/controllers alive until a later wait succeeds.
+     */
+    public boolean shutdownAndAwait(long timeout, TimeUnit unit) {
+        shutdownRequested.set(true);
+        cancelPendingTickReservation();
+
+        long remainingNanos = unit.toNanos(timeout);
+        long deadline = System.nanoTime() + remainingNanos;
+        synchronized (shutdownMonitor) {
+            while (!isQuiescent()) {
+                if (remainingNanos <= 0) {
+                    return false;
+                }
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(shutdownMonitor, remainingNanos);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+                remainingNanos = deadline - System.nanoTime();
+            }
+            return true;
+        }
+    }
+
+    public boolean isShutdownRequested() {
+        return shutdownRequested.get();
+    }
+
+    public boolean isQuiescent() {
+        return !tickWorkActive.get() && tickState.get() != TICK_RUNNING;
     }
 
     /**
@@ -93,7 +147,7 @@ public abstract class AsyncEngine implements Engine {
         boolean runTick = true;
         boolean expectPending = true;
         int startTick = currentTickSupplier.getAsInt();
-        while (runTick) {
+        while (runTick && !shutdownRequested.get()) {
             if (!startTickState(scheduledTick, expectPending)) {
                 return;
             }
@@ -102,7 +156,7 @@ public abstract class AsyncEngine implements Engine {
             }
 
             int latestTick = currentTickSupplier.getAsInt();
-            if (latestTick > startTick) {
+            if (latestTick > startTick && !shutdownRequested.get()) {
                 // If running behind, don't yield the thread, just run the next tick immediately
                 Logger.warning("Tick thread completed tick #" + startTick + " after tick #" + latestTick + " had already begun. Starting next tick immediately instead of yielding thread to scheduler. This is probably safe to ignore but may suggest that your server is overloaded.", 5);
                 startTick = latestTick;
@@ -123,8 +177,8 @@ public abstract class AsyncEngine implements Engine {
     /**
      * Claims worker capacity and either runs work immediately or schedules worker batches.
      *
-     * @return true if at least one sub-tick worker accepted responsibility for completing the tick
-     * lifecycle; false if this attempt was skipped or cleaned up during setup.
+     * @return true if at least one worker submission completed successfully; false if setup was
+     * skipped or no worker was accepted.
      */
     private boolean dispatchTick(int scheduledTick, int startTick, long scheduledNanos) {
         int threads = config.getEngineConfig().asyncConfig().asyncProcessingThreads();
@@ -148,23 +202,18 @@ public abstract class AsyncEngine implements Engine {
             return false;
         }
 
-        int runningThreads = tickThreadsRunning.compareAndExchange(0, threads);
-        // Now guard for previous tick still running
-        if (runningThreads != 0) {
+        if (!tickWorkActive.compareAndSet(false, true)) {
             long queueNanos = Math.max(0, startNanos - scheduledNanos);
             Logger.warning("RaycastedAntiESP is still ticking from the last tick! Skipping this tick to avoid concurrent modification issues."
                     + " scheduledTick=" + scheduledTick
                     + " currentServerTick=" + currentTickSupplier.getAsInt()
                     + " currentRunningTick=" + tickAlreadyRunning
-                    + " runningThreads=" + runningThreads
                     + " timeSpentInQueue=" + TickTimingFormatter.formatMillis(queueNanos) + "ms", 5, AsyncEngine.class);
             logAggregateReport(tickTimingStats.recordSkipped(threads, startNanos));
             finishTickState();
             return false;
         }
 
-        TickTimings timings = null;
-        boolean handedOffToSubTick = false;
         boolean claimedRunningTick = false;
         try {
             tickNanos.set(startNanos);
@@ -177,109 +226,114 @@ public abstract class AsyncEngine implements Engine {
             EntityConfig entityConfig = config.getEntityConfig();
             PlayerConfig playerConfig = config.getPlayerConfig();
             TileEntityConfig tileEntityConfig = config.getTileEntityConfig();
-            if (recordTimings) {
-                timings = new TickTimings(scheduledTick, scheduledNanos, currentTick, startNanos, threads, allPlayers.size());
-            }
-            /*
-            Logger.debug("Tick #" + currentTick);
-            if (currentTick % 1200 == 0) {
-                Logger.debug("Printing player data");
-                for (PlayerData playerData : allPlayers) {
-                    Logger.debug("Player " + playerData.getPlayerUUID() + " location=" + playerData.ownLocation());
-                    Logger.debug("EntityView:" + playerData.entityView().getStringDataForDebugging());
-                    Logger.debug("PlayerView:" + playerData.playerView().getStringDataForDebugging());
-                }
-            }*/
+            TickTimings timings = recordTimings
+                    ? new TickTimings(scheduledTick, scheduledNanos, currentTick, startNanos, threads, allPlayers.size())
+                    : null;
 
-            // If only one thread is configured, just use the current async thread to avoid the overhead of scheduling tasks and context switching.
+            List<List<PlayerData>> batches;
+            AsyncRunner runner;
             if (threads == 1) {
-                handedOffToSubTick = true;
-                subTick(new ArrayList<>(allPlayers), entityConfig, playerConfig, tileEntityConfig, debugConfig, currentTick, timings, tickTimingStats);
-                return true;
+                batches = List.of(new ArrayList<>(allPlayers));
+                runner = Runnable::run;
+            } else {
+                batches = new ArrayList<>(threads);
+                for (int i = 0; i < threads; i++) {
+                    batches.add(new ArrayList<>());
+                }
+
+                int index = 0;
+                for (PlayerData playerData : allPlayers) {
+                    batches.get(index++ % threads).add(playerData);
+                }
+                runner = asyncRunner;
             }
 
-            List<List<PlayerData>> batches = new ArrayList<>(threads);
-            for (int i = 0; i < threads; i++) {
-                batches.add(new ArrayList<>());
+            List<Runnable> tasks = new ArrayList<>(batches.size());
+            for (List<PlayerData> batch : batches) {
+                tasks.add(() -> {
+                    if (!shutdownRequested.get()) {
+                        subTick(batch, entityConfig, playerConfig, tileEntityConfig, debugConfig, currentTick, timings);
+                    }
+                });
             }
 
-            int index = 0;
-            for (PlayerData playerData : allPlayers) {
-                batches.get(index++ % threads).add(playerData);
+            int submitted = AsyncTickWork.dispatch(
+                    tasks,
+                    runner,
+                    shutdownRequested::get,
+                    exception -> Logger.error("Failed to submit every worker batch for tick " + currentTick
+                            + ". Accepted workers will drain before the tick is finalised; later batches were not submitted.",
+                            exception, 2, AsyncEngine.class),
+                    throwable -> Logger.error("An async engine worker failed while processing tick " + currentTick
+                            + ". The worker permit was released so the engine can continue after remaining workers drain.",
+                            throwable, 2, AsyncEngine.class),
+                    () -> completeTick(currentTick, timings, tickTimingStats)
+            );
+            return submitted > 0;
+        } catch (Throwable throwable) {
+            if (claimedRunningTick) {
+                completeTick(startTick, null, tickTimingStats);
+            } else {
+                releaseTickWork();
+                finishTickState();
             }
-
-            TickTimings tickTimings = timings; // needs to be effectively-final for lambda
-            int scheduledBatches = 0;
-            try {
-                for (List<PlayerData> batch : batches) {
-                    asyncRunner.runNow(() -> subTick(batch, entityConfig, playerConfig, tileEntityConfig, debugConfig, currentTick, tickTimings, tickTimingStats));
-                    scheduledBatches++;
-                }
-                handedOffToSubTick = true;
-            }
-            finally {
-                if (scheduledBatches < threads) {
-                    tickThreadsRunning.addAndGet(-(threads - scheduledBatches));
-                    handedOffToSubTick = scheduledBatches > 0;
-                }
-            }
-            return handedOffToSubTick;
-        }
-        finally {
-            if (!handedOffToSubTick) {
-                tickThreadsRunning.set(0);
-                if (claimedRunningTick) {
-                    finaliseTick(startTick);
-                } else {
-                    finishTickState();
-                }
-                Logger.error("An error occurred during tick scheduling before handing off to sub-tick processing. Resetting tickThreadsRunning to 0 to avoid deadlock. Current tick: " + currentTickSupplier.getAsInt(), 2, AsyncEngine.class);
-            }
+            Logger.error("An error occurred during tick setup before worker submission. Released engine ownership to avoid deadlock.",
+                    throwable, 2, AsyncEngine.class);
+            return false;
         }
     }
 
     /**
-     * Processes one worker batch and lets the final batch publish timing data and release the tick reservation.
-     *
-     * @param timingStats the timing sink selected when this tick started, so config changes during
-     * worker execution do not split one tick across sinks.
+     * Processes one worker batch. Tick-wide finalisation is owned by {@link AsyncTickWork} after
+     * submissions have closed and every accepted worker permit has been released.
      */
-    private void subTick(List<PlayerData> batch, EntityConfig entityConfig, PlayerConfig playerConfig, TileEntityConfig tileEntityConfig, DebugConfig debugConfig, int currentTick, TickTimings timings, TimingStats timingStats) {
+    private void subTick(List<PlayerData> batch, EntityConfig entityConfig, PlayerConfig playerConfig,
+                         TileEntityConfig tileEntityConfig, DebugConfig debugConfig, int currentTick,
+                         TickTimings timings) {
         TickTimingBatch batchTimings = timings == null ? TickTimingBatchNoOp.INSTANCE : new TickTimingBatch();
         long batchStartNanos = batchTimings.startBatch();
         try {
-            processTickForPlayers(batch, entityConfig, playerConfig, tileEntityConfig, debugConfig.showDebugParticles(), currentTick, batchTimings);
-        }
-        finally {
+            processTickForPlayers(batch, entityConfig, playerConfig, tileEntityConfig,
+                    debugConfig.showDebugParticles(), currentTick, batchTimings);
+        } finally {
             if (timings != null) {
                 timings.recordBatch(batchTimings, batchTimings.elapsedSince(batchStartNanos));
             }
-            int threadsRemaining = tickThreadsRunning.decrementAndGet();
-            if (threadsRemaining < 0) {
-                Logger.error("tickThreadsRunning went below 0! This should never happen. Resetting to 0 to avoid further issues.", 2, AsyncEngine.class);
-                tickThreadsRunning.set(0);
-                finaliseTick(currentTick);
-            }
-            if (threadsRemaining == 0) {
-                try {
-                    long completionNanos = System.nanoTime();
-                    if (timings != null) {
-                        TickTimingSnapshot snapshot = timings.snapshot(currentTickSupplier.getAsInt(), completionNanos);
-                        String aggregateReport = timingStats.recordCompleted(snapshot, completionNanos);
-                        if (snapshot.wallNanos() > SLOW_TICK_NANOS) {
-                            Logger.warning(snapshot.toSlowTickMessage(), 5, AsyncEngine.class);
-                        }
-                        logAggregateReport(aggregateReport);
-                    } else {
-                        long elapsedNanos = completionNanos - tickNanos.get();
-                        if (elapsedNanos > SLOW_TICK_NANOS) {
-                            Logger.warning("Tick completed in " + (elapsedNanos / 1_000_000.0) + " ms. If you see this warning frequently, consider reducing the raycasting load by adjusting the configuration.", 5, AsyncEngine.class);
-                        }
-                    }
-                } finally {
-                    finaliseTick(currentTick);
+        }
+    }
+
+    private void completeTick(int currentTick, TickTimings timings, TimingStats timingStats) {
+        try {
+            long completionNanos = System.nanoTime();
+            if (timings != null) {
+                TickTimingSnapshot snapshot = timings.snapshot(currentTickSupplier.getAsInt(), completionNanos);
+                String aggregateReport = timingStats.recordCompleted(snapshot, completionNanos);
+                if (snapshot.wallNanos() > SLOW_TICK_NANOS) {
+                    Logger.warning(snapshot.toSlowTickMessage(), 5, AsyncEngine.class);
+                }
+                logAggregateReport(aggregateReport);
+            } else {
+                long elapsedNanos = completionNanos - tickNanos.get();
+                if (elapsedNanos > SLOW_TICK_NANOS) {
+                    Logger.warning("Tick completed in " + (elapsedNanos / 1_000_000.0) + " ms. If you see this warning frequently, consider reducing the raycasting load by adjusting the configuration.", 5, AsyncEngine.class);
                 }
             }
+        } finally {
+            finaliseTick(currentTick);
+            releaseTickWork();
+        }
+    }
+
+    private void releaseTickWork() {
+        if (!tickWorkActive.compareAndSet(true, false)) {
+            Logger.error("Async engine tick ownership was released more than once.", 2, AsyncEngine.class);
+        }
+        signalShutdownWaiters();
+    }
+
+    private void signalShutdownWaiters() {
+        synchronized (shutdownMonitor) {
+            shutdownMonitor.notifyAll();
         }
     }
 
@@ -291,6 +345,10 @@ public abstract class AsyncEngine implements Engine {
      * tick should take precedence.
      */
     private boolean startTickState(int scheduledTick, boolean expectPending) {
+        if (shutdownRequested.get()) {
+            cancelPendingTickReservation();
+            return false;
+        }
         if (expectPending) {
             if (tickState.compareAndSet(TICK_PENDING, TICK_RUNNING)) {
                 return true;
@@ -327,12 +385,16 @@ public abstract class AsyncEngine implements Engine {
             // This should never happen as it means the tick was marked as completed before processing was completed
             Logger.warning("tickState was not running when completing tick! This should never happen. Please report this on our GitHub or Discord.", 5, AsyncEngine.class);
         }
+        signalShutdownWaiters();
     }
 
     private void processTickForPlayers(List<PlayerData> playerDataList, EntityConfig entityConfig, PlayerConfig playerConfig, TileEntityConfig tileEntityConfig,
                                        boolean debugParticles, int currentTick, TickTimingBatch timings) {
 
         for (PlayerData playerData : playerDataList) {
+            if (shutdownRequested.get()) {
+                return;
+            }
             if (!playerData.isConnected()) {
                 continue;
             }
