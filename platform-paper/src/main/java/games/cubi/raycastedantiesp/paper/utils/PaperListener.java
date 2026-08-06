@@ -19,8 +19,15 @@ public abstract class PaperListener implements Listener, AutoCloseable {
         if (!registered.compareAndSet(false, true)) {
             throw new IllegalStateException("Listener is already registered");
         }
-        Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
-        return (T) this;
+        try {
+            Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
+            return (T) this;
+        } catch (RuntimeException | Error throwable) {
+            HandlerList.unregisterAll(this);
+            registered.set(false);
+            closed.set(true);
+            throw throwable;
+        }
     }
 
     @Override

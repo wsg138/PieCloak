@@ -63,6 +63,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     private static PaperTargetFilterService targetFilter;
     private static IntSupplier currentTickSupplier;
     private static LifecycleScope activeLifecycle;
+    private static volatile boolean reenableBlocked;
 
     private boolean commandsRegistered;
 
@@ -103,11 +104,13 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
 
         LifecycleScope startup = new LifecycleScope();
         AtomicBoolean engineDrained = new AtomicBoolean(true);
+        AtomicBoolean teardownSafe = new AtomicBoolean(true);
         startup.onClose(() -> {
-            if (engineDrained.get()) {
+            if (engineDrained.get() && teardownSafe.get()) {
                 resetSharedState();
             } else {
-                Logger.error("Engine shutdown timed out. Shared controllers and registries remain fenced until a later enable/disable completes the drain.", 1, RaycastedAntiESP.class);
+                reenableBlocked = true;
+                Logger.error("Shutdown could not prove that workers and listener registrations were fully drained. Shared state remains fenced and same-JVM re-enable is blocked.", 1, RaycastedAntiESP.class);
             }
         });
 
@@ -127,17 +130,23 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             currentTickSupplier = ticker;
             engine = new PaperAsyncEngine(this, config, currentTickSupplier);
             PaperAsyncEngine engineForShutdown = engine;
-            startup.onClose(() -> engineDrained.set(engineForShutdown.shutdownAndAwait(
-                    ENGINE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)));
+            startup.onClose(() -> {
+                engineDrained.set(false);
+                if (engineForShutdown.shutdownAndAwait(ENGINE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    engineDrained.set(true);
+                }
+            });
 
             commonController = new PaperPacketEventsCommonViewController(currentTickSupplier);
             PacketEventsCommonViewController.initialise(commonController);
-            startup.own(commonController);
+            ownCritical(startup, teardownSafe, commonController);
 
-            packetEventsController = startup.own(new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter));
-            blockController = startup.own(new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier));
-            startup.own(ticker);
-            startup.own(EventListener.initialise(this, currentTickSupplier));
+            packetEventsController = ownCritical(startup, teardownSafe,
+                    new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter));
+            blockController = ownCritical(startup, teardownSafe,
+                    new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier));
+            ownCritical(startup, teardownSafe, ticker);
+            ownCritical(startup, teardownSafe, EventListener.initialise(this, currentTickSupplier));
 
             UpdateChecker.checkForUpdates(this, Bukkit.getConsoleSender());
             registerCommandsOnce();
@@ -145,7 +154,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             metricsCollector = new MetricsCollector(this, config);
             MetricsCollector metricsForShutdown = metricsCollector;
             startup.onClose(metricsForShutdown::shutdown);
-            startup.own(new FancyCompatibility());
+            ownCritical(startup, teardownSafe, new FancyCompatibility());
 
             activeLifecycle = startup;
             ticker.start();
@@ -178,7 +187,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             } catch (RuntimeException exception) {
                 Logger.error("One or more plugin shutdown actions failed.", exception, 1, RaycastedAntiESP.class);
             }
-        } else if (engine != null && engine.isShutdownRequested() && engine.isQuiescent()) {
+        } else if (!reenableBlocked && engine != null && engine.isShutdownRequested() && engine.isQuiescent()) {
             resetSharedState();
         }
 
@@ -209,6 +218,9 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     }
 
     private void finishPriorShutdownOrThrow() {
+        if (reenableBlocked) {
+            throw new IllegalStateException("Previous shutdown could not unregister every listener/controller; restart the server before re-enabling RaycastedAntiESP");
+        }
         PaperAsyncEngine previous = engine;
         if (previous == null) {
             return;
@@ -220,6 +232,22 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             throw new IllegalStateException("Previous RaycastedAntiESP engine workers are still active; refusing to reuse shared state");
         }
         resetSharedState();
+    }
+
+    private static <T extends AutoCloseable> T ownCritical(
+            LifecycleScope scope, AtomicBoolean teardownSafe, T resource) {
+        scope.onClose(() -> {
+            try {
+                resource.close();
+            } catch (Exception exception) {
+                teardownSafe.set(false);
+                throw exception;
+            } catch (Error error) {
+                teardownSafe.set(false);
+                throw error;
+            }
+        });
+        return resource;
     }
 
     private void initialiseConfigIfNeeded() {
@@ -246,6 +274,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
         metricsCollector = null;
         currentTickSupplier = null;
         engine = null;
+        reenableBlocked = false;
     }
 
     public static ConfigManager getConfigManager() {

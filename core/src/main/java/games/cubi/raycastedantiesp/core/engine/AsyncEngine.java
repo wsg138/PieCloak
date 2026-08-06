@@ -151,7 +151,14 @@ public abstract class AsyncEngine implements Engine {
             if (!startTickState(scheduledTick, expectPending)) {
                 return;
             }
-            if (!dispatchTick(scheduledTick, startTick, scheduledNanos)) {
+            try {
+                if (!dispatchTick(scheduledTick, startTick, scheduledNanos)) {
+                    return;
+                }
+            } catch (Throwable throwable) {
+                finishTickState();
+                Logger.error("Engine tick setup failed before worker ownership was established. Released the tick reservation.",
+                        throwable, 2, AsyncEngine.class);
                 return;
             }
 
