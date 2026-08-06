@@ -3,11 +3,14 @@ package games.cubi.raycastedantiesp.paper.packets;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
+import com.github.retrooper.packetevents.event.PacketSendEvent;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsBlockViewController;
+import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.Material;
 
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntSupplier;
 
@@ -31,6 +34,18 @@ public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewC
             closed.set(true);
             throw throwable;
         }
+    }
+
+    @Override
+    public void onPacketSend(PacketSendEvent event) {
+        if (PacketEventsRespawnStateInvalidator.isRespawnPacket(event.getPacketType())) {
+            UUID playerUUID = event.getUser().getUUID();
+            if (playerUUID != null) {
+                removeViewer(playerUUID);
+            }
+            return;
+        }
+        super.onPacketSend(event);
     }
 
     @Override

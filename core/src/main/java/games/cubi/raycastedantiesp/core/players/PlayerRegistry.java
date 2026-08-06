@@ -39,6 +39,18 @@ public class PlayerRegistry {
         unregisteredPlayer.markDisconnected();
     }
 
+    /**
+     * Removes a player only when the registry still owns the expected generation.
+     * This prevents cleanup for an obsolete PlayerData instance from unregistering a later login.
+     */
+    public boolean unregisterPlayer(UUID playerUUID, PlayerData expectedPlayerData) {
+        if (expectedPlayerData == null || !playerDataMap.remove(playerUUID, expectedPlayerData)) {
+            return false;
+        }
+        expectedPlayerData.markDisconnected();
+        return true;
+    }
+
     public void clear() {
         playerDataMap.values().forEach(PlayerData::markDisconnected);
         playerDataMap.clear();

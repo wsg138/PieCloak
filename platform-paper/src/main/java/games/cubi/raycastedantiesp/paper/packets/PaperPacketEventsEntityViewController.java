@@ -11,10 +11,17 @@ package games.cubi.raycastedantiesp.paper.packets;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
+import com.github.retrooper.packetevents.event.PacketSendEvent;
+import games.cubi.raycastedantiesp.core.players.PlayerData;
+import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.players.WorldEpochGuard;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
+import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.IntSupplier;
 
 public final class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController implements AutoCloseable {
@@ -42,6 +49,31 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
                 registered -> PacketEvents.getAPI().getEventManager().unregisterListener(registered),
                 markUnsafeCleanup
         );
+    }
+
+    @Override
+    public void onPacketSend(PacketSendEvent event) {
+        List<Runnable> afterSendTasks = event.getTasksAfterSend();
+        int firstControllerTask = afterSendTasks.size();
+
+        PacketEventsRespawnStateInvalidator.invalidateIfRespawn(event);
+        super.onPacketSend(event);
+
+        UUID playerUUID = event.getUser().getUUID();
+        PlayerData playerData = playerUUID == null
+                ? null
+                : PlayerRegistry.getInstance().getPlayerData(playerUUID);
+        if (playerData == null) {
+            return;
+        }
+        int worldEpoch = playerData.acquireWorldEpoch();
+        for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
+            afterSendTasks.set(index, WorldEpochGuard.fence(
+                    playerData,
+                    worldEpoch,
+                    afterSendTasks.get(index)
+            ));
+        }
     }
 
     @Override

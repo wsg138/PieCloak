@@ -9,6 +9,7 @@
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
+import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import org.junit.jupiter.api.Test;
@@ -30,6 +31,16 @@ class PacketEventsEntityViewControllerTest {
     void bypassViewersSkipManagedPacketHandling() {
         assertFalse(PacketEventsEntityViewController.shouldProcessManagedPackets(true));
         assertTrue(PacketEventsEntityViewController.shouldProcessManagedPackets(false));
+    }
+
+    @Test
+    void onlyRespawnPacketsTriggerClientStateInvalidation() {
+        assertTrue(PacketEventsRespawnStateInvalidator.isRespawnPacket(
+                PacketType.Play.Server.RESPAWN));
+        assertFalse(PacketEventsRespawnStateInvalidator.isRespawnPacket(
+                PacketType.Play.Server.JOIN_GAME));
+        assertFalse(PacketEventsRespawnStateInvalidator.isRespawnPacket(
+                PacketType.Play.Server.SPAWN_ENTITY));
     }
 
     @Test

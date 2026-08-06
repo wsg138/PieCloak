@@ -34,12 +34,16 @@ public abstract class PacketEventsCommonViewController {
         }
     }
 
-    public static PacketEventsCommonViewController get(IntSupplier currentTick) {
+    public static PacketEventsCommonViewController get() {
         PacketEventsCommonViewController current = instance;
         if (current == null) {
             throw new IllegalStateException("PacketEventsCommonViewController has not been initialised.");
         }
         return current;
+    }
+
+    public static PacketEventsCommonViewController get(IntSupplier currentTick) {
+        return get();
     }
 
     public abstract UUID resolveWorldUUID(User user);
