@@ -58,6 +58,7 @@ final class ControllerOwnership {
         return construct(factory, publishSecondary, rollbackExternalResource, NO_UNSAFE_CLEANUP);
     }
 
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
     <T> T construct(Factory<T> factory, OwnerAction<T> publishSecondary,
             OwnerAction<T> rollbackExternalResource, Runnable markUnsafeCleanup) {
         Objects.requireNonNull(factory, "factory");
