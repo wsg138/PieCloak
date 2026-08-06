@@ -4,19 +4,19 @@ default_branch: main
 coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
-state: READY_FOR_AGENT
-current_package: 09-final-integration-pr-cleanup-release-review
-recorded_pr_head: 35127dd6bff64e9f2d6dd4a1fe5e4ea48995aeb3
+state: READY_FOR_OWNER
+current_package: none
+recorded_pr_head: c650595a9a2d010ac5adef6725f1a63abaf294a7
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0009-20260806T041555Z-respawn-visibility-state-invalidation.md
+current_handoff: ai-agents/reports/agent-handoffs/0010-20260806T044700Z-final-integration-release-review.md
 ---
 
 # PieCloak workspace state
 
 Last coordinated: 2026-08-06
 
-Owner review superseded package 06's former `READY_FOR_OWNER` verdict with two confirmed release blockers. Packages 07 and 08 have now completed the controller-ownership/re-enable and respawn visibility-state remediation. PR #11 remains open, unmerged, and `NOT READY` until package 09 performs a fresh complete review and issues a superseding final verdict.
+The owner-review remediation sequence is complete. Packages 07 and 08 resolved the controller-ownership/re-enable and respawn visibility-state blockers. Package 09 independently reviewed the complete PR, fixed the unresolved-respawn metadata and duplicate-invalidation edge cases, retained and repaired an intermediate compile regression, validated the exact final head, cleaned the PR description, and issued the superseding `READY_FOR_OWNER` verdict.
 
 ## Branch responsibilities
 
@@ -25,15 +25,15 @@ Owner review superseded package 06's former `READY_FOR_OWNER` verdict with two c
 | `main` | Agent rules, package definitions, routing state, and handoff reports only |
 | `agent/sync-upstream-clean-history` | PR #11 implementation, tests, builds, workflows, metadata, and product documentation |
 
-## Active work
+## Final review state
 
 | Field | Recorded value |
 | --- | --- |
-| State | `READY_FOR_AGENT` |
+| State | `READY_FOR_OWNER` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `35127dd6bff64e9f2d6dd4a1fe5e4ea48995aeb3` |
-| Current package | `09-final-integration-pr-cleanup-release-review` |
+| Recorded implementation head | `c650595a9a2d010ac5adef6725f1a63abaf294a7` |
+| Current package | `none` |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Future target | Stable Paper `26.2` or newer after a separate verified upgrade |
 | Merge authority | Owner only; workers have no merge or deployment authority |
@@ -50,34 +50,41 @@ Owner review superseded package 06's former `READY_FOR_OWNER` verdict with two c
 | 06 | Final coordinator integration and brutal review | `SUPERSEDED` | 01–05 |
 | 07 | Controller ownership and same-JVM re-enable | `COMPLETE` | 04, owner review |
 | 08 | Respawn visibility-state invalidation | `COMPLETE` | 07 |
-| 09 | Superseding final integration, PR cleanup, and release review | `SELECTED` | 07–08 |
+| 09 | Superseding final integration, PR cleanup, and release review | `COMPLETE` | 07–08 |
 
-## Package 08 completion
+## Final implementation state
 
-Exact implementation head `35127dd6bff64e9f2d6dd4a1fe5e4ea48995aeb3` now treats every outbound `RESPAWN` as a new client-visible generation, including same-world and bypass-viewer respawns. It advances the epoch, clears tracked block/entity/player views, reconciliation and relationship state, drops block repair work, fences deferred after-send work, protects against entity-ID reuse, and conditionally unregisters only the exact affected player generation if reset cleanup fails.
+Exact implementation head `c650595a9a2d010ac5adef6725f1a63abaf294a7` includes:
 
-Exact-head Build run `31070558208` and Static analysis run `31070558237` passed. The shaded JAR metadata records Minecraft `1.21.11`, Java `21`, and exact implementation head `35127dd6bff64e9f2d6dd4a1fe5e4ea48995aeb3`.
+- ownership-aware release and rollback of both entity-controller singleton layers;
+- same-JVM re-enable fencing when listener/controller cleanup is not provably safe;
+- every-respawn visibility-epoch invalidation for managed and bypass viewers;
+- clearing and fencing of pre-respawn entity, block, retry, relationship, replay, reconciliation, and deferred work;
+- entity-ID reuse protection;
+- fail-closed invalidation when respawn world metadata is malformed, missing, or unresolved;
+- one authoritative Paper respawn invalidation boundary before managed or bypass handling.
 
-Live Leaf respawn scenarios, Geyser/Floodgate behavior, and injected packet/reset failures remain manual and unverified; see the current handoff.
+Exact-head Build run `31072051462` and Static analysis run `31072051450` passed. The shaded JAR metadata records Minecraft `1.21.11`, Paper development bundle `1.21.11-R0.1-SNAPSHOT`, Java `21`, and exact implementation head `c650595a9a2d010ac5adef6725f1a63abaf294a7`.
 
-## Remaining final work
+## Open-PR and dependency boundary
 
-Package 09 must independently review the complete PR after the owner-review remediation, reconcile the open Dependabot PRs and PR description, inspect exact-head checks and review state, validate the final artifact and platform metadata, and issue a new `READY_FOR_OWNER` or `NOT_READY` verdict. Package 09 must not rely on the superseded package-06 verdict.
+PR #11 remains open and unmerged. The PR description records `READY FOR OWNER REVIEW`; this is not merge or deployment authorization.
 
-## Open-PR boundary
+Dependabot PRs #4, #5, #6, #7, #8, and #9 remain intentionally separate and unmodified. The current dependency and workflow versions on PR #11 are the versions directly validated. Shadow 9.6.0 raises its minimum Gradle requirement, so the Shadow and Gradle updates should be reviewed and validated together.
 
-Open Dependabot PRs #4, #5, #6, #7, #8, and #9 remain intentionally untouched. Their compatibility, overlap, and merge/close decisions are package 09 scope.
+## Remaining owner validation
+
+The final handoff lists the unrun live Leaf lifecycle, respawn, Java-client, Geyser/Floodgate, injected-failure, optional-integration, and long-running stability scenarios. The bypass permission remains startup-captured and explicitly requires a restart to apply changes.
 
 ## Current boundaries
 
-- PR #11 remains `NOT READY` pending package 09.
-- Do not merge or close PR #11 without a new explicit owner instruction.
+- Do not merge or close PR #11 without explicit owner instruction.
 - Do not deploy a JAR or modify production from this workflow.
-- Complete exactly package 09 in the next worker channel.
+- Do not start another remediation package; none is selected.
 - Do not switch the active target away from Minecraft `1.21.11`.
 - Do not claim stable Paper `26.2` support.
-- The bypass-permission refresh limitation remains a package-09 review item.
+- Owner review and live validation remain required before release.
 
 ## Next route
 
-Complete exactly `09-final-integration-pr-cleanup-release-review`, validate its exact ending PR head, issue the superseding release verdict, record the handoff on `main`, and stop.
+No agent package is selected. The repository is `READY_FOR_OWNER` at PR head `c650595a9a2d010ac5adef6725f1a63abaf294a7`.
