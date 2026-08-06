@@ -18,15 +18,24 @@ public final class ClientStateResetter {
     public static boolean resetForRespawn(PlayerData playerData, String worldName, UUID worldUUID,
             int minWorldHeight) {
         Objects.requireNonNull(playerData, "playerData");
-        if (worldName == null || worldUUID == null || !playerData.isConnected()) {
-            Logger.error("Cannot reset client state for respawn. player=" + playerData.getPlayerUUID()
-                    + " worldName=" + worldName + " worldUUID=" + worldUUID
-                    + " connected=" + playerData.isConnected(), 1, ClientStateResetter.class);
+        if (!playerData.isConnected()) {
+            Logger.error("Cannot reset client state for a disconnected respawn viewer. player="
+                    + playerData.getPlayerUUID(), 1, ClientStateResetter.class);
             return false;
         }
 
-        PlayerRegistry registry = PlayerRegistry.getInstance();
         UUID playerUUID = playerData.getPlayerUUID();
+        String committedWorldName = worldName;
+        UUID committedWorldUUID = worldUUID;
+        if (worldName == null || worldUUID == null) {
+            Logger.error("Respawn world metadata is incomplete; invalidating the prior visibility generation "
+                    + "with unresolved world state. player=" + playerUUID
+                    + " worldName=" + worldName + " worldUUID=" + worldUUID,
+                    1, ClientStateResetter.class);
+            committedWorldName = null;
+        }
+
+        PlayerRegistry registry = PlayerRegistry.getInstance();
         boolean completed = false;
         try {
             playerData.beginWorldTransition();
@@ -40,8 +49,9 @@ public final class ClientStateResetter {
             resetStep("deferred reconciliation", playerData.nettyData()::clearPendingReconciliationState, failures);
             resetStep("self entity", playerData.nettyData().getSelfEntity()::clear, failures);
             resetStep("own location", () -> playerData.updateOwnLocation(null, 0, 0, 0), failures);
+            String finalWorldName = committedWorldName;
             resetStep("world metadata", () -> playerData.nettyData()
-                    .setCurrentWorldName(worldName)
+                    .setCurrentWorldName(finalWorldName)
                     .setCurrentWorldMinHeight(minWorldHeight), failures);
 
             if (!failures.isEmpty()) {
@@ -53,7 +63,7 @@ public final class ClientStateResetter {
                 return false;
             }
 
-            playerData.completeWorldTransition(worldUUID);
+            playerData.completeWorldTransition(committedWorldUUID);
             completed = true;
             return true;
         } catch (RuntimeException exception) {

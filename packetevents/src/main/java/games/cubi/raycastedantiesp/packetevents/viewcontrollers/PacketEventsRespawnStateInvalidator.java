@@ -12,6 +12,8 @@ import java.util.UUID;
 
 /** Shared managed/bypass respawn invalidation performed before ordinary packet handling. */
 public final class PacketEventsRespawnStateInvalidator {
+    private static final int DEFAULT_MIN_WORLD_HEIGHT = -64;
+
     private PacketEventsRespawnStateInvalidator() {}
 
     public static boolean isRespawnPacket(Object packetType) {
@@ -32,19 +34,57 @@ public final class PacketEventsRespawnStateInvalidator {
             return false;
         }
 
-        WrapperPlayServerRespawn packet = new WrapperPlayServerRespawn(event);
-        String worldName = packet.getWorldName().orElse(null);
-        if (worldName == null) {
-            Logger.error("Received respawn packet without a world name, uuid=" + playerUUID,
-                    1, PacketEventsRespawnStateInvalidator.class);
-            return false;
+        String worldName = null;
+        int minWorldHeight = currentMinWorldHeight(playerData);
+        try {
+            WrapperPlayServerRespawn packet = new WrapperPlayServerRespawn(event);
+            worldName = packet.getWorldName().orElse(null);
+            minWorldHeight = packet.getDimensionType().getMinY();
+        } catch (RuntimeException exception) {
+            Logger.error("Could not parse respawn world metadata; invalidating with unresolved world state. uuid="
+                    + playerUUID, exception, 1, PacketEventsRespawnStateInvalidator.class);
         }
-        UUID worldUUID = PacketEventsCommonViewController.get().resolveWorldUUID(worldName);
+
+        UUID worldUUID = null;
+        if (worldName != null) {
+            try {
+                worldUUID = PacketEventsCommonViewController.get().resolveWorldUUID(worldName);
+            } catch (RuntimeException exception) {
+                Logger.error("Could not resolve respawn world name; falling back to the viewer world. uuid="
+                        + playerUUID + " worldName=" + worldName,
+                        exception, 1, PacketEventsRespawnStateInvalidator.class);
+            }
+            if (worldUUID == null) {
+                Logger.error("Respawn world name did not resolve; falling back to the viewer world. uuid="
+                        + playerUUID + " worldName=" + worldName,
+                        1, PacketEventsRespawnStateInvalidator.class);
+                worldName = null;
+            }
+        } else {
+            Logger.error("Received respawn packet without a world name; falling back to the viewer world. uuid="
+                    + playerUUID, 1, PacketEventsRespawnStateInvalidator.class);
+        }
+
+        if (worldUUID == null) {
+            try {
+                worldUUID = PacketEventsCommonViewController.get().resolveWorldUUID(event.getUser());
+            } catch (RuntimeException exception) {
+                Logger.error("Could not resolve the viewer world for respawn invalidation. uuid="
+                        + playerUUID, exception, 1, PacketEventsRespawnStateInvalidator.class);
+            }
+        }
+
         return ClientStateResetter.resetForRespawn(
                 playerData,
                 worldName,
                 worldUUID,
-                packet.getDimensionType().getMinY()
+                minWorldHeight
         );
+    }
+
+    private static int currentMinWorldHeight(PlayerData playerData) {
+        return playerData.nettyData().getCurrentWorldName() == null
+                ? DEFAULT_MIN_WORLD_HEIGHT
+                : playerData.nettyData().getCurrentWorldMinHeight();
     }
 }
