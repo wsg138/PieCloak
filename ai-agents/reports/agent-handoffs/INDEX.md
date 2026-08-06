@@ -8,4 +8,5 @@ Newest report last.
 - `0003-20260805T233318Z-entity-transition-reconciliation.md` — package 03 complete; staged bounded entity reconciliation, hostile-review fixes, and package 04 selection.
 - `0004-20260806T003159Z-engine-scheduling-lifecycle.md` — package 04 complete; exact-once async scheduling, transactional lifecycle cleanup, and package 05 selection.
 - `0005-20260806T012531Z-optional-integrations-hardening.md` — package 05 complete; optional API isolation, bypass cleanup, bounded update I/O, join-window repair, and package 06 selection.
-- `0006-20260806T015743Z-final-integration-review.md` — package 06 complete; final cross-package review, block-retry saturation/terminal-bound fix, exact-head validation, and `READY_FOR_OWNER` verdict.
+- `0006-20260806T015743Z-final-integration-review.md` — package 06 completed its review and recorded the former `READY_FOR_OWNER` verdict; that verdict was later superseded by owner review.
+- `0007-20260806T024300Z-owner-review-remediation-reopen.md` — owner review confirmed controller re-enable and same-world respawn blockers; packages 07–09 added; package 07 selected.
