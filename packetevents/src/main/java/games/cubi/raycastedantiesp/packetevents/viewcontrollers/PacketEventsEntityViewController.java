@@ -273,7 +273,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             }
             case PacketType.Play.Server.ENTITY_HEAD_LOOK -> {
                 WrapperPlayServerEntityHeadLook packet = new WrapperPlayServerEntityHeadLook(event);
-                if (!isBypassed(packet.getEntityId()) && handleEntityHeadLook(packet, playerData) == REQUIRE_EVENT_CANCELLATION)
+                if (!isBypassed(packet.getEntityId()) && handleEntityHeadLook(packet, playerData, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
             }
             case PacketType.Play.Server.ENTITY_METADATA -> {
