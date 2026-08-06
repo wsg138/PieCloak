@@ -2,6 +2,6 @@
 
 Read this report next:
 
-`ai-agents/reports/agent-handoffs/0004-20260806T003159Z-engine-scheduling-lifecycle.md`
+`ai-agents/reports/agent-handoffs/0005-20260806T012531Z-optional-integrations-hardening.md`
 
-It completes package `04-engine-scheduling-lifecycle`, records PR #11 head `f203d7d1fe4781936fa69d4f7cf96083bbf73ab7`, and routes the next worker to `05-optional-integrations-hardening`.
+It completes package `05-optional-integrations-hardening`, records PR #11 head `1c3b8c572030cdafb96975f36d471142aa9399bc`, and routes the next worker to `06-final-integration-review`.

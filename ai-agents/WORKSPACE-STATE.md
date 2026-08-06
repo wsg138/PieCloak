@@ -5,11 +5,11 @@ coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
 state: READY_FOR_AGENT
-current_package: 05-optional-integrations-hardening
-recorded_pr_head: f203d7d1fe4781936fa69d4f7cf96083bbf73ab7
+current_package: 06-final-integration-review
+recorded_pr_head: 1c3b8c572030cdafb96975f36d471142aa9399bc
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0004-20260806T003159Z-engine-scheduling-lifecycle.md
+current_handoff: ai-agents/reports/agent-handoffs/0005-20260806T012531Z-optional-integrations-hardening.md
 ---
 
 # PieCloak workspace state
@@ -34,8 +34,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | State | `READY_FOR_AGENT` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `f203d7d1fe4781936fa69d4f7cf96083bbf73ab7` |
-| Current package | `05-optional-integrations-hardening` |
+| Recorded implementation head | `1c3b8c572030cdafb96975f36d471142aa9399bc` |
+| Current package | `06-final-integration-review` |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Future target | Stable Paper `26.2` or newer after a separate verified upgrade |
 | Merge authority | None for workers; owner instruction required |
@@ -48,8 +48,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | 02 | Block-transition reliability and block-data hardening | `COMPLETE` | 01 |
 | 03 | Idempotent entity-transition reconciliation | `COMPLETE` | 02 |
 | 04 | Async-engine scheduling and complete lifecycle cleanup | `COMPLETE` | 03 |
-| 05 | Optional integrations and remaining hardening | `READY` | 04 |
-| 06 | Final coordinator integration and brutal review | `WAITING` | 01–05 |
+| 05 | Optional integrations and remaining hardening | `COMPLETE` | 04 |
+| 06 | Final coordinator integration and brutal review | `READY` | 01–05 |
 
 Packages are sequential to avoid overlapping controller, lifecycle, and build edits.
 
@@ -99,16 +99,22 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 - The exact shaded JAR declares PieCloak API `1.21.11`, records the exact implementation SHA, and has SHA-256 `91a178f90b558bef0901d688e49d49e776d7fac5f248216a5b558c9d73981854`.
 - Live Leaf, Geyser/Floodgate, Folia, same-JVM re-enable, forced drain-timeout, and real PacketEvents failure scenarios remain unverified and are recorded in the package handoff.
 
-## Confirmed review findings routed into remaining packages
+## Completed package 05 optional integrations and remaining hardening
 
-### Package 05
+- FancyNpcs and FancyHolograms APIs are isolated in separate classes and loaded by name only when the exact optional Bukkit plugin is enabled.
+- One absent or incompatible optional integration cannot resolve or initialize the other and cannot disable PieCloak.
+- Successful optional listeners transfer into the existing reverse-order lifecycle owner and close on disable or failed startup.
+- NPC removal and hologram deletion clear both bypass classifications only after non-cancelled deletion; ordinary entity removal and shutdown reset remain idempotent cleanup backstops.
+- The updater uses one configured connection, rejects declared or streamed responses above 50 KiB, avoids unbounded body accumulation, and delivers messages without a blocking scheduler hop.
+- The join notification window uses elapsed monotonic ticks and is correct across boundaries and integer counter wrap.
+- The inspected block-entity diagnostic path does not log raw NBT.
+- Exact head `1c3b8c572030cdafb96975f36d471142aa9399bc` passed Build run `31062577947`, Static analysis run `31062577977`, and CodeRabbit.
+- The exact shaded JAR declares PieCloak API `1.21.11`, records the exact implementation SHA, and has SHA-256 `b8c1323e9e33993d1b23f5691cc1c3ef7b912d5173ba2ce3ea43be6e51fd801f`.
+- Live Leaf, Geyser/Floodgate, optional-plugin lifecycle, real network failure, and in-game join-notification scenarios remain unverified and are recorded in the package handoff.
 
-- FancyNPCs/FancyHolograms compatibility is constructed unconditionally despite soft dependencies.
-- Optional API classes are referenced directly on absent-plugin paths.
-- Bypass IDs can remain stale after optional entities are removed or IDs are reused.
-- The update checker configures one connection but reads from another unbounded connection.
-- The join-time update window arithmetic is reversed.
-- Remaining sensitive-data and optional-integration paths require final hardening review.
+## Final review focus
+
+Package 06 must review the entire exact PR head rather than only package 05. It must reconcile every package handoff with live code, inspect cross-package interactions and exact-head checks, assess all recorded live/manual gaps, review the remaining non-fatal PMD findings including the optional-resource ownership warning, and issue the final `READY_FOR_OWNER` or `NOT_READY` verdict. It must not merge or deploy.
 
 ## Current boundaries
 
@@ -123,4 +129,4 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 
 ## Next route
 
-The next ChatGPT worker must complete `ai-agents/work-packages/05-optional-integrations-hardening.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `06-final-integration-review` if complete, and stop.
+The next ChatGPT worker must complete `ai-agents/work-packages/06-final-integration-review.md` against exact PR #11 head `1c3b8c572030cdafb96975f36d471142aa9399bc`, perform the final cross-package brutal review and exact-head validation, write the final timestamped coordinator handoff to `main`, issue the required READY/NOT READY verdict, and stop without merging or deploying.

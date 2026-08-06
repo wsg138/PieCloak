@@ -7,3 +7,4 @@ Newest report last.
 - `0002-20260805T222448Z-block-transition-reliability.md` — package 02 complete; staged bounded block repair, fail-closed block data handling, and package 03 selection.
 - `0003-20260805T233318Z-entity-transition-reconciliation.md` — package 03 complete; staged bounded entity reconciliation, hostile-review fixes, and package 04 selection.
 - `0004-20260806T003159Z-engine-scheduling-lifecycle.md` — package 04 complete; exact-once async scheduling, transactional lifecycle cleanup, and package 05 selection.
+- `0005-20260806T012531Z-optional-integrations-hardening.md` — package 05 complete; optional API isolation, bypass cleanup, bounded update I/O, join-window repair, and package 06 selection.
