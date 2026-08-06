@@ -8,89 +8,94 @@
 
 package games.cubi.raycastedantiesp.paper;
 
-import de.oliver.fancyholograms.api.events.HologramCreateEvent;
-import de.oliver.fancyholograms.api.events.HologramShowEvent;
-import de.oliver.fancyholograms.api.events.HologramsLoadedEvent;
-import de.oliver.fancyholograms.api.hologram.Hologram;
-import de.oliver.fancynpcs.api.events.NpcCreateEvent;
-import de.oliver.fancynpcs.api.events.NpcModifyEvent;
-import de.oliver.fancynpcs.api.events.NpcSpawnEvent;
 import games.cubi.logs.Logger;
-import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
-import games.cubi.raycastedantiesp.paper.utils.PaperListener;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
+import org.bukkit.Bukkit;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.function.Predicate;
 
 public final class FancyCompatibility implements AutoCloseable {
-    private final NPCs npcs;
-    private final Holograms holograms;
+    static final String FANCY_NPCS_PLUGIN = "FancyNpcs";
+    static final String FANCY_HOLOGRAMS_PLUGIN = "FancyHolograms";
+
+    private static final String FANCY_NPCS_CLASS = "games.cubi.raycastedantiesp.paper.FancyNpcsCompatibility";
+    private static final String FANCY_HOLOGRAMS_CLASS = "games.cubi.raycastedantiesp.paper.FancyHologramsCompatibility";
+
+    private final List<AutoCloseable> integrations = new ArrayList<>();
 
     FancyCompatibility() {
-        Logger.info("Attempting to initiate FancyNPCs and FancyHolograms compatibility layer. If you are not using those plugins, you will see an error. This is safe to ignore.", 5);
-        NPCs startedNpcs = new NPCs().register();
+        this(pluginName -> Bukkit.getPluginManager().isPluginEnabled(pluginName), FancyCompatibility.class.getClassLoader());
+    }
+
+    FancyCompatibility(Predicate<String> pluginEnabled, ClassLoader classLoader) {
+        Objects.requireNonNull(pluginEnabled, "pluginEnabled");
+        Objects.requireNonNull(classLoader, "classLoader");
+
+        startIfEnabled(FANCY_NPCS_PLUGIN, FANCY_NPCS_CLASS, pluginEnabled, classLoader);
+        startIfEnabled(FANCY_HOLOGRAMS_PLUGIN, FANCY_HOLOGRAMS_CLASS, pluginEnabled, classLoader);
+    }
+
+    private void startIfEnabled(String pluginName, String integrationClassName, Predicate<String> pluginEnabled, ClassLoader classLoader) {
+        AutoCloseable integration = loadIfEnabled(pluginName, integrationClassName, pluginEnabled, classLoader);
+        if (integration != null) {
+            integrations.add(integration);
+        }
+    }
+
+    static AutoCloseable loadIfEnabled(
+            String pluginName,
+            String integrationClassName,
+            Predicate<String> pluginEnabled,
+            ClassLoader classLoader) {
+        if (!pluginEnabled.test(pluginName)) {
+            return null;
+        }
+
         try {
-            holograms = new Holograms().register();
-            npcs = startedNpcs;
-        } catch (RuntimeException | Error throwable) {
-            try {
-                startedNpcs.close();
-            } catch (RuntimeException | Error cleanupFailure) {
-                throwable.addSuppressed(cleanupFailure);
+            Class<?> integrationClass = Class.forName(integrationClassName, true, classLoader);
+            Object integration = integrationClass.getDeclaredConstructor().newInstance();
+            if (!(integration instanceof AutoCloseable closeable)) {
+                throw new IllegalStateException("Optional integration does not implement AutoCloseable: " + integrationClassName);
             }
-            throw throwable;
+            Logger.info(pluginName + " compatibility enabled.", 5);
+            return closeable;
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException throwable) {
+            Logger.error(
+                    "Unable to initialize optional " + pluginName + " compatibility. PieCloak will continue without it.",
+                    throwable,
+                    2,
+                    FancyCompatibility.class
+            );
+            return null;
         }
     }
 
     @Override
     public void close() {
-        try {
-            holograms.close();
-        } catch (RuntimeException | Error throwable) {
+        Throwable failure = null;
+        for (int index = integrations.size() - 1; index >= 0; index--) {
             try {
-                npcs.close();
-            } catch (RuntimeException | Error cleanupFailure) {
-                throwable.addSuppressed(cleanupFailure);
+                integrations.get(index).close();
+            } catch (Exception | LinkageError throwable) {
+                if (failure == null) {
+                    failure = throwable;
+                } else {
+                    failure.addSuppressed(throwable);
+                }
             }
-            throw throwable;
         }
-        npcs.close();
-    }
+        integrations.clear();
 
-    static class NPCs extends PaperListener {
-        @EventHandler(priority = EventPriority.LOWEST)
-        public void npcLoad(NpcSpawnEvent event) {
-            EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
+        if (failure instanceof RuntimeException runtimeException) {
+            throw runtimeException;
         }
-
-        @EventHandler(priority = EventPriority.LOWEST)
-        public void npcLoad(NpcCreateEvent event) {
-            EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
+        if (failure instanceof LinkageError linkageError) {
+            throw linkageError;
         }
-
-        @EventHandler(priority = EventPriority.LOWEST)
-        public void npcLoad(NpcModifyEvent event) {
-            EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
-        }
-    }
-
-    static class Holograms extends PaperListener {
-        @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-        public void onHologramCreate(HologramCreateEvent event) {
-            add(event.getHologram());
-        }
-
-        @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-        public void onHologramShow(HologramShowEvent event) {
-            add(event.getHologram());
-        }
-
-        @EventHandler(priority = EventPriority.LOWEST)
-        public void onHologramsLoaded(HologramsLoadedEvent event) {
-            event.getManager().forEach(this::add);
-        }
-
-        private void add(Hologram hologram) {
-            EntityBypassRegistry.addEntity(hologram.getEntityId());
+        if (failure != null) {
+            throw new IllegalStateException("Unable to close one or more optional compatibility layers", failure);
         }
     }
 }
