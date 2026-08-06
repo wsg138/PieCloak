@@ -33,6 +33,8 @@ import java.util.function.IntSupplier;
 import static games.cubi.raycastedantiesp.paper.UpdateChecker.checkForUpdates;
 
 public final class EventListener extends PaperListener {
+    private static final int JOIN_UPDATE_WINDOW_TICKS = 10;
+
     private final RaycastedAntiESP plugin;
     private final IntSupplier currentTickSupplier;
 
@@ -62,12 +64,17 @@ public final class EventListener extends PaperListener {
 
         if (ConfigManager.get().getUpdateConfig().notifyInGame()
                 && player.hasPermission("raycastedantiesp.updatecheck")
-                && (playerData.getJoinTick() - currentTickSupplier.getAsInt() < 10)) {
+                && isWithinJoinUpdateWindow(playerData.getJoinTick(), currentTickSupplier.getAsInt())) {
             checkForUpdates(plugin, player);
         }
 
         playerData.setBypassPermission(player.hasPermission("raycastedantiesp.bypass"));
         updateOwnLocation(playerData, player.getEyeLocation());
+    }
+
+    static boolean isWithinJoinUpdateWindow(int joinTick, int currentTick) {
+        int elapsedTicks = currentTick - joinTick;
+        return elapsedTicks >= 0 && elapsedTicks < JOIN_UPDATE_WINDOW_TICKS;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
