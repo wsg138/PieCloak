@@ -1,5 +1,6 @@
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
+import games.cubi.raycastedantiesp.packetevents.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
@@ -50,7 +51,7 @@ class EntityTransitionRetryQueueTest {
 
         try {
             show.execute(packet -> {}, visibility::set);
-        } catch (TestFailure expected) {
+        } catch (SimulatedFailure expected) {
             assertTrue(show.recordFailure(0));
             assertEquals(ENQUEUED, queue.retry(show));
         }
@@ -164,11 +165,11 @@ class EntityTransitionRetryQueueTest {
     @SuppressWarnings("unchecked")
     private static EntityView<PacketEventsEntity> view(boolean playerView) {
         return (EntityView<PacketEventsEntity>) Proxy.newProxyInstance(
-                EntityTransitionRetryQueueTest.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class[]{EntityView.class},
                 (proxy, method, args) -> method.getName().equals("isPlayerView")
                         ? playerView
-                        : defaultValue(method.getReturnType())
+                        : TestProxySupport.defaultValue(method.getReturnType())
         );
     }
 
@@ -182,42 +183,13 @@ class EntityTransitionRetryQueueTest {
         void set(boolean visible) {
             if (first) {
                 first = false;
-                throw new TestFailure();
+                throw new SimulatedFailure();
             }
         }
     }
 
-    private static final class TestFailure extends RuntimeException {
+    private static final class SimulatedFailure extends RuntimeException {
+        private static final long serialVersionUID = 1L;
     }
 
-    private static Object defaultValue(Class<?> type) {
-        if (!type.isPrimitive()) {
-            return null;
-        }
-        if (type == boolean.class) {
-            return false;
-        }
-        if (type == byte.class) {
-            return (byte) 0;
-        }
-        if (type == short.class) {
-            return (short) 0;
-        }
-        if (type == int.class) {
-            return 0;
-        }
-        if (type == long.class) {
-            return 0L;
-        }
-        if (type == float.class) {
-            return 0F;
-        }
-        if (type == double.class) {
-            return 0D;
-        }
-        if (type == char.class) {
-            return (char) 0;
-        }
-        return null;
-    }
 }

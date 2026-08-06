@@ -20,15 +20,20 @@ public final class EntityTypeExclusions {
     private EntityTypeExclusions() {
     }
 
-    public static synchronized void initialise(IntSet resolved) {
-        if (exclusions != null) {
-            throw new IllegalStateException("Entity type exclusions are already initialised");
+    public static void initialise(IntSet resolved) {
+        synchronized (EntityTypeExclusions.class) {
+            if (exclusions != null) {
+                throw new IllegalStateException("Entity type exclusions are already initialised");
+            }
+            exclusions = IntSets.unmodifiable(new IntOpenHashSet(resolved));
         }
-        exclusions = IntSets.unmodifiable(new IntOpenHashSet(resolved));
     }
 
-    public static synchronized void reset() {
-        exclusions = null;
+    @SuppressWarnings("PMD.NullAssignment") // Reset deliberately clears the immutable startup snapshot.
+    public static void reset() {
+        synchronized (EntityTypeExclusions.class) {
+            exclusions = null;
+        }
     }
 
     public static boolean excludes(int entityType) {

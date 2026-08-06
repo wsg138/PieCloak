@@ -19,14 +19,22 @@ public final class LifecycleScope implements AutoCloseable {
     private final Deque<Cleanup> cleanups = new ArrayDeque<>();
     private boolean closed;
 
-    public synchronized <T extends AutoCloseable> T own(T resource) {
+    public <T extends AutoCloseable> T own(T resource) {
         Objects.requireNonNull(resource, "resource");
-        onClose(resource::close);
+        synchronized (this) {
+            onCloseLocked(resource::close);
+        }
         return resource;
     }
 
-    public synchronized void onClose(Cleanup cleanup) {
+    public void onClose(Cleanup cleanup) {
         Objects.requireNonNull(cleanup, "cleanup");
+        synchronized (this) {
+            onCloseLocked(cleanup);
+        }
+    }
+
+    private void onCloseLocked(Cleanup cleanup) {
         if (closed) {
             closeLateRegistration(cleanup);
             throw new IllegalStateException("Lifecycle scope is already closed");
@@ -34,8 +42,10 @@ public final class LifecycleScope implements AutoCloseable {
         cleanups.addLast(cleanup);
     }
 
-    public synchronized boolean isClosed() {
-        return closed;
+    public boolean isClosed() {
+        synchronized (this) {
+            return closed;
+        }
     }
 
     @Override
@@ -50,18 +60,17 @@ public final class LifecycleScope implements AutoCloseable {
             cleanups.clear();
         }
 
-        RuntimeException failure = null;
+        RuntimeException failure = new RuntimeException("One or more lifecycle cleanup actions failed");
+        boolean cleanupFailed = false;
         for (int index = closing.size() - 1; index >= 0; index--) {
             try {
                 closing.get(index).run();
-            } catch (Throwable throwable) {
-                if (failure == null) {
-                    failure = new RuntimeException("One or more lifecycle cleanup actions failed");
-                }
+            } catch (Exception | Error throwable) {
+                cleanupFailed = true;
                 failure.addSuppressed(throwable);
             }
         }
-        if (failure != null) {
+        if (cleanupFailed) {
             throw failure;
         }
     }

@@ -15,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PacketEventsBlockModeRepairTest {
+    private static final int FAILURE_REPAIR_INDEX = 2;
+
     private static final BlockInfoResolver RESOLVER = new BlockInfoResolver() {
         @Override
         public boolean isOccluding(int blockStateID) {
@@ -40,14 +42,13 @@ class PacketEventsBlockModeRepairTest {
 
         List<TrackedTileEntity<?>> tiles = new ArrayList<>();
         for (int index = 0; index < 3; index++) {
-            tiles.add(view.updateOrInsertTileEntity(
-                    world, new ImmutableBlockSpatialImpl(index, 64, 0), (char) 5, false));
+            tiles.add(insertTile(view, world, index));
         }
 
         AtomicInteger repairs = new AtomicInteger();
         assertThrows(IllegalStateException.class,
                 () -> view.applyTileEntityCheckMode(false, 10, tile -> {
-                    if (repairs.incrementAndGet() == 2) {
+                    if (repairs.incrementAndGet() == FAILURE_REPAIR_INDEX) {
                         throw new IllegalStateException("injected repair failure");
                     }
                 }));
@@ -55,5 +56,10 @@ class PacketEventsBlockModeRepairTest {
         assertEquals(3, repairs.get());
         assertTrue(tiles.stream().allMatch(TrackedTileEntity::visible));
         assertEquals(0L, view.tileEntityCheckModeToken() & 1L);
+    }
+
+    private static TrackedTileEntity<?> insertTile(PacketEventsBlockView view, UUID world, int index) {
+        return view.updateOrInsertTileEntity(
+                world, new ImmutableBlockSpatialImpl(index, 64, 0), (char) 5, false);
     }
 }

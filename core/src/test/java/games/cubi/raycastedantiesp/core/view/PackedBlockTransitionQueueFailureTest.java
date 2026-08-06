@@ -1,5 +1,6 @@
 package games.cubi.raycastedantiesp.core.view;
 
+import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +41,7 @@ class PackedBlockTransitionQueueFailureTest {
     @SuppressWarnings("unchecked")
     private static TrackedTileEntity<?> tileEntity() {
         return (TrackedTileEntity<?>) Proxy.newProxyInstance(
-                TrackedTileEntity.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class<?>[]{TrackedTileEntity.class},
                 (object, method, args) -> {
                     if (method.getReturnType() == boolean.class) return false;

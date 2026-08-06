@@ -10,20 +10,25 @@ public final class ViewRegistry {
 
     private ViewRegistry() {}
 
-    public static synchronized void initialise(BlockView.Factory blockFactory, EntityView.Factory entityFactory,
+    public static void initialise(BlockView.Factory blockFactory, EntityView.Factory entityFactory,
                                                EntityView.Factory playerFactory) {
-        if (isInitialised()) {
-            throw new IllegalStateException("ViewRegistry is already initialised");
+        synchronized (ViewRegistry.class) {
+            if (isInitialised()) {
+                throw new IllegalStateException("ViewRegistry is already initialised");
+            }
+            blockViewFactory = Objects.requireNonNull(blockFactory, "blockFactory");
+            entityViewFactory = Objects.requireNonNull(entityFactory, "entityFactory");
+            playerEntityViewFactory = Objects.requireNonNull(playerFactory, "playerFactory");
         }
-        blockViewFactory = Objects.requireNonNull(blockFactory, "blockFactory");
-        entityViewFactory = Objects.requireNonNull(entityFactory, "entityFactory");
-        playerEntityViewFactory = Objects.requireNonNull(playerFactory, "playerFactory");
     }
 
-    public static synchronized void reset() {
-        blockViewFactory = null;
-        entityViewFactory = null;
-        playerEntityViewFactory = null;
+    @SuppressWarnings("PMD.NullAssignment") // Reset intentionally releases all lifecycle-owned factories.
+    public static void reset() {
+        synchronized (ViewRegistry.class) {
+            blockViewFactory = null;
+            entityViewFactory = null;
+            playerEntityViewFactory = null;
+        }
     }
 
     public static boolean isInitialised() {

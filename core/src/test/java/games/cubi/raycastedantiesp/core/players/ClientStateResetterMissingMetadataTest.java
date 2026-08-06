@@ -1,5 +1,6 @@
 package games.cubi.raycastedantiesp.core.players;
 
+import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
@@ -40,7 +41,7 @@ class ClientStateResetterMissingMetadataTest {
         UUID playerUUID = UUID.randomUUID();
         UUID oldWorldUUID = UUID.randomUUID();
         PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
-                playerUUID, 0, 1, TestEntity::createSelf);
+                playerUUID, 0, 1, EntityStub::createSelf);
 
         playerData.beginWorldTransition();
         playerData.nettyData().setCurrentWorldName("world").setCurrentWorldMinHeight(-64);
@@ -68,19 +69,19 @@ class ClientStateResetterMissingMetadataTest {
 
     private static BlockView blockView() {
         return (BlockView) Proxy.newProxyInstance(
-                ClientStateResetterMissingMetadataTest.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class<?>[]{BlockView.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "clear" -> null;
                     case "toString" -> "MissingMetadataBlockView";
-                    default -> defaultValue(method.getReturnType());
+                    default -> TestProxySupport.defaultValue(method.getReturnType());
                 }
         );
     }
 
     private static EntityView<?> entityView(boolean playerView) {
         return (EntityView<?>) Proxy.newProxyInstance(
-                ClientStateResetterMissingMetadataTest.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class<?>[]{EntityView.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "clear" -> null;
@@ -88,47 +89,19 @@ class ClientStateResetterMissingMetadataTest {
                     case "size" -> 0;
                     case "isPlayerView" -> playerView;
                     case "toString" -> "MissingMetadataEntityView";
-                    default -> defaultValue(method.getReturnType());
+                    default -> TestProxySupport.defaultValue(method.getReturnType());
                 }
         );
     }
 
-    private static Object defaultValue(Class<?> returnType) {
-        if (!returnType.isPrimitive()) {
-            return null;
-        }
-        if (returnType == boolean.class) {
-            return false;
-        }
-        if (returnType == long.class) {
-            return 0L;
-        }
-        if (returnType == float.class) {
-            return 0F;
-        }
-        if (returnType == double.class) {
-            return 0D;
-        }
-        if (returnType == byte.class) {
-            return (byte) 0;
-        }
-        if (returnType == short.class) {
-            return (short) 0;
-        }
-        if (returnType == char.class) {
-            return (char) 0;
-        }
-        return 0;
-    }
-
-    private static final class TestEntity extends NettyEntity<Clearable> {
-        private TestEntity(PlayerData owningPlayer, int entityID, UUID entityUUID) {
+    private static final class EntityStub extends NettyEntity<Clearable> {
+        private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID) {
             super(owningPlayer, entityID, entityUUID);
         }
 
-        private static TestEntity createSelf(
+        private static EntityStub createSelf(
                 PlayerData owningPlayer, int entityID, UUID playerUUID) {
-            return new TestEntity(owningPlayer, entityID, playerUUID);
+            return new EntityStub(owningPlayer, entityID, playerUUID);
         }
     }
 }

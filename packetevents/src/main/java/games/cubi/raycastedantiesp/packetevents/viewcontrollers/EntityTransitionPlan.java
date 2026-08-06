@@ -30,12 +30,12 @@ final class EntityTransitionPlan<P> {
         }
     }
 
-    private static final EntityTransitionPlan<?> EMPTY = new EntityTransitionPlan<>(List.of());
+    private static final EntityTransitionPlan<?> EMPTY_PLAN = new EntityTransitionPlan<>(List.of());
 
-    private final List<Step<P>> steps;
+    private final List<Step<P>> transitionSteps;
 
     private EntityTransitionPlan(List<Step<P>> steps) {
-        this.steps = List.copyOf(steps);
+        this.transitionSteps = List.copyOf(steps);
     }
 
     static <P> EntityTransitionPlan<P> show(
@@ -81,14 +81,14 @@ final class EntityTransitionPlan<P> {
 
     @SuppressWarnings("unchecked")
     static <P> EntityTransitionPlan<P> empty() {
-        return (EntityTransitionPlan<P>) EMPTY;
+        return (EntityTransitionPlan<P>) EMPTY_PLAN;
     }
 
     List<Step<P>> steps() {
-        return steps;
+        return transitionSteps;
     }
 
     boolean isEmpty() {
-        return steps.isEmpty();
+        return transitionSteps.isEmpty();
     }
 }

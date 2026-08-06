@@ -24,6 +24,8 @@ import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.wrapper.PacketWrapper;
 import com.github.retrooper.packetevents.wrapper.play.server.*;
 import games.cubi.raycastedantiesp.core.config.ConfigManager;
+import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
+import games.cubi.raycastedantiesp.core.config.raycast.PlayerConfig;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.config.raycast.EntityTypeExclusions;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
@@ -93,55 +95,79 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
-        UUID viewerUUID = event.getUser().getUUID();
+        User viewer = event.getUser();
+        UUID viewerUUID = viewer.getUUID();
         if (viewerUUID == null) {
             return;
         }
 
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(viewerUUID);
-
-        if (event.getPacketType() == PacketType.Play.Server.JOIN_GAME) {
-            transitionRetries.clear(viewerUUID);
-            WrapperPlayServerJoinGame packet = new WrapperPlayServerJoinGame(event);
-            int currentTick = CURRENT_TICK_SUPPLIER.getAsInt();
-            playerData = handlePlayPhaseLoginPacket(packet.getEntityId(), viewerUUID, currentTick);
-            String worldName = packet.getWorldName();
-            handleWorldStatePacket(viewerUUID, worldName, COMMON.resolveWorldUUID(worldName), packet.getDimensionType().getMinY(), currentTick);
-        }
-
+        PlayerData playerData = resolvePlayerData(event, viewerUUID);
         if (playerData == null) {
             return;
         }
 
-        if (ConfigManager.get().getEntityConfig() != entityConfig) {
-            entityConfig = ConfigManager.get().getEntityConfig();
-            hideOnSpawnEntityDistanceSquared = entityConfig.hideOnSpawnDistance() * entityConfig.hideOnSpawnDistance();
-        }
-
-        if (ConfigManager.get().getPlayerConfig() != playerConfig) {
-            playerConfig = ConfigManager.get().getPlayerConfig();
-            hideOnSpawnPlayerDistanceSquared = playerConfig.hideOnSpawnDistance() * playerConfig.hideOnSpawnDistance();
-        }
-
-        UUID world = COMMON.resolvePacketWorld(playerData, event.getUser());
+        refreshVisibilityConfigs();
         int currentTick = CURRENT_TICK_SUPPLIER.getAsInt();
-
-        if (shouldProcessManagedPackets(playerData.hasBypassPermission())) {
-            handleEntityPackets(event, event.getUser(), playerData, world, currentTick);
-        } else {
-            handleBypassPacketLifecycle(event, playerData, currentTick);
-            enableBypass(playerData, currentTick);
-        }
-
-        if (playerData.entityView().hasPendingTransitions()
-                || playerData.playerView().hasPendingTransitions()
-                || transitionRetries.hasPending(viewerUUID)) {
-            PlayerData transitionData = playerData;
-            User viewer = event.getUser();
-            event.getTasksAfterSend().add(() -> processPendingEntityTransitions(transitionData, viewer));
-        }
-        
+        processViewerPacket(event, viewer, playerData, currentTick);
+        schedulePendingTransitions(event, viewer, playerData, viewerUUID);
         playerData.nettyData().evictPendingPostSpawnTasksIfRequired(currentTick);
+    }
+
+    private PlayerData resolvePlayerData(PacketSendEvent event, UUID viewerUUID) {
+        if (event.getPacketType() != PacketType.Play.Server.JOIN_GAME) {
+            return PlayerRegistry.getInstance().getPlayerData(viewerUUID);
+        }
+        transitionRetries.clear(viewerUUID);
+        WrapperPlayServerJoinGame packet = new WrapperPlayServerJoinGame(event);
+        int currentTick = CURRENT_TICK_SUPPLIER.getAsInt();
+        PlayerData playerData = handlePlayPhaseLoginPacket(packet.getEntityId(), viewerUUID, currentTick);
+        String worldName = packet.getWorldName();
+        handleWorldStatePacket(viewerUUID, worldName, COMMON.resolveWorldUUID(worldName),
+                packet.getDimensionType().getMinY(), currentTick);
+        return playerData;
+    }
+
+    private void refreshVisibilityConfigs() {
+        EntityConfig currentEntityConfig = ConfigManager.get().getEntityConfig();
+        if (currentEntityConfig != entityConfig) {
+            entityConfig = currentEntityConfig;
+            hideOnSpawnEntityDistanceSquared =
+                    currentEntityConfig.hideOnSpawnDistance() * currentEntityConfig.hideOnSpawnDistance();
+        }
+        PlayerConfig currentPlayerConfig = ConfigManager.get().getPlayerConfig();
+        if (currentPlayerConfig != playerConfig) {
+            playerConfig = currentPlayerConfig;
+            hideOnSpawnPlayerDistanceSquared =
+                    currentPlayerConfig.hideOnSpawnDistance() * currentPlayerConfig.hideOnSpawnDistance();
+        }
+    }
+
+    private void processViewerPacket(
+            PacketSendEvent event, User viewer, PlayerData playerData, int currentTick) {
+        if (shouldProcessManagedPackets(playerData.hasBypassPermission())) {
+            UUID world = COMMON.resolvePacketWorld(playerData, viewer);
+            handleEntityPackets(event, viewer, playerData, world, currentTick);
+            return;
+        }
+        handleBypassPacketLifecycle(event, playerData, currentTick);
+        enableBypass(playerData, currentTick);
+    }
+
+    private void schedulePendingTransitions(
+            PacketSendEvent event,
+            User viewer,
+            PlayerData playerData,
+            UUID viewerUUID) {
+        if (!hasPendingTransitions(playerData, viewerUUID)) {
+            return;
+        }
+        event.getTasksAfterSend().add(() -> processPendingEntityTransitions(playerData, viewer));
+    }
+
+    private boolean hasPendingTransitions(PlayerData playerData, UUID viewerUUID) {
+        return playerData.entityView().hasPendingTransitions()
+                || playerData.playerView().hasPendingTransitions()
+                || transitionRetries.hasPending(viewerUUID);
     }
 
     private void processPendingEntityTransitions(PlayerData data, User viewer) {
@@ -177,7 +203,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     private void revealBypassedView(PlayerData playerData, EntityView<?> view, int currentTick, int worldEpoch) {
         for (UUID entityUUID : view.getKnownEntities()) {
             NettyEntity<?> entity = (NettyEntity<?>) view.getEntity(entityUUID);
-            if (entity == null || entity.isSelfEntity() || entity.visible() && entity.clientVisible()) {
+            if (!requiresBypassReveal(entity)) {
                 continue;
             }
             boolean recorded = view.recordDirectVisibility(entity, true, currentTick, worldEpoch);
@@ -185,6 +211,10 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 processDirectEntityShow(playerData, view, entity, worldEpoch);
             }
         }
+    }
+
+    private static boolean requiresBypassReveal(NettyEntity<?> entity) {
+        return entity != null && !entity.isSelfEntity() && (!entity.visible() || !entity.clientVisible());
     }
 
     private void handleBypassPacketLifecycle(PacketSendEvent event, PlayerData playerData, int currentTick) {
@@ -673,49 +703,70 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             @Nullable Boolean confirmedClientVisibility
     ) {
         int worldEpoch = data.acquireWorldEpoch();
-        if (!(transitionEntity instanceof PacketEventsEntity entity)
-                || transitionWorldEpoch != worldEpoch
-                || entityView.getEntity(entity.entityUUID()) != entity) {
+        PacketEventsEntity entity = currentTransitionEntity(
+                entityView, transitionEntity, transitionWorldEpoch, worldEpoch);
+        if (entity == null || !transitionMatchesCurrentVisibility(type, entity.visible())) {
             return null;
         }
         if (entity.isSelfEntity()) {
-            Logger.warning("PacketEvents.processEntityTransitions skipped self entity viewer=" + data.getPlayerUUID()
-                    + " target=" + entity.entityUUID(), 2, PacketEventsEntityViewController.class);
-            return null;
-        }
-        if (!transitionMatchesCurrentVisibility(type, entity.visible())) {
+            logSkippedSelfTransition(data, entity);
             return null;
         }
 
+        applySupersededClientVisibility(entity, confirmedClientVisibility);
+        EntityTransitionPlan<PacketWrapper<?>> plan = buildTransitionPlan(data, entityView, type, entity);
+        if (plan.isEmpty()) {
+            return null;
+        }
+        return new EntityTransitionWork<>(
+                data.getPlayerUUID(), entityView, type, entity, worldEpoch, plan);
+    }
+
+    private static @Nullable PacketEventsEntity currentTransitionEntity(
+            EntityView<PacketEventsEntity> entityView,
+            TrackedEntity<?> transitionEntity,
+            int transitionWorldEpoch,
+            int currentWorldEpoch) {
+        if (!(transitionEntity instanceof PacketEventsEntity entity)
+                || transitionWorldEpoch != currentWorldEpoch
+                || entityView.getEntity(entity.entityUUID()) != entity) {
+            return null;
+        }
+        return entity;
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
+    private static void logSkippedSelfTransition(PlayerData data, PacketEventsEntity entity) {
+        Logger.warning("PacketEvents.processEntityTransitions skipped self entity viewer=" + data.getPlayerUUID()
+                + " target=" + entity.entityUUID(), 2, PacketEventsEntityViewController.class);
+    }
+
+    private static void applySupersededClientVisibility(
+            PacketEventsEntity entity, @Nullable Boolean confirmedClientVisibility) {
         if (confirmedClientVisibility != null) {
             // The superseded repair already committed spawn/destroy to the client. Repair local state
             // before resolving the opposite transition so it cannot omit a required spawn or destroy.
             entity.setClientVisible(confirmedClientVisibility);
         }
+    }
+
+    private EntityTransitionPlan<PacketWrapper<?>> buildTransitionPlan(
+            PlayerData data,
+            EntityView<PacketEventsEntity> entityView,
+            EntityViewTransition.Type type,
+            PacketEventsEntity entity) {
         ClientTransitionAction action = resolveClientTransitionAction(
                 type,
                 entity.clientVisible(),
                 getCorrectConfig(entityView).keepClientEntityWhenHidden()
         );
-        EntityTransitionPlan<PacketWrapper<?>> plan = switch (action) {
+        return switch (action) {
             case DESTROY -> EntityTransitionPlan.hide(
-                    new WrapperPlayServerDestroyEntities(entity.entityID())
-            );
+                    new WrapperPlayServerDestroyEntities(entity.entityID()));
             case SPAWN_AND_SYNC -> buildEntityShowPlan(data, entity, true);
             case SYNC -> buildEntityShowPlan(data, entity, false);
             case NONE -> EntityTransitionPlan.empty();
         };
-        if (plan.isEmpty()) {
-            return null;
-        }
-        return new EntityTransitionWork<>(
-                data.getPlayerUUID(),
-                entityView,
-                type,
-                entity,
-                worldEpoch,
-                plan
-        );
     }
 
     private boolean entityTransitionIsCurrent(PlayerData data, EntityTransitionWork<PacketWrapper<?>> work) {
@@ -745,35 +796,49 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                     visible -> work.entity().setClientVisible(visible)
             );
         } catch (Exception exception) {
-            if (!entityTransitionIsCurrent(data, work)) {
-                return;
-            }
-            boolean retryable = work.recordFailure(currentTick);
-            EntityTransitionRetryQueue.RetryResult retryResult = retryable
-                    ? transitionRetries.retry(work)
-                    : null;
-            if (retryResult == EntityTransitionRetryQueue.RetryResult.SUPERSEDED) {
-                return;
-            }
-            boolean capacityRejected = retryResult == EntityTransitionRetryQueue.RetryResult.CAPACITY_REJECTED;
-            if (work.failures() == 1 || !retryable || capacityRejected) {
-                String outcome;
-                if (!retryable) {
-                    outcome = "abandoned at the retry bound";
-                } else if (capacityRejected) {
-                    outcome = "abandoned because retry capacity was exhausted";
-                } else {
-                    outcome = "queued with bounded backoff";
-                }
-                Logger.error("Entity visibility reconciliation failed and was " + outcome
-                        + ". viewer=" + data.getPlayerUUID()
-                        + " entityUUID=" + work.entity().entityUUID()
-                        + " entityID=" + work.entity().entityID()
-                        + " transition=" + work.type()
-                        + " nextStage=" + work.nextStage()
-                        + " failures=" + work.failures(), exception, 1, PacketEventsEntityViewController.class);
-            }
+            handleEntityWorkFailure(data, work, currentTick, exception);
         }
+    }
+
+    private void handleEntityWorkFailure(
+            PlayerData data,
+            EntityTransitionWork<PacketWrapper<?>> work,
+            int currentTick,
+            Exception exception) {
+        if (!entityTransitionIsCurrent(data, work)) {
+            return;
+        }
+        if (!work.recordFailure(currentTick)) {
+            logEntityWorkFailure(data, work, exception, "abandoned at the retry bound");
+            return;
+        }
+
+        EntityTransitionRetryQueue.RetryResult retryResult = transitionRetries.retry(work);
+        if (retryResult == EntityTransitionRetryQueue.RetryResult.SUPERSEDED) {
+            return;
+        }
+        boolean capacityRejected = retryResult == EntityTransitionRetryQueue.RetryResult.CAPACITY_REJECTED;
+        if (work.failures() == 1 || capacityRejected) {
+            String outcome = capacityRejected
+                    ? "abandoned because retry capacity was exhausted"
+                    : "queued with bounded backoff";
+            logEntityWorkFailure(data, work, exception, outcome);
+        }
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
+    private static void logEntityWorkFailure(
+            PlayerData data,
+            EntityTransitionWork<PacketWrapper<?>> work,
+            Exception exception,
+            String outcome) {
+        Logger.error("Entity visibility reconciliation failed and was " + outcome
+                + ". viewer=" + data.getPlayerUUID()
+                + " entityUUID=" + work.entity().entityUUID()
+                + " entityID=" + work.entity().entityID()
+                + " transition=" + work.type()
+                + " nextStage=" + work.nextStage()
+                + " failures=" + work.failures(), exception, 1, PacketEventsEntityViewController.class);
     }
 
     static boolean transitionMatchesCurrentVisibility(EntityViewTransition.Type type, boolean visible) {
@@ -893,35 +958,71 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         return entity != null && clientAndEngineVisibleOrBeingShown(entity, null);
     }
 
-    private @Nullable WrapperPlayServerAttachEntity[] buildLeashPackets(PacketEventsEntity entity, PlayerData playerData, int entityBeingShownID) {
+    private @Nullable WrapperPlayServerAttachEntity[] buildLeashPackets(
+            PacketEventsEntity entity, PlayerData playerData, int entityBeingShownID) {
         int[] leashedIDs = entity.leashedEntityIDsOrNull();
-        int leashingID = entity.leashingEntity();
-        WrapperPlayServerAttachEntity leashingShow = null;
-        if (leashingID != NO_LEASHER) {
-            NettyEntity<?> leashHolder = playerData.entityFromID(leashingID);
-            if (isBypassed(leashingID)
-                    || leashHolder != null && clientAndEngineVisibleOrBeingShown(leashHolder, entityBeingShownID)) {
-                leashingShow = new WrapperPlayServerAttachEntity(entity.entityID(), leashingID, true);
-            }
-        }
+        WrapperPlayServerAttachEntity leashingShow = buildLeashingShow(
+                entity, playerData, entityBeingShownID);
         if (leashedIDs == null || leashedIDs.length == 0) {
-            return leashingShow == null ? null : new WrapperPlayServerAttachEntity[]{leashingShow};
+            return singleLeashPacketOrNull(leashingShow);
         }
-        WrapperPlayServerAttachEntity[] packets = new WrapperPlayServerAttachEntity[leashedIDs.length + (leashingShow == null ? 0 : 1)];
-        int index = 0;
-        if (leashingShow != null) {
-            packets[0] = leashingShow;
-            index = 1;
+        WrapperPlayServerAttachEntity[] packets = new WrapperPlayServerAttachEntity[
+                leashedIDs.length + (leashingShow == null ? 0 : 1)];
+        int startIndex = insertLeashingShow(packets, leashingShow);
+        insertLeashedEntityPackets(
+                packets, startIndex, leashedIDs, entity, playerData, entityBeingShownID);
+        return packets;
+    }
+
+    private @Nullable WrapperPlayServerAttachEntity buildLeashingShow(
+            PacketEventsEntity entity, PlayerData playerData, int entityBeingShownID) {
+        int leashingID = entity.leashingEntity();
+        if (leashingID == NO_LEASHER) {
+            return null;
         }
+        NettyEntity<?> leashHolder = playerData.entityFromID(leashingID);
+        if (!isBypassed(leashingID)
+                && (leashHolder == null
+                || !clientAndEngineVisibleOrBeingShown(leashHolder, entityBeingShownID))) {
+            return null;
+        }
+        return new WrapperPlayServerAttachEntity(entity.entityID(), leashingID, true);
+    }
+
+    private static @Nullable WrapperPlayServerAttachEntity[] singleLeashPacketOrNull(
+            @Nullable WrapperPlayServerAttachEntity leashingShow) {
+        return leashingShow == null
+                ? null
+                : new WrapperPlayServerAttachEntity[]{leashingShow};
+    }
+
+    private static int insertLeashingShow(
+            WrapperPlayServerAttachEntity[] packets,
+            @Nullable WrapperPlayServerAttachEntity leashingShow) {
+        if (leashingShow == null) {
+            return 0;
+        }
+        packets[0] = leashingShow;
+        return 1;
+    }
+
+    private void insertLeashedEntityPackets(
+            WrapperPlayServerAttachEntity[] packets,
+            int startIndex,
+            int[] leashedIDs,
+            PacketEventsEntity entity,
+            PlayerData playerData,
+            int entityBeingShownID) {
+        int index = startIndex;
         for (int leashedID : leashedIDs) {
             NettyEntity<?> leashedEntity = playerData.entityFromID(leashedID);
             if (isBypassed(leashedID)
-                    || leashedEntity != null && clientAndEngineVisibleOrBeingShown(leashedEntity, entityBeingShownID)) {
-                packets[index] = new WrapperPlayServerAttachEntity(leashedID, entity.entityID(), true);
-                index++;
+                    || leashedEntity != null
+                    && clientAndEngineVisibleOrBeingShown(leashedEntity, entityBeingShownID)) {
+                packets[index++] = new WrapperPlayServerAttachEntity(
+                        leashedID, entity.entityID(), true);
             }
         }
-        return packets;
     }
 
     private boolean clientAndEngineVisibleOrBeingShown(NettyEntity<?> entity, @Nullable Integer entityBeingShownID) {
@@ -1013,6 +1114,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         return replayData;
     }
 
+    @SuppressWarnings("PMD.NullAssignment") // Null means an existing client entity needs no spawn packet.
     private EntityTransitionPlan<PacketWrapper<?>> buildEntityShowPlan(
             PlayerData data,
             PacketEventsEntity entity,
@@ -1022,13 +1124,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         WrapperPlayServerSetPassengers passengerPacket =
                 buildPassengersPacket(entity, data, entity.entityID());
 
-        WrapperPlayServerSetPassengers vehiclePacket = null;
-        int vehicleID = entity.vehicleID();
-        if (vehicleID != NO_VEHICLE) {
-            vehiclePacket = isBypassed(vehicleID)
-                    ? buildBypassedVehiclePassengersPacket(vehicleID, data, entity.entityID())
-                    : buildPassengersPacket(data.entityFromID(vehicleID), data, entity.entityID());
-        }
+        WrapperPlayServerSetPassengers vehiclePacket = buildVehiclePassengersPacket(data, entity);
 
         return EntityTransitionPlan.show(
                 sendSpawnPacket ? buildSpawnPacket(entity) : null,
@@ -1039,6 +1135,17 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 vehiclePacket,
                 buildLeashPacketList(entity, data, entity.entityID())
         );
+    }
+
+    private WrapperPlayServerSetPassengers buildVehiclePassengersPacket(
+            PlayerData data, PacketEventsEntity entity) {
+        int vehicleID = entity.vehicleID();
+        if (vehicleID == NO_VEHICLE) {
+            return null;
+        }
+        return isBypassed(vehicleID)
+                ? buildBypassedVehiclePassengersPacket(vehicleID, data, entity.entityID())
+                : buildPassengersPacket(data.entityFromID(vehicleID), data, entity.entityID());
     }
 
     private List<PacketWrapper<?>> buildLeashPacketList(

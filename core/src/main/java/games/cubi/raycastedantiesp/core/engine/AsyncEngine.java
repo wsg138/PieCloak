@@ -37,6 +37,7 @@ import java.util.function.IntSupplier;
 
 public abstract class AsyncEngine implements Engine {
     private static final long SLOW_TICK_NANOS = 40 * 1_000_000L;
+    private static final int SINGLE_THREAD = 1;
     //Literally just magic numbers I made by keyboard mashing
     private static final int TICK_IDLE = 1872;
     private static final int TICK_PENDING = -129;
@@ -151,14 +152,7 @@ public abstract class AsyncEngine implements Engine {
             if (!startTickState(scheduledTick, expectPending)) {
                 return;
             }
-            try {
-                if (!dispatchTick(scheduledTick, startTick, scheduledNanos)) {
-                    return;
-                }
-            } catch (Throwable throwable) {
-                finishTickState();
-                Logger.error("Engine tick setup failed before worker ownership was established. Released the tick reservation.",
-                        throwable, 2, AsyncEngine.class);
+            if (!dispatchTickSafely(scheduledTick, startTick, scheduledNanos)) {
                 return;
             }
 
@@ -181,113 +175,183 @@ public abstract class AsyncEngine implements Engine {
         }
     }
 
+    private boolean dispatchTickSafely(int scheduledTick, int startTick, long scheduledNanos) {
+        try {
+            return dispatchTick(scheduledTick, startTick, scheduledNanos);
+        } catch (RuntimeException | Error throwable) {
+            finishTickState();
+            Logger.error("Engine tick setup failed before worker ownership was established. Released the tick reservation.",
+                    throwable, 2, AsyncEngine.class);
+            return false;
+        }
+    }
+
     /**
      * Claims worker capacity and either runs work immediately or schedules worker batches.
      *
      * @return true if at least one worker submission completed successfully; false if setup was
      * skipped or no worker was accepted.
      */
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs level filtering inside Logger.
     private boolean dispatchTick(int scheduledTick, int startTick, long scheduledNanos) {
-        int threads = config.getEngineConfig().asyncConfig().asyncProcessingThreads();
-        if (threads < 1) threads = 1;
-
+        int threads = Math.max(SINGLE_THREAD,
+                config.getEngineConfig().asyncConfig().asyncProcessingThreads());
         DebugConfig debugConfig = config.getDebugConfig();
         TimingStats tickTimingStats = timingStats(debugConfig);
-        boolean recordTimings = tickTimingStats != TimingStatsNoOp.INSTANCE;
-
         long startNanos = System.nanoTime();
 
+        if (skipDuplicateTick(scheduledTick, startTick, threads, startNanos, tickTimingStats)) {
+            return false;
+        }
+        if (!claimTickWork(scheduledTick, threads, scheduledNanos, startNanos, tickTimingStats)) {
+            return false;
+        }
+        return dispatchClaimedTick(
+                scheduledTick, startTick, scheduledNanos, startNanos, threads, debugConfig, tickTimingStats);
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs level filtering inside Logger.
+    private boolean skipDuplicateTick(
+            int scheduledTick,
+            int startTick,
+            int threads,
+            long startNanos,
+            TimingStats tickTimingStats) {
         int tickAlreadyRunning = runningTick.get();
-        // First guard for the current tick already being processed (can happen if the previous tick ran overtime and thus didn't yield the thread)
-        if (scheduledTick == tickAlreadyRunning) {
-            logAggregateReport(tickTimingStats.recordSkipped(threads, startNanos));
-            Logger.info("RaycastedAntiESP is already processing this tick; skipping duplicate same-tick attempt."
-                    + " scheduledTick=" + scheduledTick
-                    + " currentServerTick=" + startTick
-                    + " currentRunningTick=" + tickAlreadyRunning, 6, AsyncEngine.class);
-            finishTickState();
+        if (scheduledTick != tickAlreadyRunning) {
             return false;
         }
+        logAggregateReport(tickTimingStats.recordSkipped(threads, startNanos));
+        Logger.info("RaycastedAntiESP is already processing this tick; skipping duplicate same-tick attempt."
+                + " scheduledTick=" + scheduledTick
+                + " currentServerTick=" + startTick
+                + " currentRunningTick=" + tickAlreadyRunning, 6, AsyncEngine.class);
+        finishTickState();
+        return true;
+    }
 
-        if (!tickWorkActive.compareAndSet(false, true)) {
-            long queueNanos = Math.max(0, startNanos - scheduledNanos);
-            Logger.warning("RaycastedAntiESP is still ticking from the last tick! Skipping this tick to avoid concurrent modification issues."
-                    + " scheduledTick=" + scheduledTick
-                    + " currentServerTick=" + currentTickSupplier.getAsInt()
-                    + " currentRunningTick=" + tickAlreadyRunning
-                    + " timeSpentInQueue=" + TickTimingFormatter.formatMillis(queueNanos) + "ms", 5, AsyncEngine.class);
-            logAggregateReport(tickTimingStats.recordSkipped(threads, startNanos));
-            finishTickState();
-            return false;
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs level filtering inside Logger.
+    private boolean claimTickWork(
+            int scheduledTick,
+            int threads,
+            long scheduledNanos,
+            long startNanos,
+            TimingStats tickTimingStats) {
+        if (tickWorkActive.compareAndSet(false, true)) {
+            return true;
         }
+        long queueNanos = Math.max(0, startNanos - scheduledNanos);
+        Logger.warning("RaycastedAntiESP is still ticking from the last tick! Skipping this tick to avoid concurrent modification issues."
+                + " scheduledTick=" + scheduledTick
+                + " currentServerTick=" + currentTickSupplier.getAsInt()
+                + " currentRunningTick=" + runningTick.get()
+                + " timeSpentInQueue=" + TickTimingFormatter.formatMillis(queueNanos) + "ms", 5, AsyncEngine.class);
+        logAggregateReport(tickTimingStats.recordSkipped(threads, startNanos));
+        finishTickState();
+        return false;
+    }
 
+    private boolean dispatchClaimedTick(
+            int scheduledTick,
+            int startTick,
+            long scheduledNanos,
+            long startNanos,
+            int threads,
+            DebugConfig debugConfig,
+            TimingStats tickTimingStats) {
         boolean claimedRunningTick = false;
         try {
             tickNanos.set(startNanos);
-
-            final int currentTick = startTick;
-            runningTick.set(currentTick);
+            runningTick.set(startTick);
             claimedRunningTick = true;
+
             Collection<PlayerData> allPlayers = PlayerRegistry.getInstance().getAllPlayerData();
-
-            EntityConfig entityConfig = config.getEntityConfig();
-            PlayerConfig playerConfig = config.getPlayerConfig();
-            TileEntityConfig tileEntityConfig = config.getTileEntityConfig();
-            TickTimings timings = recordTimings
-                    ? new TickTimings(scheduledTick, scheduledNanos, currentTick, startNanos, threads, allPlayers.size())
-                    : null;
-
-            List<List<PlayerData>> batches;
-            AsyncRunner runner;
-            if (threads == 1) {
-                batches = List.of(new ArrayList<>(allPlayers));
-                runner = Runnable::run;
-            } else {
-                batches = new ArrayList<>(threads);
-                for (int i = 0; i < threads; i++) {
-                    batches.add(new ArrayList<>());
-                }
-
-                int index = 0;
-                for (PlayerData playerData : allPlayers) {
-                    batches.get(index++ % threads).add(playerData);
-                }
-                runner = asyncRunner;
-            }
-
-            List<Runnable> tasks = new ArrayList<>(batches.size());
-            for (List<PlayerData> batch : batches) {
-                tasks.add(() -> {
-                    if (!shutdownRequested.get()) {
-                        subTick(batch, entityConfig, playerConfig, tileEntityConfig, debugConfig, currentTick, timings);
-                    }
-                });
-            }
-
-            int submitted = AsyncTickWork.dispatch(
-                    tasks,
-                    runner,
-                    shutdownRequested::get,
-                    exception -> Logger.error("Failed to submit every worker batch for tick " + currentTick
-                            + ". Accepted workers will drain before the tick is finalised; later batches were not submitted.",
-                            exception, 2, AsyncEngine.class),
-                    throwable -> Logger.error("An async engine worker failed while processing tick " + currentTick
-                            + ". The worker permit was released so the engine can continue after remaining workers drain.",
-                            throwable, 2, AsyncEngine.class),
-                    () -> completeTick(currentTick, timings, tickTimingStats)
-            );
-            return submitted > 0;
-        } catch (Throwable throwable) {
-            if (claimedRunningTick) {
-                completeTick(startTick, null, tickTimingStats);
-            } else {
-                releaseTickWork();
-                finishTickState();
-            }
+            TickTimings timings = createTickTimings(
+                    scheduledTick, scheduledNanos, startTick, startNanos, threads, allPlayers.size(), tickTimingStats);
+            List<List<PlayerData>> batches = createPlayerBatches(allPlayers, threads);
+            AsyncRunner runner = threads == SINGLE_THREAD ? Runnable::run : asyncRunner;
+            return dispatchBatches(batches, runner, debugConfig, startTick, timings, tickTimingStats);
+        } catch (RuntimeException | Error throwable) {
+            recoverFailedTickSetup(startTick, claimedRunningTick, tickTimingStats);
             Logger.error("An error occurred during tick setup before worker submission. Released engine ownership to avoid deadlock.",
                     throwable, 2, AsyncEngine.class);
             return false;
         }
+    }
+
+    private TickTimings createTickTimings(
+            int scheduledTick,
+            long scheduledNanos,
+            int currentTick,
+            long startNanos,
+            int threads,
+            int playerCount,
+            TimingStats tickTimingStats) {
+        if (tickTimingStats == TimingStatsNoOp.INSTANCE) {
+            return null;
+        }
+        return new TickTimings(
+                scheduledTick, scheduledNanos, currentTick, startNanos, threads, playerCount);
+    }
+
+    private static List<List<PlayerData>> createPlayerBatches(
+            Collection<PlayerData> allPlayers, int threads) {
+        if (threads == SINGLE_THREAD) {
+            return List.of(new ArrayList<>(allPlayers));
+        }
+        List<List<PlayerData>> batches = new ArrayList<>(threads);
+        for (int index = 0; index < threads; index++) {
+            batches.add(new ArrayList<>());
+        }
+        int index = 0;
+        for (PlayerData playerData : allPlayers) {
+            batches.get(index++ % threads).add(playerData);
+        }
+        return batches;
+    }
+
+    private boolean dispatchBatches(
+            List<List<PlayerData>> batches,
+            AsyncRunner runner,
+            DebugConfig debugConfig,
+            int currentTick,
+            TickTimings timings,
+            TimingStats tickTimingStats) {
+        EntityConfig entityConfig = config.getEntityConfig();
+        PlayerConfig playerConfig = config.getPlayerConfig();
+        TileEntityConfig tileEntityConfig = config.getTileEntityConfig();
+        List<Runnable> tasks = new ArrayList<>(batches.size());
+        for (List<PlayerData> batch : batches) {
+            tasks.add(() -> {
+                if (!shutdownRequested.get()) {
+                    subTick(batch, entityConfig, playerConfig, tileEntityConfig,
+                            debugConfig, currentTick, timings);
+                }
+            });
+        }
+        int submitted = AsyncTickWork.dispatch(
+                tasks,
+                runner,
+                shutdownRequested::get,
+                exception -> Logger.error("Failed to submit every worker batch for tick " + currentTick
+                        + ". Accepted workers will drain before the tick is finalised; later batches were not submitted.",
+                        exception, 2, AsyncEngine.class),
+                throwable -> Logger.error("An async engine worker failed while processing tick " + currentTick
+                        + ". The worker permit was released so the engine can continue after remaining workers drain.",
+                        throwable, 2, AsyncEngine.class),
+                () -> completeTick(currentTick, timings, tickTimingStats)
+        );
+        return submitted > 0;
+    }
+
+    private void recoverFailedTickSetup(
+            int currentTick, boolean claimedRunningTick, TimingStats tickTimingStats) {
+        if (claimedRunningTick) {
+            completeTick(currentTick, null, tickTimingStats);
+            return;
+        }
+        releaseTickWork();
+        finishTickState();
     }
 
     /**
@@ -309,6 +373,7 @@ public abstract class AsyncEngine implements Engine {
         }
     }
 
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs level filtering inside Logger.warning.
     private void completeTick(int currentTick, TickTimings timings, TimingStats timingStats) {
         try {
             long completionNanos = System.nanoTime();
@@ -395,58 +460,129 @@ public abstract class AsyncEngine implements Engine {
         signalShutdownWaiters();
     }
 
-    private void processTickForPlayers(List<PlayerData> playerDataList, EntityConfig entityConfig, PlayerConfig playerConfig, TileEntityConfig tileEntityConfig,
-                                       boolean debugParticles, int currentTick, TickTimingBatch timings) {
-
+    private void processTickForPlayers(
+            List<PlayerData> playerDataList,
+            EntityConfig entityConfig,
+            PlayerConfig playerConfig,
+            TileEntityConfig tileEntityConfig,
+            boolean debugParticles,
+            int currentTick,
+            TickTimingBatch timings) {
         for (PlayerData playerData : playerDataList) {
             if (shutdownRequested.get()) {
                 return;
             }
-            if (!playerData.isConnected()) {
-                continue;
-            }
-            playerData.nettyData().markPendingPostSpawnTasksForEviction();
-            if (playerData.hasBypassPermission()) {
-                timings.incrementBypassSkippedPlayers();
-                continue;
-            }
-
-            BlockView blockView = playerData.blockView();
-
-            Locatable playerLocation = playerData.ownLocation();
-            if (playerLocation == null || playerLocation.world() == null) {
-                timings.incrementNullLocationSkippedPlayers();
-                continue;
-            }
-            int worldEpoch = playerData.tryAcquireWorldEpochFor(playerLocation.world());
-            if (worldEpoch == PlayerData.INVALID_WORLD_EPOCH) {
-                if (tileEntityConfig.enabled()) timings.incrementTileWorldSkipped();
-                continue;
-            }
-            timings.incrementProcessedPlayers();
-
-            try {
-                if (entityConfig.enabled()) {
-                    long sectionStartNanos = timings.startEntitySection();
-                    checkEntities(playerData, playerLocation, entityConfig, debugParticles, blockView, currentTick, worldEpoch, timings);
-                    timings.finishEntitySection(sectionStartNanos);
-                }
-                if (playerConfig.enabled()) {
-                    long sectionStartNanos = timings.startPlayerSection();
-                    checkPlayers(playerData, playerLocation, playerConfig, debugParticles, blockView, currentTick, worldEpoch, timings);
-                    timings.finishPlayerSection(sectionStartNanos);
-                }
-                if (tileEntityConfig.enabled()) {
-                    long sectionStartNanos = timings.startTileSection();
-                    checkTileEntities(playerData, playerLocation, tileEntityConfig, debugParticles, blockView, currentTick, worldEpoch, timings);
-                    timings.finishTileSection(sectionStartNanos);
-                }
-            } finally {
-                playerData.entityView().flushPendingTransitions();
-                playerData.playerView().flushPendingTransitions();
-                blockView.flushPendingTransitions();
-            }
+            processTickForPlayer(
+                    playerData, entityConfig, playerConfig, tileEntityConfig,
+                    debugParticles, currentTick, timings);
         }
+    }
+
+    private void processTickForPlayer(
+            PlayerData playerData,
+            EntityConfig entityConfig,
+            PlayerConfig playerConfig,
+            TileEntityConfig tileEntityConfig,
+            boolean debugParticles,
+            int currentTick,
+            TickTimingBatch timings) {
+        if (!playerData.isConnected()) {
+            return;
+        }
+        playerData.nettyData().markPendingPostSpawnTasksForEviction();
+        if (playerData.hasBypassPermission()) {
+            timings.incrementBypassSkippedPlayers();
+            return;
+        }
+
+        Locatable playerLocation = playerData.ownLocation();
+        if (playerLocation == null || playerLocation.world() == null) {
+            timings.incrementNullLocationSkippedPlayers();
+            return;
+        }
+        int worldEpoch = playerData.tryAcquireWorldEpochFor(playerLocation.world());
+        if (worldEpoch == PlayerData.INVALID_WORLD_EPOCH) {
+            if (tileEntityConfig.enabled()) {
+                timings.incrementTileWorldSkipped();
+            }
+            return;
+        }
+
+        timings.incrementProcessedPlayers();
+        BlockView blockView = playerData.blockView();
+        try {
+            processEntitySection(
+                    playerData, playerLocation, blockView, entityConfig,
+                    debugParticles, currentTick, worldEpoch, timings);
+            processPlayerSection(
+                    playerData, playerLocation, blockView, playerConfig,
+                    debugParticles, currentTick, worldEpoch, timings);
+            processTileSection(
+                    playerData, playerLocation, blockView, tileEntityConfig,
+                    debugParticles, currentTick, worldEpoch, timings);
+        } finally {
+            flushPlayerTransitions(playerData, blockView);
+        }
+    }
+
+    private void processEntitySection(
+            PlayerData playerData,
+            Locatable playerLocation,
+            BlockView blockView,
+            EntityConfig entityConfig,
+            boolean debugParticles,
+            int currentTick,
+            int worldEpoch,
+            TickTimingBatch timings) {
+        if (!entityConfig.enabled()) {
+            return;
+        }
+        long sectionStartNanos = timings.startEntitySection();
+        checkEntities(playerData, playerLocation, entityConfig, debugParticles,
+                blockView, currentTick, worldEpoch, timings);
+        timings.finishEntitySection(sectionStartNanos);
+    }
+
+    private void processPlayerSection(
+            PlayerData playerData,
+            Locatable playerLocation,
+            BlockView blockView,
+            PlayerConfig playerConfig,
+            boolean debugParticles,
+            int currentTick,
+            int worldEpoch,
+            TickTimingBatch timings) {
+        if (!playerConfig.enabled()) {
+            return;
+        }
+        long sectionStartNanos = timings.startPlayerSection();
+        checkPlayers(playerData, playerLocation, playerConfig, debugParticles,
+                blockView, currentTick, worldEpoch, timings);
+        timings.finishPlayerSection(sectionStartNanos);
+    }
+
+    private void processTileSection(
+            PlayerData playerData,
+            Locatable playerLocation,
+            BlockView blockView,
+            TileEntityConfig tileEntityConfig,
+            boolean debugParticles,
+            int currentTick,
+            int worldEpoch,
+            TickTimingBatch timings) {
+        if (!tileEntityConfig.enabled()) {
+            return;
+        }
+        long sectionStartNanos = timings.startTileSection();
+        checkTileEntities(playerData, playerLocation, tileEntityConfig, debugParticles,
+                blockView, currentTick, worldEpoch, timings);
+        timings.finishTileSection(sectionStartNanos);
+    }
+
+    private static void flushPlayerTransitions(PlayerData playerData, BlockView blockView) {
+        playerData.entityView().flushPendingTransitions();
+        playerData.playerView().flushPendingTransitions();
+        blockView.flushPendingTransitions();
     }
 
     private void checkEntities(PlayerData player, Locatable playerLocation, EntityConfig entityConfig, boolean debugParticles, BlockView blockView, int currentTick, int worldEpoch, TickTimingBatch timings) {

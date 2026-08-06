@@ -35,12 +35,12 @@ class ControllerOwnershipTest {
     private static final class Owner {
     }
 
-    private static final class TestSlot implements ControllerOwnership.Slot {
+    private static final class OwnershipSlot implements ControllerOwnership.Slot {
         private Object value;
         private RuntimeException setFailure;
         private final AtomicInteger setAttempts = new AtomicInteger();
 
-        TestSlot(Object value) {
+        OwnershipSlot(Object value) {
             this.value = value;
         }
 
@@ -60,6 +60,7 @@ class ControllerOwnershipTest {
     }
 
     @AfterEach
+    @SuppressWarnings("PMD.NullAssignment") // Static test slots model the production ownership release contract.
     void clearSlots() {
         Holder.primary = null;
         Holder.secondary = null;
@@ -222,8 +223,8 @@ class ControllerOwnershipTest {
     @Test
     void secondSingletonReleaseIsAttemptedWhenFirstReleaseFails() {
         Owner owner = new Owner();
-        TestSlot primary = new TestSlot(owner);
-        TestSlot secondary = new TestSlot(owner);
+        OwnershipSlot primary = new OwnershipSlot(owner);
+        OwnershipSlot secondary = new OwnershipSlot(owner);
         RuntimeException expected = new RuntimeException("primary release failed");
         primary.setFailure = expected;
         ControllerOwnership ownership = new ControllerOwnership(LOCK, primary, secondary);
@@ -240,8 +241,8 @@ class ControllerOwnershipTest {
 
     @Test
     void rollbackAttemptsBothSingletonRestoresWhenFirstRestoreFails() {
-        TestSlot primary = new TestSlot(null);
-        TestSlot secondary = new TestSlot(null);
+        OwnershipSlot primary = new OwnershipSlot(null);
+        OwnershipSlot secondary = new OwnershipSlot(null);
         RuntimeException restoreFailure = new RuntimeException("primary restore failed");
         ControllerOwnership ownership = new ControllerOwnership(LOCK, primary, secondary);
         RuntimeException constructionFailure = new RuntimeException("construction failed");

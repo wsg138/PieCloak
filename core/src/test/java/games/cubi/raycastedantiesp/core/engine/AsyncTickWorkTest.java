@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AsyncTickWorkTest {
+    private static final int REJECTED_SUBMISSION_INDEX = 1;
+
     @Test
     void rejectionBeforeFirstSubmissionStillCompletesExactlyOnce() {
         AtomicInteger completions = new AtomicInteger();
@@ -40,7 +42,7 @@ class AsyncTickWorkTest {
         int submitted = AsyncTickWork.dispatch(
                 List.of(() -> { }, () -> { }, () -> { }),
                 task -> {
-                    if (calls.getAndIncrement() == 1) {
+                    if (calls.getAndIncrement() == REJECTED_SUBMISSION_INDEX) {
                         throw new IllegalStateException("rejected");
                     }
                     queued.add(task);

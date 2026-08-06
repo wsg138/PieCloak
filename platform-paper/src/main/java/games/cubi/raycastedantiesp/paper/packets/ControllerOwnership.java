@@ -21,15 +21,16 @@ import java.util.Objects;
  */
 final class ControllerOwnership {
     private static final Runnable NO_UNSAFE_CLEANUP = () -> { };
+    private static final String IDENTITY_COMPARISON_SUPPRESSION = "PMD.CompareObjectsWithEquals";
 
     @FunctionalInterface
     interface Factory<T> {
-        T create() throws Throwable;
+        T create() throws Exception;
     }
 
     @FunctionalInterface
     interface OwnerAction<T> {
-        void run(T owner) throws Throwable;
+        void run(T owner) throws Exception;
     }
 
     @FunctionalInterface
@@ -58,7 +59,7 @@ final class ControllerOwnership {
         return construct(factory, publishSecondary, rollbackExternalResource, NO_UNSAFE_CLEANUP);
     }
 
-    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     <T> T construct(Factory<T> factory, OwnerAction<T> publishSecondary,
             OwnerAction<T> rollbackExternalResource, Runnable markUnsafeCleanup) {
         Objects.requireNonNull(factory, "factory");
@@ -81,7 +82,8 @@ final class ControllerOwnership {
                     throw new IllegalStateException("Entity controller construction did not publish one consistent owner");
                 }
                 return owner;
-            } catch (Throwable failure) {
+            } catch (Exception | Error caughtFailure) {
+                Throwable failure = caughtFailure;
                 boolean unsafeCleanup = false;
                 if (owner != null) {
                     T constructedOwner = owner;
@@ -119,17 +121,17 @@ final class ControllerOwnership {
         }
     }
 
-    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     void releasePrimaryOwned(Object expectedOwner) {
         releaseSlotOwned(primary, expectedOwner);
     }
 
-    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     void releaseSecondaryOwned(Object expectedOwner) {
         releaseSlotOwned(secondary, expectedOwner);
     }
 
-    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     void verifyConsistentOrEmpty() {
         synchronized (lock) {
             Object currentPrimary = primary.get();
@@ -140,7 +142,7 @@ final class ControllerOwnership {
         }
     }
 
-    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    @SuppressWarnings(IDENTITY_COMPARISON_SUPPRESSION)
     private void releaseSlotOwned(Slot slot, Object expectedOwner) {
         synchronized (lock) {
             if (slot.get() == expectedOwner) {
@@ -186,6 +188,7 @@ final class ControllerOwnership {
         }
     }
 
+    @SuppressWarnings("PMD.AvoidCatchingThrowable") // This lifecycle boundary must aggregate checked failures and Errors without skipping later cleanup.
     private static Throwable attempt(Throwable previous, Cleanup action) {
         try {
             action.run();

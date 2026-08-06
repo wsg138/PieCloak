@@ -55,7 +55,6 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     private static ConfigManager config;
     private static PaperPacketEventsCommonViewController commonController;
     private static PaperPacketEventsEntityViewController packetEventsController;
-    private static PaperPacketEventsBlockViewController blockController;
     private static PaperAsyncEngine engine;
     private static MetricsCollector metricsCollector;
     private static RaycastedAntiESP instance;
@@ -96,6 +95,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     }
 
     @Override
+    @SuppressWarnings("PMD.NullAssignment") // Startup rollback deliberately clears the lifecycle ownership sentinel.
     public void onEnable() {
         instance = this;
         Core.initialize(loggerAdapter);
@@ -154,7 +154,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             packetEventsController = ownCritical(startup, teardownSafe,
                     PaperPacketEventsEntityViewController.create(
                             currentTickSupplier, targetFilter, () -> teardownSafe.set(false)));
-            blockController = ownCritical(startup, teardownSafe,
+            ownCritical(startup, teardownSafe,
                     new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier));
             ownCritical(startup, teardownSafe, EventListener.initialise(this, currentTickSupplier));
 
@@ -170,24 +170,19 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             ticker.start();
 
             /*Do not delete, this is a legal notice*/Attribution.sendAttributionMessage(Bukkit.getConsoleSender());
-        } catch (Throwable throwable) {
+        } catch (RuntimeException | Error throwable) {
             activeLifecycle = null;
             try {
                 startup.close();
             } catch (RuntimeException cleanupFailure) {
                 throwable.addSuppressed(cleanupFailure);
             }
-            if (throwable instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            if (throwable instanceof Error error) {
-                throw error;
-            }
-            throw new IllegalStateException("Unexpected checked failure during plugin startup", throwable);
+            throw throwable;
         }
     }
 
     @Override
+    @SuppressWarnings("PMD.NullAssignment") // Transfers and clears lifecycle ownership so same-JVM re-enable cannot reuse closed resources.
     public void onDisable() {
         LifecycleScope lifecycle = activeLifecycle;
         activeLifecycle = null;
@@ -270,6 +265,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
         }
     }
 
+    @SuppressWarnings("PMD.NullAssignment") // Re-enable safety requires releasing every lifecycle-owned static reference.
     private static void resetSharedState() {
         PacketEventsCommonViewController.reset(commonController);
         PlayerRegistry.getInstance().clear();
@@ -279,7 +275,6 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
 
         commonController = null;
         packetEventsController = null;
-        blockController = null;
         targetFilter = null;
         metricsCollector = null;
         currentTickSupplier = null;

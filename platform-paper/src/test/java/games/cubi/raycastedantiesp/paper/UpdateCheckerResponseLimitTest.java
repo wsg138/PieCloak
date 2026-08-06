@@ -78,7 +78,7 @@ class UpdateCheckerResponseLimitTest {
 
     private static final class CountingInputStream extends InputStream {
         private final int totalBytes;
-        private int bytesRead;
+        private int consumedBytes;
 
         private CountingInputStream(int totalBytes) {
             this.totalBytes = totalBytes;
@@ -86,28 +86,28 @@ class UpdateCheckerResponseLimitTest {
 
         @Override
         public int read() {
-            if (bytesRead >= totalBytes) {
+            if (consumedBytes >= totalBytes) {
                 return -1;
             }
-            bytesRead++;
+            consumedBytes++;
             return 'x';
         }
 
         @Override
         public int read(byte[] buffer, int offset, int length) {
-            if (bytesRead >= totalBytes) {
+            if (consumedBytes >= totalBytes) {
                 return -1;
             }
-            int read = Math.min(length, totalBytes - bytesRead);
+            int read = Math.min(length, totalBytes - consumedBytes);
             for (int index = 0; index < read; index++) {
                 buffer[offset + index] = 'x';
             }
-            bytesRead += read;
+            consumedBytes += read;
             return read;
         }
 
         private int bytesRead() {
-            return bytesRead;
+            return consumedBytes;
         }
     }
 }

@@ -19,7 +19,7 @@ class FancyCompatibilityTest {
     @Test
     void absentOptionalPluginsDoNotLoadIntegrationClasses() {
         AtomicBoolean integrationLoadAttempted = new AtomicBoolean();
-        ClassLoader rejectingClassLoader = new ClassLoader(FancyCompatibilityTest.class.getClassLoader()) {
+        ClassLoader rejectingClassLoader = new ClassLoader(Thread.currentThread().getContextClassLoader()) {
             @Override
             protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
                 if (name.contains("FancyNpcsCompatibility") || name.contains("FancyHologramsCompatibility")) {

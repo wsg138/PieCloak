@@ -54,6 +54,10 @@ import java.util.UUID;
 @Description("Command for management of the RaycastedAntiESP plugin")
 @Permission("raycastedantiesp.command")
 public class RaycastedAntiESPCommand {
+    private static final String VISIBLE_SUMMARY = " <gray>(visible=<white>";
+    private static final String HIDDEN_SUMMARY = "<gray>, hidden=<white>";
+    private static final String SUMMARY_END = "<gray>)";
+
     @DefaultExecutes
     public void helpCommand(CommandSender sender) {
         sender.sendRichMessage("<white>RaycastedAntiESP <yellow>v" + RaycastedAntiESP.get().getDescription().getVersion());
@@ -155,9 +159,9 @@ public class RaycastedAntiESPCommand {
                 + "<gray>, block-states=<white>" + filter.blockStateCount()
                 + "<gray>, safe-block-entity-types=<white>" + filter.safeBlockEntityTypeCount());
         sender.sendRichMessage("<white>[PieCloak] Managed targets across viewers: <gray>entities=<white>" + managedEntities
-                + " <gray>(visible=<white>" + visibleEntities + "<gray>, hidden=<white>" + (managedEntities - visibleEntities) + "<gray>)"
+                + VISIBLE_SUMMARY + visibleEntities + HIDDEN_SUMMARY + (managedEntities - visibleEntities) + SUMMARY_END
                 + " block-entities=<white>" + managedBlockEntities
-                + " <gray>(visible=<white>" + visibleBlockEntities + "<gray>, hidden=<white>" + (managedBlockEntities - visibleBlockEntities) + "<gray>)");
+                + VISIBLE_SUMMARY + visibleBlockEntities + HIDDEN_SUMMARY + (managedBlockEntities - visibleBlockEntities) + SUMMARY_END);
         if (!filter.invalidEntries().isEmpty()) {
             sender.sendRichMessage("<yellow>[PieCloak] Skipped invalid target-filter entries: <white>" + filter.invalidEntries().size());
             filter.invalidEntries().stream().limit(8).forEach(entry -> sender.sendRichMessage("<gray>- <white>" + entry));
@@ -187,9 +191,9 @@ public class RaycastedAntiESPCommand {
         int tileCount = playerData.blockView().getKnownTileEntities().size();
         sender.sendRichMessage("<white>[PieCloak] Viewer <green>" + target.getName()
                 + "<gray>: managed-entities=<white>" + entityCount
-                + " <gray>(visible=<white>" + visibleEntities + "<gray>, hidden=<white>" + (entityCount - visibleEntities) + "<gray>)"
+                + VISIBLE_SUMMARY + visibleEntities + HIDDEN_SUMMARY + (entityCount - visibleEntities) + SUMMARY_END
                 + " managed-block-entities=<white>" + tileCount
-                + " <gray>(visible=<white>" + visibleTiles + "<gray>, hidden=<white>" + (tileCount - visibleTiles) + "<gray>)");
+                + VISIBLE_SUMMARY + visibleTiles + HIDDEN_SUMMARY + (tileCount - visibleTiles) + SUMMARY_END);
         if (playerData.blockView() instanceof AbstractBlockView blockView) {
             sender.sendRichMessage("<gray>Tracked chunk sections: <white>" + blockView.loadedChunkCount());
         }

@@ -206,7 +206,7 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
                 } catch (RuntimeException exception) {
                     if (firstFailure[0] == null) {
                         firstFailure[0] = exception;
-                    } else if (firstFailure[0] != exception) {
+                    } else if (firstFailure[0] != exception) { // NOPMD CompareObjectsWithEquals: do not self-suppress.
                         firstFailure[0].addSuppressed(exception);
                     }
                 }

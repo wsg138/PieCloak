@@ -110,7 +110,7 @@ final class AsyncTickWork {
         public void run() {
             try {
                 task.run();
-            } catch (Throwable throwable) {
+            } catch (RuntimeException | Error throwable) {
                 workerFailureHandler.accept(throwable);
             } finally {
                 release();

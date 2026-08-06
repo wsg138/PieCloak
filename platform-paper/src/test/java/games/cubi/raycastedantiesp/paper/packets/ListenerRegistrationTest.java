@@ -27,26 +27,31 @@ class ListenerRegistrationTest {
         AtomicInteger unregistrations = new AtomicInteger();
 
         for (int lifecycle = 0; lifecycle < 2; lifecycle++) {
-            Object listener = new Object();
-            ListenerRegistration<Object> registration = ListenerRegistration.register(
-                    listener,
-                    candidate -> {
-                        registrations.incrementAndGet();
-                        return candidate;
-                    },
-                    registered -> {
-                        assertSame(listener, registered);
-                        unregistrations.incrementAndGet();
-                    }
-            );
-
-            registration.close();
-            assertDoesNotThrow(registration::close);
-            assertTrue(registration.isClosed());
+            runLifecycle(registrations, unregistrations);
         }
 
         assertEquals(2, registrations.get());
         assertEquals(2, unregistrations.get());
+    }
+
+
+    private static void runLifecycle(AtomicInteger registrations, AtomicInteger unregistrations) {
+        Object listener = new Object();
+        ListenerRegistration<Object> registration = ListenerRegistration.register(
+                listener,
+                candidate -> {
+                    registrations.incrementAndGet();
+                    return candidate;
+                },
+                registered -> {
+                    assertSame(listener, registered);
+                    unregistrations.incrementAndGet();
+                }
+        );
+
+        registration.close();
+        assertDoesNotThrow(registration::close);
+        assertTrue(registration.isClosed());
     }
 
     @Test

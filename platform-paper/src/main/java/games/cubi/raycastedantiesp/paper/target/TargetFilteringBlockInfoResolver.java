@@ -21,18 +21,18 @@ import java.util.function.IntPredicate;
 public final class TargetFilteringBlockInfoResolver implements BlockInfoResolver, PacketEventsTargetFilter {
     private final BlockInfoResolver delegate;
     private final PacketEventsTargetFilter targetFilter;
-    private final IntPredicate shouldCullTileEntity;
+    private final IntPredicate tileEntityCullPredicate;
 
     public TargetFilteringBlockInfoResolver(BlockInfoResolver delegate, PacketEventsTargetFilter targetFilter) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.targetFilter = Objects.requireNonNull(targetFilter, "targetFilter");
-        this.shouldCullTileEntity = targetFilter::shouldCullTileEntity;
+        this.tileEntityCullPredicate = targetFilter::shouldCullTileEntity;
     }
 
     TargetFilteringBlockInfoResolver(BlockInfoResolver delegate, IntPredicate shouldCullTileEntity) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.targetFilter = PacketEventsTargetFilter.DISABLED;
-        this.shouldCullTileEntity = Objects.requireNonNull(shouldCullTileEntity, "shouldCullTileEntity");
+        this.tileEntityCullPredicate = Objects.requireNonNull(shouldCullTileEntity, "shouldCullTileEntity");
     }
 
     @Override
@@ -42,7 +42,7 @@ public final class TargetFilteringBlockInfoResolver implements BlockInfoResolver
 
     @Override
     public boolean isTileEntity(int blockStateID) {
-        return delegate.isTileEntity(blockStateID) && shouldCullTileEntity.test(blockStateID);
+        return delegate.isTileEntity(blockStateID) && tileEntityCullPredicate.test(blockStateID);
     }
 
     @Override
@@ -67,6 +67,6 @@ public final class TargetFilteringBlockInfoResolver implements BlockInfoResolver
 
     @Override
     public boolean shouldCullTileEntity(int blockStateId) {
-        return shouldCullTileEntity.test(blockStateId);
+        return tileEntityCullPredicate.test(blockStateId);
     }
 }

@@ -20,17 +20,22 @@ public abstract class PacketEventsCommonViewController {
         this.currentTickSupplier = currentTick;
     }
 
-    public static synchronized void initialise(PacketEventsCommonViewController newInstance) {
+    public static void initialise(PacketEventsCommonViewController newInstance) {
         Objects.requireNonNull(newInstance, "newInstance");
-        if (instance != null) {
-            throw new IllegalStateException("PacketEventsCommonViewController is already initialised");
+        synchronized (PacketEventsCommonViewController.class) {
+            if (instance != null) {
+                throw new IllegalStateException("PacketEventsCommonViewController is already initialised");
+            }
+            instance = newInstance;
         }
-        instance = newInstance;
     }
 
-    public static synchronized void reset(PacketEventsCommonViewController expectedInstance) {
-        if (instance == expectedInstance) {
-            instance = null;
+    @SuppressWarnings("PMD.NullAssignment") // Reset deliberately releases the singleton owned by the plugin lifecycle.
+    public static void reset(PacketEventsCommonViewController expectedInstance) {
+        synchronized (PacketEventsCommonViewController.class) {
+            if (instance == expectedInstance) {
+                instance = null;
+            }
         }
     }
 

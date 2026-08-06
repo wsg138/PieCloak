@@ -49,6 +49,7 @@ abstract class AbstractChunkParser<D> implements ChunkParser {
             int chunkZ, D data);
 
     @Override
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops") // Each allocation is lazy, bounded, and retained beyond its loop iteration.
     public final @Nullable Column parse(BlockView blockView, UUID world, Column column, int minimumSectionY) {
         BaseChunk[] sections = column.getChunks();
         long[][] managedBySection = null;
@@ -168,6 +169,7 @@ abstract class AbstractChunkParser<D> implements ChunkParser {
         return words == null ? null : new OccludingChunkDataImpl(words);
     }
 
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
     private boolean processTileEntity(BlockView blockView, UUID world, int blockOriginX, int blockOriginZ,
             BaseChunk[] sections, int minimumSectionY, long[][] managedBySection,
             TileEntity tileEntity, MutableBlockSpatialImpl key) {

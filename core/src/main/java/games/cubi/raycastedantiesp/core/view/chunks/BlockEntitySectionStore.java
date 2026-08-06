@@ -96,13 +96,14 @@ public final class BlockEntitySectionStore {
         }
 
         private static OccludingChunkData set(OccludingChunkData data, int x, int y, int z, boolean value) {
-            if (data == null) {
+            OccludingChunkData updatedData = data;
+            if (updatedData == null) {
                 if (!value) {
                     return null;
                 }
-                data = OccludingChunkData.empty();
+                updatedData = OccludingChunkData.empty();
             }
-            return data.setOccluding(x, y, z, value);
+            return updatedData.setOccluding(x, y, z, value);
         }
     }
 }

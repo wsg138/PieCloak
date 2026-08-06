@@ -1,7 +1,8 @@
 package games.cubi.raycastedantiesp.core.players;
 
+import games.cubi.raycastedantiesp.core.testsupport.TestEntityViewProxy;
+import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
@@ -11,9 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
@@ -49,11 +48,11 @@ class RespawnEpochBoundaryTest {
         UUID playerUUID = UUID.randomUUID();
         UUID worldUUID = UUID.randomUUID();
         PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
-                playerUUID, 0, 1, TestEntity::createSelf);
+                playerUUID, 0, 1, EntityStub::createSelf);
         establishWorld(playerData, "world", worldUUID);
 
         int reusedEntityID = 77;
-        TestEntity preRespawnEntity = new TestEntity(
+        EntityStub preRespawnEntity = new EntityStub(
                 playerData, reusedEntityID, UUID.randomUUID(), false);
         preRespawnEntity.setClientVisible(false);
         entityView(playerData.entityView()).insertEntity(worldUUID, preRespawnEntity);
@@ -64,7 +63,7 @@ class RespawnEpochBoundaryTest {
         AtomicInteger staleShowWrites = new AtomicInteger();
         AtomicInteger staleRelationshipWrites = new AtomicInteger();
         AtomicInteger staleBlockRepairWrites = new AtomicInteger();
-        TestEntity replacement = new TestEntity(
+        EntityStub replacement = new EntityStub(
                 playerData, reusedEntityID, UUID.randomUUID(), false);
         replacement.setClientVisible(false);
 
@@ -110,51 +109,12 @@ class RespawnEpochBoundaryTest {
     }
 
     private EntityView<?> entityView(IntSupplier epochSupplier, boolean playerView) {
-        Map<Integer, TrackedEntity<?>> entitiesByID = new HashMap<>();
-        Map<UUID, TrackedEntity<?>> entitiesByUUID = new HashMap<>();
-        return (EntityView<?>) Proxy.newProxyInstance(
-                RespawnEpochBoundaryTest.class.getClassLoader(),
-                new Class[]{EntityView.class},
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "insertEntity" -> {
-                        TrackedEntity<?> entity = (TrackedEntity<?>) args[1];
-                        entitiesByID.put(entity.entityID(), entity);
-                        entitiesByUUID.put(entity.entityUUID(), entity);
-                        yield null;
-                    }
-                    case "clear" -> {
-                        entitiesByID.clear();
-                        entitiesByUUID.clear();
-                        yield null;
-                    }
-                    case "getEntity" -> args[0] instanceof Integer
-                            ? entitiesByID.get(args[0])
-                            : entitiesByUUID.get(args[0]);
-                    case "size" -> entitiesByID.size();
-                    case "getKnownEntities" -> List.copyOf(entitiesByUUID.keySet());
-                    case "getKnownEntityIDs" -> entitiesByID.keySet().stream()
-                            .mapToInt(Integer::intValue).toArray();
-                    case "recordDirectVisibility" -> {
-                        NettyEntity<?> entity = (NettyEntity<?>) args[0];
-                        boolean current = (Integer) args[3] == epochSupplier.getAsInt()
-                                && entitiesByUUID.get(entity.entityUUID()) == entity;
-                        if (current) {
-                            entity.setVisible((Boolean) args[1]);
-                            entity.setLastChecked((Integer) args[2]);
-                        }
-                        yield current;
-                    }
-                    case "isPlayerView" -> playerView;
-                    case "hasPendingTransitions" -> false;
-                    case "toString" -> "RespawnEpochEntityView";
-                    default -> defaultValue(method.getReturnType());
-                }
-        );
+        return TestEntityViewProxy.create(epochSupplier, playerView, "RespawnEpochEntityView");
     }
 
     private BlockView blockView() {
         return (BlockView) Proxy.newProxyInstance(
-                RespawnEpochBoundaryTest.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class[]{BlockView.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "clear" -> {
@@ -162,52 +122,24 @@ class RespawnEpochBoundaryTest {
                         yield null;
                     }
                     case "toString" -> "RespawnEpochBlockView";
-                    default -> defaultValue(method.getReturnType());
+                    default -> TestProxySupport.defaultValue(method.getReturnType());
                 }
         );
     }
 
-    private static Object defaultValue(Class<?> returnType) {
-        if (!returnType.isPrimitive()) {
-            return null;
-        }
-        if (returnType == boolean.class) {
-            return false;
-        }
-        if (returnType == long.class) {
-            return 0L;
-        }
-        if (returnType == float.class) {
-            return 0F;
-        }
-        if (returnType == double.class) {
-            return 0D;
-        }
-        if (returnType == byte.class) {
-            return (byte) 0;
-        }
-        if (returnType == short.class) {
-            return (short) 0;
-        }
-        if (returnType == char.class) {
-            return (char) 0;
-        }
-        return 0;
-    }
-
-    private static final class TestEntity extends NettyEntity<Clearable> {
-        private TestEntity(PlayerData owningPlayer, int entityID, UUID entityUUID) {
+    private static final class EntityStub extends NettyEntity<Clearable> {
+        private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID) {
             super(owningPlayer, entityID, entityUUID);
         }
 
-        private TestEntity(PlayerData owningPlayer, int entityID, UUID entityUUID,
+        private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID,
                 boolean visible) {
             super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible);
         }
 
-        private static TestEntity createSelf(PlayerData owningPlayer, int entityID,
+        private static EntityStub createSelf(PlayerData owningPlayer, int entityID,
                 UUID playerUUID) {
-            return new TestEntity(owningPlayer, entityID, playerUUID);
+            return new EntityStub(owningPlayer, entityID, playerUUID);
         }
     }
 }

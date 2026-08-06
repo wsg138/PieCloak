@@ -1,5 +1,6 @@
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
+import games.cubi.raycastedantiesp.packetevents.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import org.junit.jupiter.api.Test;
 
@@ -23,8 +24,8 @@ class BlockTransitionRetryQueueTest {
         UUID viewer = UUID.randomUUID();
         TrackedTileEntity<?> tile = tileEntity();
 
-        queue.enqueue(viewer, SHOW, BLOCK_ENTITY_DATA, tile, 5, 2, 7L, 1, 10);
-        queue.enqueue(viewer, SHOW, BLOCK, tile, 5, 2, 7L, 2, 10);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK_ENTITY_DATA, tile, 5, 2, 7L, 1, 10));
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tile, 5, 2, 7L, 2, 10));
 
         assertEquals(1, queue.size(viewer));
         List<BlockTransitionRetryQueue.Retry> due = queue.drainDue(viewer, 2, 11);
@@ -40,12 +41,12 @@ class BlockTransitionRetryQueueTest {
         UUID viewer = UUID.randomUUID();
         TrackedTileEntity<?> tile = tileEntity();
 
-        queue.enqueue(viewer, HIDE, BLOCK, tile, 5, 2, 7L, 1, 0);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, HIDE, BLOCK, tile, 5, 2, 7L, 1, 0));
         assertTrue(queue.drainDue(viewer, 2, 0).isEmpty());
         BlockTransitionRetryQueue.Retry first = queue.drainDue(viewer, 2, 1).getFirst();
 
-        queue.enqueue(viewer, first.operation(), first.stage(), first.tileEntity(), first.expectedBlockID(),
-                first.worldEpoch(), first.modeToken(), 2, 1);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, first.operation(), first.stage(), first.tileEntity(), first.expectedBlockID(),
+                first.worldEpoch(), first.modeToken(), 2, 1));
         assertTrue(queue.drainDue(viewer, 2, 2).isEmpty());
         assertEquals(1, queue.drainDue(viewer, 2, 3).size());
         assertFalse(queue.hasPending(viewer));
@@ -55,7 +56,7 @@ class BlockTransitionRetryQueueTest {
     void worldChangeDiscardsStaleRepairs() {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();
-        queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 0);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 0));
 
         assertTrue(queue.drainDue(viewer, 4, 10).isEmpty());
         assertFalse(queue.hasPending(viewer));
@@ -65,7 +66,7 @@ class BlockTransitionRetryQueueTest {
     void modeChangeDiscardsStaleRepairsImmediately() {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();
-        queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 0);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 0));
 
         queue.discardStale(viewer, 2, 9L);
 
@@ -76,7 +77,7 @@ class BlockTransitionRetryQueueTest {
     void disconnectCleanupClearsViewerRepairs() {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();
-        queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 0);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 0));
 
         queue.clear(viewer);
 
@@ -87,13 +88,13 @@ class BlockTransitionRetryQueueTest {
     void retryQueuePreservesExistingWorkWhenCapacityIsReached() {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();
-        for (int index = 0; index < BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER; index++) {
-            assertFalse(queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), index + 1,
-                    2, 7L, 1, 0));
-        }
+        TrackedTileEntity<?> tile = tileEntity();
+        IntStream.range(0, BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER)
+                .forEach(index -> assertFalse(queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(
+                        viewer, SHOW, BLOCK, tile, index + 1, 2, 7L, 1, 0))));
 
-        boolean rejected = queue.enqueue(viewer, SHOW, BLOCK, tileEntity(),
-                BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER + 1, 2, 7L, 1, 0);
+        boolean rejected = queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tileEntity(),
+                BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER + 1, 2, 7L, 1, 0));
 
         assertTrue(rejected);
         assertEquals(BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER, queue.size(viewer));
@@ -109,10 +110,10 @@ class BlockTransitionRetryQueueTest {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();
 
-        assertFalse(queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L,
-                BlockTransitionRetryQueue.MAX_FAILURES - 1, 0));
-        assertTrue(queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 6, 2, 7L,
-                BlockTransitionRetryQueue.MAX_FAILURES, 0));
+        assertFalse(queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L,
+                BlockTransitionRetryQueue.MAX_FAILURES - 1, 0)));
+        assertTrue(queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tileEntity(), 6, 2, 7L,
+                BlockTransitionRetryQueue.MAX_FAILURES, 0)));
 
         assertEquals(1, queue.size(viewer));
     }
@@ -123,9 +124,9 @@ class BlockTransitionRetryQueueTest {
         UUID viewer = UUID.randomUUID();
         TrackedTileEntity<?> tile = tileEntity();
 
-        queue.enqueue(viewer, SHOW, BLOCK, tile, 5, 2, 7L, 1, 0);
-        queue.enqueue(viewer, HIDE, BLOCK, tile, 5, 2, 7L, 1, 0);
-        queue.enqueue(viewer, SHOW, BLOCK, tile, 5, 2, 9L, 1, 0);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tile, 5, 2, 7L, 1, 0));
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, HIDE, BLOCK, tile, 5, 2, 7L, 1, 0));
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tile, 5, 2, 9L, 1, 0));
 
         assertEquals(3, queue.size(viewer));
     }
@@ -133,7 +134,7 @@ class BlockTransitionRetryQueueTest {
     @SuppressWarnings("unchecked")
     private static TrackedTileEntity<?> tileEntity() {
         return (TrackedTileEntity<?>) Proxy.newProxyInstance(
-                TrackedTileEntity.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class<?>[]{TrackedTileEntity.class},
                 (object, method, args) -> {
                     if (method.getReturnType() == boolean.class) return false;

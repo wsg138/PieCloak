@@ -78,17 +78,17 @@ class LifecycleScopeTest {
     }
 
     private static final class FakeListener implements AutoCloseable {
-        private int received;
+        private int receivedCount;
         private boolean active = true;
 
         void receive() {
             if (active) {
-                received++;
+                receivedCount++;
             }
         }
 
         int received() {
-            return received;
+            return receivedCount;
         }
 
         @Override

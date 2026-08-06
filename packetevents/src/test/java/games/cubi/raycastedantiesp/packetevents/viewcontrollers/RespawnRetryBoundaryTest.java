@@ -1,5 +1,6 @@
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
+import games.cubi.raycastedantiesp.packetevents.testsupport.TestProxySupport;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.EntityView;
@@ -59,7 +60,7 @@ class RespawnRetryBoundaryTest {
     void respawnCleanupDropsPendingBlockRepairBeforeItCanWrite() {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();
-        queue.enqueue(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 10);
+        queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(viewer, SHOW, BLOCK, tileEntity(), 5, 2, 7L, 1, 10));
 
         queue.clear(viewer);
 
@@ -80,11 +81,11 @@ class RespawnRetryBoundaryTest {
     @SuppressWarnings("unchecked")
     private static EntityView<PacketEventsEntity> entityView() {
         return (EntityView<PacketEventsEntity>) Proxy.newProxyInstance(
-                RespawnRetryBoundaryTest.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class[]{EntityView.class},
                 (proxy, method, args) -> method.getName().equals("isPlayerView")
                         ? false
-                        : defaultValue(method.getReturnType())
+                        : TestProxySupport.defaultValue(method.getReturnType())
         );
     }
 
@@ -96,37 +97,10 @@ class RespawnRetryBoundaryTest {
     @SuppressWarnings("unchecked")
     private static TrackedTileEntity<?> tileEntity() {
         return (TrackedTileEntity<?>) Proxy.newProxyInstance(
-                TrackedTileEntity.class.getClassLoader(),
+                TestProxySupport.contextClassLoader(),
                 new Class<?>[]{TrackedTileEntity.class},
-                (object, method, args) -> defaultValue(method.getReturnType())
+                (object, method, args) -> TestProxySupport.defaultValue(method.getReturnType())
         );
     }
 
-    private static Object defaultValue(Class<?> returnType) {
-        if (!returnType.isPrimitive()) {
-            return null;
-        }
-        if (returnType == boolean.class) {
-            return false;
-        }
-        if (returnType == long.class) {
-            return 0L;
-        }
-        if (returnType == float.class) {
-            return 0F;
-        }
-        if (returnType == double.class) {
-            return 0D;
-        }
-        if (returnType == byte.class) {
-            return (byte) 0;
-        }
-        if (returnType == short.class) {
-            return (short) 0;
-        }
-        if (returnType == char.class) {
-            return (char) 0;
-        }
-        return 0;
-    }
 }

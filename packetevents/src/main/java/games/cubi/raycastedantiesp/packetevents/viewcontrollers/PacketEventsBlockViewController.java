@@ -44,6 +44,8 @@ import java.util.function.IntSupplier;
 
 public abstract class PacketEventsBlockViewController implements PacketListener {
     private static final int MAX_DIAGNOSTICS_PER_KIND = 5;
+    private static final int FIRST_FAILURE = 1;
+    private static final String POSITION_LABEL = " position=";
 
     private final BlockInfoResolver blockInfoResolver;
     private final PacketEventsTargetFilter targetFilter;
@@ -113,15 +115,15 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 tileEntityConfig.enabled(), playerData.hasBypassPermission());
         BlockView blockView = playerData.blockView();
         blockView.applyTileEntityCheckMode(tileChecksEnabled, currentTick,
-                tileEntity -> processModeRepairSafely(viewerUUID, viewer, blockView, worldEpoch,
-                        tileEntity, blockView.tileEntityCheckModeToken(), currentTick, 0, Stage.BLOCK));
+                tileEntity -> processModeRepairSafely(playerData, viewer, tileEntity,
+                        blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK));
         transitionRetries.discardStale(viewerUUID, worldEpoch, blockView.tileEntityCheckModeToken());
 
         handleBlockPackets(event, viewer, playerData, world, currentTick, tileChecksEnabled);
 
-        processTransitionRetries(viewerUUID, viewer, playerData, currentTick);
+        processTransitionRetries(viewer, playerData, currentTick);
         if (blockView.hasPendingTransitions()) {
-            processTileEntityTransitions(viewerUUID, viewer, playerData, currentTick);
+            processTileEntityTransitions(viewer, playerData, currentTick);
         }
     }
 
@@ -156,42 +158,59 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             WrapperPlayServerMultiBlockChange packet = new WrapperPlayServerMultiBlockChange(event);
             handleMultiBlockChange(event, blockView, world, packet, playerData.ownLocation(), tileChecksEnabled);
         } else if (event.getPacketType() == PacketType.Play.Server.BLOCK_ENTITY_DATA) {
-            WrapperPlayServerBlockEntityData packet = new WrapperPlayServerBlockEntityData(event);
-            ImmutableBlockSpatialImpl position = new ImmutableBlockSpatialImpl(
-                    packet.getPosition().getX(), packet.getPosition().getY(), packet.getPosition().getZ());
-            TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity =
-                    getTrackedTileEntity(blockView, world, position);
-            if (tileEntity == null) {
-                BlockView.BlockEntityStatus blockStatus = blockView.getBlockEntityStatus(world, position);
-                boolean packetTypeManaged = targetFilter.shouldCullBlockEntity(packet.getBlockEntityType());
-                boolean failClosed = shouldFailClosedForUnknownBlockEntity(
-                        tileChecksEnabled, blockStatus, packetTypeManaged);
-                logUnknownBlockEntity(world, position, packet, blockStatus, packetTypeManaged, failClosed);
-                if (failClosed) {
-                    event.setCancelled(true);
-                    sendUnknownManagedTileFallback(viewer, position);
-                }
-                return;
-            }
-
-            ensureTileReplayData(tileEntity).setBlockEntityData(packet.getBlockEntityType(), packet.getNBT());
-            if (tileChecksEnabled && !blockView.isVisible(world, position, currentTick)) {
-                event.setCancelled(true);
-                processTileEntityOperationSafely(playerData.getPlayerUUID(), viewer, blockView,
-                        playerData.acquireWorldEpoch(), Operation.HIDE, tileEntity,
-                        blockView.tileEntityCheckModeToken(), currentTick, 0, Stage.BLOCK, tileEntity.blockID());
-            }
+            handleBlockEntityData(event, viewer, playerData, world, currentTick, tileChecksEnabled);
         } else if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
-            WrapperPlayServerChunkData packet = new WrapperPlayServerChunkData(event);
-            ChunkParser parser = tileChecksEnabled ? mutatingChunkParser : nonMutatingChunkParser;
-            @Nullable Column result = parser.parse(blockView, world, packet.getColumn(),
-                    playerData.nettyData().getCurrentWorldMinHeight() >> 4);
-            if (result != null) {
-                packet.setColumn(result);
-                event.markForReEncode(true);
-            }
+            handleChunkData(event, playerData, world, tileChecksEnabled);
         } else if (event.getPacketType() == PacketType.Play.Server.MAP_CHUNK_BULK) {
             handleUnexpectedBulkChunkPacket(bulkChunkDiagnostics, viewer.getUUID(), currentTick);
+        }
+    }
+
+    private void handleBlockEntityData(PacketSendEvent event, User viewer, PlayerData playerData,
+            UUID world, int currentTick, boolean tileChecksEnabled) {
+        WrapperPlayServerBlockEntityData packet = new WrapperPlayServerBlockEntityData(event);
+        ImmutableBlockSpatialImpl position = new ImmutableBlockSpatialImpl(
+                packet.getPosition().getX(), packet.getPosition().getY(), packet.getPosition().getZ());
+        BlockView blockView = playerData.blockView();
+        TrackedTileEntity<PacketEventsTileEntityReplayData> tileEntity =
+                getTrackedTileEntity(blockView, world, position);
+        if (tileEntity == null) {
+            handleUnknownBlockEntity(event, viewer, blockView, world, position, packet, tileChecksEnabled);
+            return;
+        }
+
+        ensureTileReplayData(tileEntity).setBlockEntityData(packet.getBlockEntityType(), packet.getNBT());
+        if (tileChecksEnabled && !blockView.isVisible(world, position, currentTick)) {
+            event.setCancelled(true);
+            processInitialTileEntityOperationSafely(playerData, viewer, Operation.HIDE, tileEntity,
+                    blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK,
+                    playerData.acquireWorldEpoch());
+        }
+    }
+
+    private void handleUnknownBlockEntity(PacketSendEvent event, User viewer, BlockView blockView,
+            UUID world, ImmutableBlockSpatialImpl position, WrapperPlayServerBlockEntityData packet,
+            boolean tileChecksEnabled) {
+        BlockView.BlockEntityStatus blockStatus = blockView.getBlockEntityStatus(world, position);
+        boolean packetTypeManaged = targetFilter.shouldCullBlockEntity(packet.getBlockEntityType());
+        boolean failClosed = shouldFailClosedForUnknownBlockEntity(
+                tileChecksEnabled, blockStatus, packetTypeManaged);
+        logUnknownBlockEntity(world, position, packet, blockStatus, packetTypeManaged, failClosed);
+        if (failClosed) {
+            event.setCancelled(true);
+            sendUnknownManagedTileFallback(viewer, position);
+        }
+    }
+
+    private void handleChunkData(PacketSendEvent event, PlayerData playerData,
+            UUID world, boolean tileChecksEnabled) {
+        WrapperPlayServerChunkData packet = new WrapperPlayServerChunkData(event);
+        ChunkParser parser = tileChecksEnabled ? mutatingChunkParser : nonMutatingChunkParser;
+        @Nullable Column result = parser.parse(playerData.blockView(), world, packet.getColumn(),
+                playerData.nettyData().getCurrentWorldMinHeight() >> 4);
+        if (result != null) {
+            packet.setColumn(result);
+            event.markForReEncode(true);
         }
     }
 
@@ -209,6 +228,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         }
     }
 
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
     private void logUnknownBlockEntity(UUID world, BlockSpatial position, WrapperPlayServerBlockEntityData packet,
             BlockView.BlockEntityStatus blockStatus, boolean packetTypeManaged, boolean failClosed) {
         int diagnostic = unknownBlockEntityDiagnostics.incrementAndGet();
@@ -217,7 +237,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         }
         String blockEntityType = String.valueOf(packet.getBlockEntityType());
         Logger.warning("Received standalone block entity data without tracked tile state. world=" + world
-                        + " position=" + position.blockX() + "," + position.blockY() + "," + position.blockZ()
+                        + POSITION_LABEL + position.blockX() + "," + position.blockY() + "," + position.blockZ()
                         + " blockEntityType=" + blockEntityType
                         + " blockStatus=" + blockStatus
                         + " packetTypeManaged=" + packetTypeManaged
@@ -230,6 +250,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         return diagnostic == MAX_DIAGNOSTICS_PER_KIND ? " (further messages suppressed)" : "";
     }
 
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
     private void sendUnknownManagedTileFallback(User viewer, BlockSpatial position) {
         try {
             viewer.writePacketSilently(new WrapperPlayServerBlockChange(
@@ -237,7 +258,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                     getHiddenBlockId(position.blockY())));
         } catch (RuntimeException exception) {
             Logger.error("Failed to send fail-closed block fallback for untracked managed block entity. viewer="
-                            + viewer.getUUID() + " position=" + position.blockX() + "," + position.blockY() + ","
+                            + viewer.getUUID() + POSITION_LABEL + position.blockX() + "," + position.blockY() + ","
                             + position.blockZ(),
                     exception, 2, PacketEventsBlockViewController.class);
         }
@@ -308,100 +329,133 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         return change;
     }
 
-    private void processTransitionRetries(UUID viewerUUID, User viewer, PlayerData playerData, int currentTick) {
+    private void processTransitionRetries(User viewer, PlayerData playerData, int currentTick) {
+        UUID viewerUUID = playerData.getPlayerUUID();
         int worldEpoch = playerData.acquireWorldEpoch();
-        BlockView blockView = playerData.blockView();
         for (BlockTransitionRetryQueue.Retry retry :
                 transitionRetries.drainDue(viewerUUID, worldEpoch, currentTick)) {
-            processTileEntityOperationSafely(viewerUUID, viewer, blockView, worldEpoch,
-                    retry.operation(), retry.tileEntity(), retry.modeToken(), currentTick,
-                    retry.attempts(), retry.stage(), retry.expectedBlockID());
+            processRetrySafely(playerData, viewer, retry, currentTick);
         }
     }
 
-    private void processTileEntityTransitions(UUID viewerUUID, User viewer, PlayerData playerData, int currentTick) {
+    private void processTileEntityTransitions(User viewer, PlayerData playerData, int currentTick) {
         BlockView blockView = playerData.blockView();
-        int worldEpoch = playerData.acquireWorldEpoch();
         blockView.drainTransitions((type, tileEntity, modeToken, transitionWorldEpoch) -> {
             Operation operation = type == BlockViewTransition.Type.HIDE ? Operation.HIDE : Operation.SHOW;
-            processTileEntityOperationSafely(viewerUUID, viewer, blockView, worldEpoch, operation,
-                    tileEntity, modeToken, currentTick, 0, Stage.BLOCK, tileEntity.blockID(),
-                    transitionWorldEpoch);
+            processInitialTileEntityOperationSafely(playerData, viewer, operation, tileEntity,
+                    modeToken, currentTick, Stage.BLOCK, transitionWorldEpoch);
         });
     }
 
-    private void processModeRepairSafely(UUID viewerUUID, User viewer, BlockView blockView, int worldEpoch,
-            TrackedTileEntity<?> tileEntity, long modeToken, int currentTick, int attempts, Stage stage) {
-        processTileEntityOperationSafely(viewerUUID, viewer, blockView, worldEpoch,
-                Operation.MODE_REPAIR, tileEntity, modeToken, currentTick, attempts, stage, tileEntity.blockID());
+    private void processModeRepairSafely(PlayerData playerData, User viewer,
+            TrackedTileEntity<?> tileEntity, long modeToken, int currentTick, Stage stage) {
+        processInitialTileEntityOperationSafely(playerData, viewer, Operation.MODE_REPAIR, tileEntity,
+                modeToken, currentTick, stage, playerData.acquireWorldEpoch());
     }
 
-    private void processTileEntityOperationSafely(UUID viewerUUID, User viewer, BlockView blockView,
-            int currentWorldEpoch, Operation operation, TrackedTileEntity<?> tileEntity, long modeToken,
-            int currentTick, int attempts, Stage stage, int expectedBlockID) {
-        processTileEntityOperationSafely(viewerUUID, viewer, blockView, currentWorldEpoch, operation,
-                tileEntity, modeToken, currentTick, attempts, stage, expectedBlockID, currentWorldEpoch);
-    }
-
-    private void processTileEntityOperationSafely(UUID viewerUUID, User viewer, BlockView blockView,
-            int currentWorldEpoch, Operation operation, TrackedTileEntity<?> tileEntity, long modeToken,
-            int currentTick, int attempts, Stage stage, int expectedBlockID, int transitionWorldEpoch) {
+    private void processRetrySafely(PlayerData playerData, User viewer,
+            BlockTransitionRetryQueue.Retry retry, int currentTick) {
         try {
-            processTileEntityOperation(viewer, blockView, currentWorldEpoch, operation, tileEntity,
-                    modeToken, stage, expectedBlockID, transitionWorldEpoch);
+            processTileEntityOperation(playerData, viewer, retry.operation(), retry.tileEntity(),
+                    retry.modeToken(), retry.stage(), retry.expectedBlockID(), retry.worldEpoch());
+        } catch (TransitionWriteException exception) {
+            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+                    retry.operation(), retry.tileEntity(), retry.modeToken(), currentTick, retry.attempts(),
+                    exception.stage(), retry.expectedBlockID(), retry.worldEpoch(), loggedCause(exception)));
         } catch (RuntimeException exception) {
-            Stage failedStage = exception instanceof TransitionWriteException writeFailure
-                    ? writeFailure.stage()
-                    : stage;
-            int nextAttempt = attempts == Integer.MAX_VALUE ? attempts : attempts + 1;
-            Exception loggedException = exception;
-            if (exception instanceof TransitionWriteException
-                    && exception.getCause() instanceof Exception cause) {
-                loggedException = cause;
-            }
-            if (nextAttempt >= BlockTransitionRetryQueue.MAX_FAILURES) {
-                Logger.error("Block visibility synchronization reached its terminal retry limit. viewer=" + viewerUUID
-                                + " position=" + tileEntity.blockX() + "," + tileEntity.blockY() + ","
-                                + tileEntity.blockZ()
-                                + " blockID=" + expectedBlockID
-                                + " operation=" + operation
-                                + " stage=" + failedStage
-                                + " attempts=" + nextAttempt,
-                        loggedException, 1, PacketEventsBlockViewController.class);
-                return;
-            }
-
-            boolean rejected = transitionRetries.enqueue(viewerUUID, operation, failedStage, tileEntity,
-                    expectedBlockID, transitionWorldEpoch, modeToken, nextAttempt, currentTick);
-            if (nextAttempt == 1) {
-                Logger.error("Block visibility synchronization failed "
-                                + (rejected ? "and could not be queued for retry. viewer="
-                                            : "and was queued for retry. viewer=")
-                                + viewerUUID
-                                + " position=" + tileEntity.blockX() + "," + tileEntity.blockY() + ","
-                                + tileEntity.blockZ()
-                                + " blockID=" + expectedBlockID
-                                + " operation=" + operation
-                                + " stage=" + failedStage
-                                + " attempts=" + nextAttempt,
-                        loggedException, 1, PacketEventsBlockViewController.class);
-            }
-            if (rejected) {
-                int diagnostic = retryOverflowDiagnostics.incrementAndGet();
-                if (diagnostic <= MAX_DIAGNOSTICS_PER_KIND) {
-                    Logger.warning("Block transition retry queue reached its per-viewer limit and rejected its newest "
-                                    + "repair to preserve existing staged repairs. viewer=" + viewerUUID + " limit="
-                                    + BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER
-                                    + diagnosticSuffix(diagnostic),
-                            2, PacketEventsBlockViewController.class);
-                }
-            }
+            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+                    retry.operation(), retry.tileEntity(), retry.modeToken(), currentTick, retry.attempts(),
+                    retry.stage(), retry.expectedBlockID(), retry.worldEpoch(), exception));
         }
     }
 
-    private void processTileEntityOperation(User viewer, BlockView blockView, int currentWorldEpoch,
+    private void processInitialTileEntityOperationSafely(PlayerData playerData, User viewer,
+            Operation operation, TrackedTileEntity<?> tileEntity, long modeToken, int currentTick,
+            Stage stage, int transitionWorldEpoch) {
+        int expectedBlockID = tileEntity.blockID();
+        try {
+            processTileEntityOperation(playerData, viewer, operation, tileEntity,
+                    modeToken, stage, expectedBlockID, transitionWorldEpoch);
+        } catch (TransitionWriteException exception) {
+            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+                    operation, tileEntity, modeToken, currentTick, 0,
+                    exception.stage(), expectedBlockID, transitionWorldEpoch, loggedCause(exception)));
+        } catch (RuntimeException exception) {
+            handleTransitionFailure(playerData, viewer, new TransitionFailure(
+                    operation, tileEntity, modeToken, currentTick, 0,
+                    stage, expectedBlockID, transitionWorldEpoch, exception));
+        }
+    }
+
+    private static Exception loggedCause(TransitionWriteException exception) {
+        return exception.getCause() instanceof Exception cause ? cause : exception;
+    }
+
+    private void handleTransitionFailure(PlayerData playerData, User viewer, TransitionFailure failure) {
+        int nextAttempt = failure.attempts() == Integer.MAX_VALUE
+                ? failure.attempts()
+                : failure.attempts() + 1;
+        if (nextAttempt >= BlockTransitionRetryQueue.MAX_FAILURES) {
+            logTerminalTransitionFailure(playerData, failure, nextAttempt);
+            return;
+        }
+
+        boolean rejected = transitionRetries.enqueue(new BlockTransitionRetryQueue.RetryRequest(
+                playerData.getPlayerUUID(), failure.operation(), failure.failedStage(), failure.tileEntity(),
+                failure.expectedBlockID(), failure.transitionWorldEpoch(), failure.modeToken(),
+                nextAttempt, failure.currentTick()));
+        if (nextAttempt == FIRST_FAILURE) {
+            logInitialTransitionFailure(playerData, failure, nextAttempt, rejected);
+        }
+        if (rejected) {
+            logRetryOverflow(playerData.getPlayerUUID());
+        }
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
+    private static void logTerminalTransitionFailure(
+            PlayerData playerData, TransitionFailure failure, int nextAttempt) {
+        Logger.error("Block visibility synchronization reached its terminal retry limit. viewer="
+                        + playerData.getPlayerUUID() + transitionDescription(failure, nextAttempt),
+                failure.loggedException(), 1, PacketEventsBlockViewController.class);
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
+    private static void logInitialTransitionFailure(
+            PlayerData playerData, TransitionFailure failure, int nextAttempt, boolean rejected) {
+        Logger.error("Block visibility synchronization failed "
+                        + (rejected ? "and could not be queued for retry. viewer="
+                                    : "and was queued for retry. viewer=")
+                        + playerData.getPlayerUUID() + transitionDescription(failure, nextAttempt),
+                failure.loggedException(), 1, PacketEventsBlockViewController.class);
+    }
+
+    private static String transitionDescription(TransitionFailure failure, int attempts) {
+        TrackedTileEntity<?> tileEntity = failure.tileEntity();
+        return POSITION_LABEL + tileEntity.blockX() + "," + tileEntity.blockY() + "," + tileEntity.blockZ()
+                + " blockID=" + failure.expectedBlockID()
+                + " operation=" + failure.operation()
+                + " stage=" + failure.failedStage()
+                + " attempts=" + attempts;
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
+    private void logRetryOverflow(UUID viewerUUID) {
+        int diagnostic = retryOverflowDiagnostics.incrementAndGet();
+        if (diagnostic <= MAX_DIAGNOSTICS_PER_KIND) {
+            Logger.warning("Block transition retry queue reached its per-viewer limit and rejected its newest "
+                            + "repair to preserve existing staged repairs. viewer=" + viewerUUID + " limit="
+                            + BlockTransitionRetryQueue.MAX_RETRIES_PER_VIEWER
+                            + diagnosticSuffix(diagnostic),
+                    2, PacketEventsBlockViewController.class);
+        }
+    }
+
+    private void processTileEntityOperation(PlayerData playerData, User viewer,
             Operation operation, TrackedTileEntity<?> tileEntity, long modeToken, Stage stage,
             int expectedBlockID, int transitionWorldEpoch) {
+        int currentWorldEpoch = playerData.acquireWorldEpoch();
+        BlockView blockView = playerData.blockView();
         TrackedTileEntity<PacketEventsTileEntityReplayData> state =
                 resolveCurrentTransitionState(tileEntity, transitionWorldEpoch, currentWorldEpoch);
         if (state == null || state.blockID() == 0 || state.blockID() != expectedBlockID) {
@@ -409,31 +463,42 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         }
 
         switch (operation) {
-            case HIDE -> {
-                if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || state.visible()) {
-                    return;
-                }
-                executeTransitionWrites(operation, stage,
-                        () -> viewer.writePacketSilently(getBlockChangeWith(
-                                state.blockX(), state.blockY(), state.blockZ(),
-                                getHiddenBlockId(state.blockY()))),
-                        null);
-            }
-            case SHOW -> {
-                if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !state.visible()) {
-                    return;
-                }
-                sendTileEntityFromStage(viewer, state, operation, stage);
-            }
-            case MODE_REPAIR -> {
-                if (blockView.tileEntityCheckModeToken() != modeToken
-                        || (modeToken & 1L) != 0L
-                        || !state.visible()) {
-                    return;
-                }
-                sendTileEntityFromStage(viewer, state, operation, stage);
-            }
+            case HIDE -> hideTileEntity(viewer, blockView, state, modeToken, stage);
+            case SHOW -> showTileEntity(viewer, blockView, state, modeToken, operation, stage);
+            case MODE_REPAIR -> repairTileEntityMode(viewer, blockView, state, modeToken, operation, stage);
+            default -> throw new IllegalStateException("Unknown block transition operation: " + operation);
         }
+    }
+
+    private void hideTileEntity(User viewer, BlockView blockView,
+            TrackedTileEntity<PacketEventsTileEntityReplayData> state, long modeToken, Stage stage) {
+        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || state.visible()) {
+            return;
+        }
+        executeTransitionWrites(Operation.HIDE, stage,
+                () -> viewer.writePacketSilently(getBlockChangeWith(
+                        state.blockX(), state.blockY(), state.blockZ(), getHiddenBlockId(state.blockY()))),
+                null);
+    }
+
+    private void showTileEntity(User viewer, BlockView blockView,
+            TrackedTileEntity<PacketEventsTileEntityReplayData> state, long modeToken,
+            Operation operation, Stage stage) {
+        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !state.visible()) {
+            return;
+        }
+        sendTileEntityFromStage(viewer, state, operation, stage);
+    }
+
+    private void repairTileEntityMode(User viewer, BlockView blockView,
+            TrackedTileEntity<PacketEventsTileEntityReplayData> state, long modeToken,
+            Operation operation, Stage stage) {
+        if (blockView.tileEntityCheckModeToken() != modeToken
+                || (modeToken & 1L) != 0L
+                || !state.visible()) {
+            return;
+        }
+        sendTileEntityFromStage(viewer, state, operation, stage);
     }
 
     private void sendTileEntityFromStage(User viewer,
@@ -493,9 +558,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 blockView.recordOutboundTileEntityVisibility(state, true);
             } else if (state != null && !state.visible()) {
                 event.setCancelled(true);
-                processTileEntityOperationSafely(playerData.getPlayerUUID(), viewer, blockView,
-                        playerData.acquireWorldEpoch(), Operation.HIDE, state,
-                        blockView.tileEntityCheckModeToken(), currentTick, 0, Stage.BLOCK, state.blockID());
+                processInitialTileEntityOperationSafely(playerData, viewer, Operation.HIDE, state,
+                        blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK,
+                        playerData.acquireWorldEpoch());
             }
         } else {
             blockView.removeTileEntity(world, location);
@@ -557,16 +622,29 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         return replayData;
     }
 
+    private record TransitionFailure(
+            Operation operation,
+            TrackedTileEntity<?> tileEntity,
+            long modeToken,
+            int currentTick,
+            int attempts,
+            Stage failedStage,
+            int expectedBlockID,
+            int transitionWorldEpoch,
+            Exception loggedException) {
+    }
+
     static final class TransitionWriteException extends RuntimeException {
-        private final Stage stage;
+        private static final long serialVersionUID = 1L;
+        private final Stage failedStage;
 
         private TransitionWriteException(Stage stage, RuntimeException cause) {
             super(cause);
-            this.stage = stage;
+            this.failedStage = stage;
         }
 
         Stage stage() {
-            return stage;
+            return failedStage;
         }
     }
 }

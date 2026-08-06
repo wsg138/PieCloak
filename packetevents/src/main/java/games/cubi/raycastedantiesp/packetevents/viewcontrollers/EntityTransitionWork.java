@@ -21,17 +21,17 @@ final class EntityTransitionWork<P> {
         void setClientVisible(boolean visible);
     }
 
-    private final UUID viewerUUID;
-    private final EntityView<PacketEventsEntity> view;
-    private final EntityViewTransition.Type type;
-    private final PacketEventsEntity entity;
-    private final int worldEpoch;
+    private final UUID viewerId;
+    private final EntityView<PacketEventsEntity> entityView;
+    private final EntityViewTransition.Type transitionType;
+    private final PacketEventsEntity targetEntity;
+    private final int expectedWorldEpoch;
     private final EntityTransitionPlan<P> plan;
 
     private int nextStep;
-    private int failures;
+    private int failureCount;
     private int nextEligibleTick;
-    private Boolean confirmedClientVisibility;
+    private Boolean pendingVisibility;
 
     EntityTransitionWork(
             UUID viewerUUID,
@@ -41,11 +41,11 @@ final class EntityTransitionWork<P> {
             int worldEpoch,
             EntityTransitionPlan<P> plan
     ) {
-        this.viewerUUID = Objects.requireNonNull(viewerUUID, "viewerUUID");
-        this.view = Objects.requireNonNull(view, "view");
-        this.type = Objects.requireNonNull(type, "type");
-        this.entity = Objects.requireNonNull(entity, "entity");
-        this.worldEpoch = worldEpoch;
+        this.viewerId = Objects.requireNonNull(viewerUUID, "viewerUUID");
+        this.entityView = Objects.requireNonNull(view, "view");
+        this.transitionType = Objects.requireNonNull(type, "type");
+        this.targetEntity = Objects.requireNonNull(entity, "entity");
+        this.expectedWorldEpoch = worldEpoch;
         this.plan = Objects.requireNonNull(plan, "plan");
     }
 
@@ -58,29 +58,30 @@ final class EntityTransitionWork<P> {
             // The packet write is the external commit point. Advance the packet checkpoint before
             // touching local bookkeeping so a bookkeeping failure cannot repeat spawn or destroy.
             nextStep++;
-            confirmedClientVisibility = switch (step.commit()) {
+            pendingVisibility = switch (step.commit()) {
                 case VISIBLE -> Boolean.TRUE;
                 case HIDDEN -> Boolean.FALSE;
-                case NONE -> confirmedClientVisibility;
+                case NONE -> pendingVisibility;
             };
             applyConfirmedVisibility(visibilitySink);
         }
     }
 
+    @SuppressWarnings("PMD.NullAssignment") // Null marks that the packet-confirmed visibility checkpoint has been consumed.
     private void applyConfirmedVisibility(ClientVisibilitySink visibilitySink) {
-        if (confirmedClientVisibility == null) {
+        if (pendingVisibility == null) {
             return;
         }
-        visibilitySink.setClientVisible(confirmedClientVisibility);
-        confirmedClientVisibility = null;
+        visibilitySink.setClientVisible(pendingVisibility);
+        pendingVisibility = null;
     }
 
     boolean recordFailure(int currentTick) {
-        failures++;
-        if (failures >= MAX_FAILURES) {
+        failureCount++;
+        if (failureCount >= MAX_FAILURES) {
             return false;
         }
-        int shift = Math.min(failures - 1, 4);
+        int shift = Math.min(failureCount - 1, 4);
         int delay = Math.min(1 << shift, MAX_BACKOFF_TICKS);
         nextEligibleTick = currentTick + delay;
         return true;
@@ -91,7 +92,7 @@ final class EntityTransitionWork<P> {
     }
 
     boolean complete() {
-        return nextStep >= plan.steps().size() && confirmedClientVisibility == null;
+        return nextStep >= plan.steps().size() && pendingVisibility == null;
     }
 
     EntityTransitionPlan.Stage nextStage() {
@@ -102,27 +103,27 @@ final class EntityTransitionWork<P> {
     }
 
     UUID viewerUUID() {
-        return viewerUUID;
+        return viewerId;
     }
 
     EntityView<PacketEventsEntity> view() {
-        return view;
+        return entityView;
     }
 
     EntityViewTransition.Type type() {
-        return type;
+        return transitionType;
     }
 
     PacketEventsEntity entity() {
-        return entity;
+        return targetEntity;
     }
 
     int worldEpoch() {
-        return worldEpoch;
+        return expectedWorldEpoch;
     }
 
     int failures() {
-        return failures;
+        return failureCount;
     }
 
     /**
@@ -130,6 +131,6 @@ final class EntityTransitionWork<P> {
      * A newer opposite transition must inherit this state before deciding whether to spawn or destroy.
      */
     Boolean confirmedClientVisibility() {
-        return confirmedClientVisibility;
+        return pendingVisibility;
     }
 }

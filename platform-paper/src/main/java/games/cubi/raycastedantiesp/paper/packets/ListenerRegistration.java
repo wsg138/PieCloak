@@ -17,12 +17,12 @@ final class ListenerRegistration<T> implements AutoCloseable {
 
     @FunctionalInterface
     interface Register<T> {
-        T register(T candidate) throws Throwable;
+        T register(T candidate) throws Exception;
     }
 
     @FunctionalInterface
     interface Unregister<T> {
-        void unregister(T registration) throws Throwable;
+        void unregister(T registration) throws Exception;
     }
 
     private final T registration;
@@ -49,14 +49,14 @@ final class ListenerRegistration<T> implements AutoCloseable {
         try {
             T registration = Objects.requireNonNull(register.register(candidate), "register returned null");
             return new ListenerRegistration<>(registration, unregister);
-        } catch (Throwable failure) {
+        } catch (Exception | Error failure) {
             try {
                 unregister.unregister(candidate);
-            } catch (Throwable cleanupFailure) {
+            } catch (Exception | Error cleanupFailure) {
                 failure.addSuppressed(cleanupFailure);
                 try {
                     markUnsafeCleanup.run();
-                } catch (Throwable markerFailure) {
+                } catch (RuntimeException | Error markerFailure) {
                     failure.addSuppressed(markerFailure);
                 }
             }
@@ -72,7 +72,7 @@ final class ListenerRegistration<T> implements AutoCloseable {
         }
         try {
             unregister.unregister(registration);
-        } catch (Throwable failure) {
+        } catch (Exception | Error failure) {
             ControllerOwnership.throwUnchecked(failure);
         }
     }

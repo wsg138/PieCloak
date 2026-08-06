@@ -10,12 +10,14 @@ public class Core {
     private Core() {
     }
 
-    public static synchronized Core initialize(PlatformLogger logger) {
-        Logger.init(logger);
-        if (instance == null) {
-            instance = new Core();
+    public static Core initialize(PlatformLogger logger) {
+        synchronized (Core.class) {
+            Logger.init(logger);
+            if (instance == null) {
+                instance = new Core();
+            }
+            return instance;
         }
-        return instance;
     }
 
     public static Core getInstance() {

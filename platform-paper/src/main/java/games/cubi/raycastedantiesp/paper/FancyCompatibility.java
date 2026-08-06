@@ -21,48 +21,64 @@ public final class FancyCompatibility implements AutoCloseable {
     static final String FANCY_NPCS_PLUGIN = "FancyNpcs";
     static final String FANCY_HOLOGRAMS_PLUGIN = "FancyHolograms";
 
-    private static final String FANCY_NPCS_CLASS = "games.cubi.raycastedantiesp.paper.FancyNpcsCompatibility";
-    private static final String FANCY_HOLOGRAMS_CLASS = "games.cubi.raycastedantiesp.paper.FancyHologramsCompatibility";
+    private enum Integration {
+        FANCY_NPCS(FANCY_NPCS_PLUGIN, "games.cubi.raycastedantiesp.paper.FancyNpcsCompatibility"),
+        FANCY_HOLOGRAMS(FANCY_HOLOGRAMS_PLUGIN, "games.cubi.raycastedantiesp.paper.FancyHologramsCompatibility");
+
+        private final String pluginName;
+        private final String implementationClass;
+
+        Integration(String pluginName, String implementationClass) {
+            this.pluginName = pluginName;
+            this.implementationClass = implementationClass;
+        }
+    }
 
     private final List<AutoCloseable> integrations = new ArrayList<>();
 
+    @SuppressWarnings("PMD.UseProperClassLoader") // Bukkit requires this plugin's defining loader, not a container context loader.
     FancyCompatibility() {
-        this(pluginName -> Bukkit.getPluginManager().isPluginEnabled(pluginName), FancyCompatibility.class.getClassLoader());
+        this(pluginName -> Bukkit.getPluginManager().isPluginEnabled(pluginName),
+                FancyCompatibility.class.getClassLoader());
     }
 
     FancyCompatibility(Predicate<String> pluginEnabled, ClassLoader classLoader) {
         Objects.requireNonNull(pluginEnabled, "pluginEnabled");
         Objects.requireNonNull(classLoader, "classLoader");
 
-        startIfEnabled(FANCY_NPCS_PLUGIN, FANCY_NPCS_CLASS, pluginEnabled, classLoader);
-        startIfEnabled(FANCY_HOLOGRAMS_PLUGIN, FANCY_HOLOGRAMS_CLASS, pluginEnabled, classLoader);
+        startIfEnabled(Integration.FANCY_NPCS, pluginEnabled, classLoader);
+        startIfEnabled(Integration.FANCY_HOLOGRAMS, pluginEnabled, classLoader);
     }
 
-    private void startIfEnabled(String pluginName, String integrationClassName, Predicate<String> pluginEnabled, ClassLoader classLoader) {
-        loadIfEnabled(pluginName, integrationClassName, pluginEnabled, classLoader, integrations::add);
+    private void startIfEnabled(
+            Integration integration, Predicate<String> pluginEnabled, ClassLoader classLoader) {
+        loadIfEnabled(integration, pluginEnabled, classLoader, integrations::add);
     }
 
-    static void loadIfEnabled(
-            String pluginName,
-            String integrationClassName,
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
+    private static void loadIfEnabled(
+            Integration integration,
             Predicate<String> pluginEnabled,
             ClassLoader classLoader,
             Consumer<AutoCloseable> integrationOwner) {
         Objects.requireNonNull(integrationOwner, "integrationOwner");
-        if (!pluginEnabled.test(pluginName)) {
+        if (!pluginEnabled.test(integration.pluginName)) {
             return;
         }
 
         try {
-            Class<?> integrationClass = Class.forName(integrationClassName, true, classLoader);
-            Object integration = integrationClass.getDeclaredConstructor().newInstance();
-            if (!(integration instanceof AutoCloseable closeable)) {
-                throw new IllegalStateException("Optional integration does not implement AutoCloseable: " + integrationClassName);
+            // nosemgrep: java.lang.security.audit.unsafe-reflection.unsafe-reflection -- class name is selected only from the private enum above.
+            Class<?> integrationClass = Class.forName(integration.implementationClass, true, classLoader);
+            Object instance = integrationClass.getDeclaredConstructor().newInstance();
+            if (!(instance instanceof AutoCloseable closeable)) {
+                throw new IllegalStateException(
+                        "Optional integration does not implement AutoCloseable: " + integration.implementationClass);
             }
             integrationOwner.accept(closeable);
         } catch (ReflectiveOperationException | LinkageError | RuntimeException throwable) {
             Logger.error(
-                    "Unable to initialize optional " + pluginName + " compatibility. PieCloak will continue without it.",
+                    "Unable to initialize optional " + integration.pluginName
+                            + " compatibility. PieCloak will continue without it.",
                     throwable,
                     2,
                     FancyCompatibility.class

@@ -40,8 +40,10 @@ public final class EntityBypassRegistry {
         return relationshipSupportEntityIds.contains(entityID);
     }
 
-    public static synchronized void reset() {
-        bypassedEntityIds = CopyOnWriteMTIntSet.get();
-        relationshipSupportEntityIds = CopyOnWriteMTIntSet.get();
+    public static void reset() {
+        synchronized (EntityBypassRegistry.class) {
+            bypassedEntityIds = CopyOnWriteMTIntSet.get();
+            relationshipSupportEntityIds = CopyOnWriteMTIntSet.get();
+        }
     }
 }

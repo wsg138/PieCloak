@@ -55,7 +55,8 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     private volatile int leasherID = NO_LEASHER; private static final VarHandle LEASHER_ID = VarHandler.get(NettyEntity.class, "leasherID", int.class);
     private volatile int[] passengerIDs; private static final VarHandle PASSENGER_IDS = VarHandler.get(NettyEntity.class, "passengerIDs", int[].class);
     private volatile int vehicleID = NO_VEHICLE; private static final VarHandle VEHICLE_ID = VarHandler.get(NettyEntity.class, "vehicleID", int.class);
-    private volatile NettyEntity<?> vehicleEntity; private static final VarHandle VEHICLE_ENTITY = VarHandler.get(NettyEntity.class, "vehicleEntity", NettyEntity.class);
+    @SuppressWarnings("PMD.UnusedPrivateField") // Accessed exclusively through VEHICLE_ENTITY VarHandle for cross-thread visibility.
+    private volatile NettyEntity<?> attachedVehicle; private static final VarHandle VEHICLE_ENTITY = VarHandler.get(NettyEntity.class, "attachedVehicle", NettyEntity.class);
 
 
     private int entityData;

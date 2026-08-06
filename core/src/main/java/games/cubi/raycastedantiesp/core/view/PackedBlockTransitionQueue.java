@@ -103,7 +103,7 @@ public final class PackedBlockTransitionQueue {
             if (firstFailure == null) {
                 return exception;
             }
-            if (firstFailure != exception) {
+            if (firstFailure != exception) { // NOPMD CompareObjectsWithEquals: identical exception instances must not suppress themselves.
                 firstFailure.addSuppressed(exception);
             }
         }
@@ -263,6 +263,7 @@ public final class PackedBlockTransitionQueue {
         }
 
         @Override
+        @SuppressWarnings("PMD.AvoidLiteralsInIfCondition") // Fixed eight-slot unrolling avoids arrays/iterators on the transition hot path.
         RuntimeException drain(BlockView.TransitionConsumer consumer,
                 RuntimeException firstFailure) {
             RuntimeException failure =

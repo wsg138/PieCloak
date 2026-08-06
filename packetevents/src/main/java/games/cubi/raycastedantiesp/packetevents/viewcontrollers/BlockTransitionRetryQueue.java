@@ -26,15 +26,29 @@ final class BlockTransitionRetryQueue {
         BLOCK_ENTITY_DATA
     }
 
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Ordered retries are protected by this queue's monitor.
     private final Map<UUID, LinkedHashMap<Key, Retry>> retriesByViewer = new LinkedHashMap<>();
 
     /**
      * @return true when the retry was rejected because its identity was invalid, its failure limit
      * was reached, or the per-viewer queue was already full; false when it was added or merged.
      */
-    synchronized boolean enqueue(UUID viewerUUID, Operation operation, Stage stage,
-            TrackedTileEntity<?> tileEntity, int expectedBlockID, int worldEpoch, long modeToken,
-            int attempts, int currentTick) {
+    boolean enqueue(RetryRequest request) {
+        synchronized (this) {
+            return enqueueLocked(request);
+        }
+    }
+
+    private boolean enqueueLocked(RetryRequest request) {
+        UUID viewerUUID = request.viewerUUID();
+        Operation operation = request.operation();
+        Stage stage = request.stage();
+        TrackedTileEntity<?> tileEntity = request.tileEntity();
+        int expectedBlockID = request.expectedBlockID();
+        int worldEpoch = request.worldEpoch();
+        long modeToken = request.modeToken();
+        int attempts = request.attempts();
+        int currentTick = request.currentTick();
         if (viewerUUID == null || tileEntity == null || !PlayerData.isStableWorldEpoch(worldEpoch)
                 || attempts >= MAX_FAILURES) {
             return true;
@@ -67,7 +81,13 @@ final class BlockTransitionRetryQueue {
         return false;
     }
 
-    synchronized List<Retry> drainDue(UUID viewerUUID, int currentWorldEpoch, int currentTick) {
+    List<Retry> drainDue(UUID viewerUUID, int currentWorldEpoch, int currentTick) {
+        synchronized (this) {
+            return drainDueLocked(viewerUUID, currentWorldEpoch, currentTick);
+        }
+    }
+
+    private List<Retry> drainDueLocked(UUID viewerUUID, int currentWorldEpoch, int currentTick) {
         LinkedHashMap<Key, Retry> retries = retriesByViewer.get(viewerUUID);
         if (retries == null) {
             return List.of();
@@ -96,7 +116,13 @@ final class BlockTransitionRetryQueue {
         return List.copyOf(due);
     }
 
-    synchronized void discardStale(UUID viewerUUID, int currentWorldEpoch, long currentModeToken) {
+    void discardStale(UUID viewerUUID, int currentWorldEpoch, long currentModeToken) {
+        synchronized (this) {
+            discardStaleLocked(viewerUUID, currentWorldEpoch, currentModeToken);
+        }
+    }
+
+    private void discardStaleLocked(UUID viewerUUID, int currentWorldEpoch, long currentModeToken) {
         LinkedHashMap<Key, Retry> retries = retriesByViewer.get(viewerUUID);
         if (retries == null) {
             return;
@@ -112,17 +138,35 @@ final class BlockTransitionRetryQueue {
         }
     }
 
-    synchronized boolean hasPending(UUID viewerUUID) {
+    boolean hasPending(UUID viewerUUID) {
+        synchronized (this) {
+            return hasPendingLocked(viewerUUID);
+        }
+    }
+
+    private boolean hasPendingLocked(UUID viewerUUID) {
         LinkedHashMap<Key, Retry> retries = retriesByViewer.get(viewerUUID);
         return retries != null && !retries.isEmpty();
     }
 
-    synchronized int size(UUID viewerUUID) {
+    int size(UUID viewerUUID) {
+        synchronized (this) {
+            return sizeLocked(viewerUUID);
+        }
+    }
+
+    private int sizeLocked(UUID viewerUUID) {
         LinkedHashMap<Key, Retry> retries = retriesByViewer.get(viewerUUID);
         return retries == null ? 0 : retries.size();
     }
 
-    synchronized void clear(UUID viewerUUID) {
+    void clear(UUID viewerUUID) {
+        synchronized (this) {
+            clearLocked(viewerUUID);
+        }
+    }
+
+    private void clearLocked(UUID viewerUUID) {
         if (viewerUUID != null) {
             retriesByViewer.remove(viewerUUID);
         }
@@ -181,6 +225,11 @@ final class BlockTransitionRetryQueue {
             result = 31 * result + operation.hashCode();
             return result;
         }
+    }
+
+    record RetryRequest(UUID viewerUUID, Operation operation, Stage stage,
+                        TrackedTileEntity<?> tileEntity, int expectedBlockID, int worldEpoch,
+                        long modeToken, int attempts, int currentTick) {
     }
 
     record Retry(Operation operation, Stage stage, TrackedTileEntity<?> tileEntity,

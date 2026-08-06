@@ -15,6 +15,7 @@ import java.util.UUID;
 public final class ClientStateResetter {
     private ClientStateResetter() {}
 
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging applies its configured level filter internally.
     public static boolean resetForRespawn(PlayerData playerData, String worldName, UUID worldUUID,
             int minWorldHeight) {
         Objects.requireNonNull(playerData, "playerData");
@@ -25,15 +26,8 @@ public final class ClientStateResetter {
         }
 
         UUID playerUUID = playerData.getPlayerUUID();
-        String committedWorldName = worldName;
+        String committedWorldName = committedWorldName(worldName, worldUUID, playerUUID);
         UUID committedWorldUUID = worldUUID;
-        if (worldName == null || worldUUID == null) {
-            Logger.error("Respawn world metadata is incomplete; invalidating the prior visibility generation "
-                    + "with unresolved world state. player=" + playerUUID
-                    + " worldName=" + worldName + " worldUUID=" + worldUUID,
-                    1, ClientStateResetter.class);
-            committedWorldName = null;
-        }
 
         PlayerRegistry registry = PlayerRegistry.getInstance();
         boolean completed = false;
@@ -42,17 +36,8 @@ public final class ClientStateResetter {
             int[] remainingEntityIDs = drainRemainingEntityIDs(playerData);
             playerData.nettyData().setExpectedWorldTransitionDestroyEntityIDs(remainingEntityIDs);
 
-            List<RuntimeException> failures = new ArrayList<>(6);
-            resetStep("block view", playerData.blockView()::clear, failures);
-            resetStep("entity view", playerData.entityView()::clear, failures);
-            resetStep("player view", playerData.playerView()::clear, failures);
-            resetStep("deferred reconciliation", playerData.nettyData()::clearPendingReconciliationState, failures);
-            resetStep("self entity", playerData.nettyData().getSelfEntity()::clear, failures);
-            resetStep("own location", () -> playerData.updateOwnLocation(null, 0, 0, 0), failures);
-            String finalWorldName = committedWorldName;
-            resetStep("world metadata", () -> playerData.nettyData()
-                    .setCurrentWorldName(finalWorldName)
-                    .setCurrentWorldMinHeight(minWorldHeight), failures);
+            List<RuntimeException> failures = resetWorldScopedState(
+                    playerData, committedWorldName, minWorldHeight);
 
             if (!failures.isEmpty()) {
                 IllegalStateException combined = new IllegalStateException(
@@ -75,6 +60,33 @@ public final class ClientStateResetter {
                 registry.unregisterPlayer(playerUUID, playerData);
             }
         }
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging applies its configured level filter internally.
+    private static String committedWorldName(String worldName, UUID worldUUID, UUID playerUUID) {
+        if (worldName != null && worldUUID != null) {
+            return worldName;
+        }
+        Logger.error("Respawn world metadata is incomplete; invalidating the prior visibility generation "
+                + "with unresolved world state. player=" + playerUUID
+                + " worldName=" + worldName + " worldUUID=" + worldUUID,
+                1, ClientStateResetter.class);
+        return null;
+    }
+
+    private static List<RuntimeException> resetWorldScopedState(
+            PlayerData playerData, String committedWorldName, int minWorldHeight) {
+        List<RuntimeException> failures = new ArrayList<>(6);
+        resetStep("block view", playerData.blockView()::clear, failures);
+        resetStep("entity view", playerData.entityView()::clear, failures);
+        resetStep("player view", playerData.playerView()::clear, failures);
+        resetStep("deferred reconciliation", playerData.nettyData()::clearPendingReconciliationState, failures);
+        resetStep("self entity", playerData.nettyData().getSelfEntity()::clear, failures);
+        resetStep("own location", () -> playerData.updateOwnLocation(null, 0, 0, 0), failures);
+        resetStep("world metadata", () -> playerData.nettyData()
+                .setCurrentWorldName(committedWorldName)
+                .setCurrentWorldMinHeight(minWorldHeight), failures);
+        return failures;
     }
 
     private static void resetStep(String description, Runnable step, List<RuntimeException> failures) {
