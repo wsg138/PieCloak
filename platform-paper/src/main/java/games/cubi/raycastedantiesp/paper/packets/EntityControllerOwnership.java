@@ -29,7 +29,8 @@ final class EntityControllerOwnership {
     }
 
     static PaperPacketEventsEntityViewController construct(
-            ControllerOwnership.Factory<PaperPacketEventsEntityViewController> factory) {
+            ControllerOwnership.Factory<PaperPacketEventsEntityViewController> factory,
+            Runnable markUnsafeCleanup) {
         return OWNERSHIP.construct(
                 factory,
                 controller -> {
@@ -38,7 +39,8 @@ final class EntityControllerOwnership {
                         throw new IllegalStateException("PacketEvents published a different entity controller owner");
                     }
                 },
-                PaperPacketEventsEntityViewController::rollbackRegistration
+                PaperPacketEventsEntityViewController::rollbackRegistration,
+                markUnsafeCleanup
         );
     }
 

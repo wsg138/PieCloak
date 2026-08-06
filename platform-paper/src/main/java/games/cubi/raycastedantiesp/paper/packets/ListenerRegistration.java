@@ -13,6 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Owns one successful listener registration and unregisters it at most once. */
 final class ListenerRegistration<T> implements AutoCloseable {
+    private static final Runnable NO_UNSAFE_CLEANUP = () -> { };
+
     @FunctionalInterface
     interface Register<T> {
         T register(T candidate) throws Throwable;
@@ -34,9 +36,15 @@ final class ListenerRegistration<T> implements AutoCloseable {
 
     static <T> ListenerRegistration<T> register(
             T candidate, Register<T> register, Unregister<T> unregister) {
+        return register(candidate, register, unregister, NO_UNSAFE_CLEANUP);
+    }
+
+    static <T> ListenerRegistration<T> register(
+            T candidate, Register<T> register, Unregister<T> unregister, Runnable markUnsafeCleanup) {
         Objects.requireNonNull(candidate, "candidate");
         Objects.requireNonNull(register, "register");
         Objects.requireNonNull(unregister, "unregister");
+        Objects.requireNonNull(markUnsafeCleanup, "markUnsafeCleanup");
 
         try {
             T registration = Objects.requireNonNull(register.register(candidate), "register returned null");
@@ -46,6 +54,11 @@ final class ListenerRegistration<T> implements AutoCloseable {
                 unregister.unregister(candidate);
             } catch (Throwable cleanupFailure) {
                 failure.addSuppressed(cleanupFailure);
+                try {
+                    markUnsafeCleanup.run();
+                } catch (Throwable markerFailure) {
+                    failure.addSuppressed(markerFailure);
+                }
             }
             ControllerOwnership.throwUnchecked(failure);
             throw new AssertionError("unreachable");

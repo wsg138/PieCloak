@@ -10,10 +10,12 @@ package games.cubi.raycastedantiesp.paper.packets;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,9 +50,10 @@ class ListenerRegistrationTest {
     }
 
     @Test
-    void registrationFailureAttemptsCandidateCleanupExactlyOnce() {
+    void registrationFailureWithSuccessfulCleanupDoesNotFenceReenable() {
         AtomicInteger registrations = new AtomicInteger();
         AtomicInteger unregistrations = new AtomicInteger();
+        AtomicBoolean unsafeCleanup = new AtomicBoolean();
         RuntimeException expected = new RuntimeException("registration failed after partial publication");
         Object listener = new Object();
 
@@ -63,12 +66,34 @@ class ListenerRegistrationTest {
                 registered -> {
                     assertSame(listener, registered);
                     unregistrations.incrementAndGet();
-                }
+                },
+                () -> unsafeCleanup.set(true)
         ));
 
         assertSame(expected, actual);
         assertEquals(1, registrations.get());
         assertEquals(1, unregistrations.get());
+        assertFalse(unsafeCleanup.get());
+    }
+
+    @Test
+    void registrationFailureWithFailedCleanupFencesReenable() {
+        AtomicBoolean unsafeCleanup = new AtomicBoolean();
+        RuntimeException registrationFailure = new RuntimeException("registration failed");
+        RuntimeException cleanupFailure = new RuntimeException("candidate unregister failed");
+        Object listener = new Object();
+
+        RuntimeException actual = assertThrows(RuntimeException.class, () -> ListenerRegistration.register(
+                listener,
+                candidate -> { throw registrationFailure; },
+                registered -> { throw cleanupFailure; },
+                () -> unsafeCleanup.set(true)
+        ));
+
+        assertSame(registrationFailure, actual);
+        assertEquals(1, actual.getSuppressed().length);
+        assertSame(cleanupFailure, actual.getSuppressed()[0]);
+        assertTrue(unsafeCleanup.get());
     }
 
     @Test

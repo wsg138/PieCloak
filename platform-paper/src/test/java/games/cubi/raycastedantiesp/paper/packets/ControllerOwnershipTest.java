@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -129,6 +130,57 @@ class ControllerOwnershipTest {
     }
 
     @Test
+    void failedExternalRollbackMarksLifecycleUnsafeAndStillRestoresSlots() {
+        ControllerOwnership ownership = ownership();
+        AtomicBoolean unsafeCleanup = new AtomicBoolean();
+        RuntimeException constructionFailure = new RuntimeException("publication failed");
+        RuntimeException cleanupFailure = new RuntimeException("listener rollback failed");
+
+        RuntimeException actual = assertThrows(RuntimeException.class, () -> ownership.construct(
+                () -> {
+                    Owner owner = new Owner();
+                    Holder.primary = owner;
+                    return owner;
+                },
+                owner -> {
+                    Holder.secondary = owner;
+                    throw constructionFailure;
+                },
+                owner -> { throw cleanupFailure; },
+                () -> unsafeCleanup.set(true)
+        ));
+
+        assertSame(constructionFailure, actual);
+        assertEquals(1, actual.getSuppressed().length);
+        assertSame(cleanupFailure, actual.getSuppressed()[0]);
+        assertTrue(unsafeCleanup.get());
+        assertNull(Holder.primary);
+        assertNull(Holder.secondary);
+    }
+
+    @Test
+    void successfulRollbackDoesNotMarkLifecycleUnsafe() {
+        ControllerOwnership ownership = ownership();
+        AtomicBoolean unsafeCleanup = new AtomicBoolean();
+        RuntimeException constructionFailure = new RuntimeException("publication failed");
+
+        assertThrows(RuntimeException.class, () -> ownership.construct(
+                () -> {
+                    Owner owner = new Owner();
+                    Holder.primary = owner;
+                    return owner;
+                },
+                owner -> { throw constructionFailure; },
+                owner -> { },
+                () -> unsafeCleanup.set(true)
+        ));
+
+        assertFalse(unsafeCleanup.get());
+        assertNull(Holder.primary);
+        assertNull(Holder.secondary);
+    }
+
+    @Test
     void repeatedOwnershipReleaseIsHarmless() {
         ControllerOwnership ownership = ownership();
         Owner owner = construct(ownership);
@@ -193,6 +245,7 @@ class ControllerOwnershipTest {
         RuntimeException restoreFailure = new RuntimeException("primary restore failed");
         ControllerOwnership ownership = new ControllerOwnership(LOCK, primary, secondary);
         RuntimeException constructionFailure = new RuntimeException("construction failed");
+        AtomicBoolean unsafeCleanup = new AtomicBoolean();
 
         RuntimeException actual = assertThrows(RuntimeException.class, () -> ownership.construct(
                 () -> {
@@ -201,12 +254,14 @@ class ControllerOwnershipTest {
                     throw constructionFailure;
                 },
                 owner -> secondary.value = owner,
-                owner -> { }
+                owner -> { },
+                () -> unsafeCleanup.set(true)
         ));
 
         assertSame(constructionFailure, actual);
         assertEquals(1, actual.getSuppressed().length);
         assertSame(restoreFailure, actual.getSuppressed()[0]);
+        assertTrue(unsafeCleanup.get());
         assertEquals(1, primary.setAttempts.get());
         assertEquals(1, secondary.setAttempts.get());
         assertNull(secondary.get());

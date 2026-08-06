@@ -20,6 +20,8 @@ import java.util.Objects;
  * owner can appear between the failed claim and restoration of the previous state.</p>
  */
 final class ControllerOwnership {
+    private static final Runnable NO_UNSAFE_CLEANUP = () -> { };
+
     @FunctionalInterface
     interface Factory<T> {
         T create() throws Throwable;
@@ -53,9 +55,15 @@ final class ControllerOwnership {
 
     <T> T construct(Factory<T> factory, OwnerAction<T> publishSecondary,
             OwnerAction<T> rollbackExternalResource) {
+        return construct(factory, publishSecondary, rollbackExternalResource, NO_UNSAFE_CLEANUP);
+    }
+
+    <T> T construct(Factory<T> factory, OwnerAction<T> publishSecondary,
+            OwnerAction<T> rollbackExternalResource, Runnable markUnsafeCleanup) {
         Objects.requireNonNull(factory, "factory");
         Objects.requireNonNull(publishSecondary, "publishSecondary");
         Objects.requireNonNull(rollbackExternalResource, "rollbackExternalResource");
+        Objects.requireNonNull(markUnsafeCleanup, "markUnsafeCleanup");
 
         synchronized (lock) {
             Object previousPrimary = primary.get();
@@ -73,11 +81,25 @@ final class ControllerOwnership {
                 }
                 return owner;
             } catch (Throwable failure) {
+                boolean unsafeCleanup = false;
                 if (owner != null) {
                     T constructedOwner = owner;
+                    int previousSuppressed = failure.getSuppressed().length;
                     failure = attempt(failure, () -> rollbackExternalResource.run(constructedOwner));
+                    unsafeCleanup |= failure.getSuppressed().length > previousSuppressed;
                 }
-                failure = restore(previousPrimary, previousSecondary, failure);
+
+                int previousSuppressed = failure.getSuppressed().length;
+                failure = attempt(failure, () -> primary.set(previousPrimary));
+                unsafeCleanup |= failure.getSuppressed().length > previousSuppressed;
+
+                previousSuppressed = failure.getSuppressed().length;
+                failure = attempt(failure, () -> secondary.set(previousSecondary));
+                unsafeCleanup |= failure.getSuppressed().length > previousSuppressed;
+
+                if (unsafeCleanup) {
+                    failure = attempt(failure, markUnsafeCleanup::run);
+                }
                 throwUnchecked(failure);
                 throw new AssertionError("unreachable");
             }
@@ -115,12 +137,6 @@ final class ControllerOwnership {
                 throw new IllegalStateException("Entity controller ownership is partial or contains different owners");
             }
         }
-    }
-
-    private Throwable restore(Object previousPrimary, Object previousSecondary, Throwable failure) {
-        // Restore both slots independently. A failure restoring one field must not strand the other.
-        failure = attempt(failure, () -> primary.set(previousPrimary));
-        return attempt(failure, () -> secondary.set(previousSecondary));
     }
 
     @SuppressWarnings("PMD.CompareObjectsWithEquals")

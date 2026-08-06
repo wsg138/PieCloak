@@ -152,7 +152,8 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             PacketEventsCommonViewController.initialise(commonController);
 
             packetEventsController = ownCritical(startup, teardownSafe,
-                    PaperPacketEventsEntityViewController.create(currentTickSupplier, targetFilter));
+                    PaperPacketEventsEntityViewController.create(
+                            currentTickSupplier, targetFilter, () -> teardownSafe.set(false)));
             blockController = ownCritical(startup, teardownSafe,
                     new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier));
             ownCritical(startup, teardownSafe, EventListener.initialise(this, currentTickSupplier));
