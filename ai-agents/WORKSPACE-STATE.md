@@ -5,11 +5,11 @@ coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
 state: READY_FOR_AGENT
-current_package: 04-engine-scheduling-lifecycle
-recorded_pr_head: 3e18acde563809f68f003229266258687ce8ce10
+current_package: 05-optional-integrations-hardening
+recorded_pr_head: f203d7d1fe4781936fa69d4f7cf96083bbf73ab7
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0003-20260805T233318Z-entity-transition-reconciliation.md
+current_handoff: ai-agents/reports/agent-handoffs/0004-20260806T003159Z-engine-scheduling-lifecycle.md
 ---
 
 # PieCloak workspace state
@@ -34,8 +34,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | State | `READY_FOR_AGENT` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `3e18acde563809f68f003229266258687ce8ce10` |
-| Current package | `04-engine-scheduling-lifecycle` |
+| Recorded implementation head | `f203d7d1fe4781936fa69d4f7cf96083bbf73ab7` |
+| Current package | `05-optional-integrations-hardening` |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Future target | Stable Paper `26.2` or newer after a separate verified upgrade |
 | Merge authority | None for workers; owner instruction required |
@@ -47,8 +47,8 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | 01 | Current 1.21.11 platform and CI baseline | `COMPLETE` | none |
 | 02 | Block-transition reliability and block-data hardening | `COMPLETE` | 01 |
 | 03 | Idempotent entity-transition reconciliation | `COMPLETE` | 02 |
-| 04 | Async-engine scheduling and complete lifecycle cleanup | `READY` | 03 |
-| 05 | Optional integrations and remaining hardening | `WAITING` | 04 |
+| 04 | Async-engine scheduling and complete lifecycle cleanup | `COMPLETE` | 03 |
+| 05 | Optional integrations and remaining hardening | `READY` | 04 |
 | 06 | Final coordinator integration and brutal review | `WAITING` | 01–05 |
 
 Packages are sequential to avoid overlapping controller, lifecycle, and build edits.
@@ -87,18 +87,24 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 - The exact shaded JAR declares PieCloak API `1.21.11`, records the exact Git SHA and current platform baseline, and has SHA-256 `1e776b5b352026058e064e6200c6eed9feea6466ed41edd7d5d1d0d1db4a8a0d`.
 - Live Leaf, Geyser/Floodgate, and real injected packet send-then-throw behavior remain unverified and are recorded in the package handoff.
 
+## Completed package 04 engine scheduling and lifecycle
+
+- Async worker submission uses a submission gate and idempotent worker permits, so fast completion, partial rejection, run-then-throw schedulers, worker failure, and shutdown cannot bypass exact-once finalization.
+- Engine shutdown rejects new ticks, cancels pending reservations, drains accepted work with a bounded wait, and does not reset shared state while workers may still use it.
+- Transactional startup owns ticker, PacketEvents controllers, Bukkit listeners, compatibility listeners, metrics, registries, and singleton references in reverse-cleanup order.
+- PacketEvents teardown unregisters exact returned registration handles; Bukkit and Folia listeners/tasks have explicit idempotent close paths.
+- Successful disable/re-enable creates fresh effective components. Failed drain or critical unregistering fences old state and explicitly blocks same-JVM re-enable.
+- Deterministic local scheduling stress passed 500/500 iterations.
+- Exact head `f203d7d1fe4781936fa69d4f7cf96083bbf73ab7` passed Build run `31059767805` twice (jobs `92484943305` and `92485323007`), Static analysis run `31059767818`, and CodeRabbit.
+- The exact shaded JAR declares PieCloak API `1.21.11`, records the exact implementation SHA, and has SHA-256 `91a178f90b558bef0901d688e49d49e776d7fac5f248216a5b558c9d73981854`.
+- Live Leaf, Geyser/Floodgate, Folia, same-JVM re-enable, forced drain-timeout, and real PacketEvents failure scenarios remain unverified and are recorded in the package handoff.
+
 ## Confirmed review findings routed into remaining packages
-
-### Package 04
-
-- Partial async worker submission can reach zero without any worker observing zero, leaving the engine wedged.
-- Static listener/controller state is not reinitializable in the same JVM.
-- PacketEvents listeners and registries lack a complete shutdown/reset path.
-- Partial startup can cause shutdown null failures and stale async work.
 
 ### Package 05
 
 - FancyNPCs/FancyHolograms compatibility is constructed unconditionally despite soft dependencies.
+- Optional API classes are referenced directly on absent-plugin paths.
 - Bypass IDs can remain stale after optional entities are removed or IDs are reused.
 - The update checker configures one connection but reads from another unbounded connection.
 - The join-time update window arithmetic is reversed.
@@ -117,4 +123,4 @@ Packages are sequential to avoid overlapping controller, lifecycle, and build ed
 
 ## Next route
 
-The next ChatGPT worker must complete `ai-agents/work-packages/04-engine-scheduling-lifecycle.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `05-adapter-and-startup` if complete, and stop.
+The next ChatGPT worker must complete `ai-agents/work-packages/05-optional-integrations-hardening.md` on the PR branch, validate the exact implementation head, write a timestamped package handoff to `main`, advance `current_package` to `06-final-integration-review` if complete, and stop.

@@ -2,6 +2,6 @@
 
 Read this report next:
 
-`ai-agents/reports/agent-handoffs/0003-20260805T233318Z-entity-transition-reconciliation.md`
+`ai-agents/reports/agent-handoffs/0004-20260806T003159Z-engine-scheduling-lifecycle.md`
 
-It completes package `03-entity-transition-reconciliation`, records PR #11 head `3e18acde563809f68f003229266258687ce8ce10`, and routes the next worker to `04-engine-scheduling-lifecycle`.
+It completes package `04-engine-scheduling-lifecycle`, records PR #11 head `f203d7d1fe4781936fa69d4f7cf96083bbf73ab7`, and routes the next worker to `05-optional-integrations-hardening`.
