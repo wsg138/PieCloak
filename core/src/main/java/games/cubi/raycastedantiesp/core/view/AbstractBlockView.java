@@ -7,6 +7,7 @@ import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.chunks.BlockChunkData;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkData;
+import games.cubi.raycastedantiesp.core.logging.CubiLog;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
@@ -458,7 +459,7 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             return;
         }
 
-        Logger.info("Chunk collision occured, failing back to linear scan for tile entity removal in chunk "
+        CubiLog.recordInfo("Chunk collision occured, failing back to linear scan for tile entity removal in chunk "
                         + chunkX + ", " + chunkZ,
                 5, AbstractBlockView.class);
 

@@ -18,6 +18,10 @@ public final class CubiLog {
     private CubiLog() {
     }
 
+    public static void recordInfo(String message, int level, Class<?> source) {
+        Logger.info(message, level, source);
+    }
+
     public static void recordWarning(String message, int level, Class<?> source) {
         Logger.warning(message, level, source);
     }
