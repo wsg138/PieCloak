@@ -8,37 +8,36 @@
 
 package games.cubi.raycastedantiesp.paper;
 
-
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.bukkit.Bukkit;
-import org.bukkit.command.CommandSender;
-
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.config.ConfigManager;
 import games.cubi.raycastedantiesp.core.config.UpdateConfig;
 import games.cubi.raycastedantiesp.core.utils.BuildProperties;
 import games.cubi.raycastedantiesp.core.utils.BuildProperties.Version;
 import games.cubi.raycastedantiesp.paper.utils.PaperScheduler;
+import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URISyntaxException;
+import java.io.InputStream;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-
 public class UpdateChecker {
     private static final String VERSION_API_ENDPOINT = "https://api.modrinth.com/v2/project/bCjNZu0C/version?include_changelog=false";
     private static final String PLATFORM_NAME = "Paper";
     private static final String MODRINTH_PAGE_URL = "https://modrinth.com/project/bCjNZu0C";
+    static final int MAX_RESPONSE_BYTES = 50 * 1024;
 
     enum UpdateChannel {
         STABLE("release", "release"),
@@ -65,7 +64,6 @@ public class UpdateChecker {
             for (UpdateChannel channel : values()) {
                 if (channel.versionType.equals(versionType)) return channel;
             }
-
             return null;
         }
     }
@@ -117,32 +115,71 @@ public class UpdateChecker {
     private static CompletableFuture<List<VersionEntry>> fetchVersions(RaycastedAntiESP plugin) {
         CompletableFuture<List<VersionEntry>> future = new CompletableFuture<>();
 
-        Bukkit.getAsyncScheduler().runNow(plugin, ignored -> {
-            try {
-            URLConnection connection = new URI(VERSION_API_ENDPOINT).toURL().openConnection();
-            connection.setConnectTimeout(5_000); //ms
-            connection.setReadTimeout(5_000); //ms
-            try (
-                final InputStreamReader reader = new InputStreamReader(new URI(VERSION_API_ENDPOINT).toURL().openConnection().getInputStream());
-                final BufferedReader bufferedReader = new BufferedReader(reader)
-            ) {
-                future.complete(parseVersionEntries(bufferedReader));
-            }
-            } catch (IOException | URISyntaxException e) {
-                future.completeExceptionally(new IllegalStateException("Unable to fetch latest version", e));
-            }
-        });
+        try {
+            Bukkit.getAsyncScheduler().runNow(plugin, ignored -> {
+                try {
+                    URLConnection connection = new URI(VERSION_API_ENDPOINT).toURL().openConnection();
+                    connection.setConnectTimeout(5_000);
+                    connection.setReadTimeout(5_000);
+                    future.complete(readVersionEntries(connection));
+                } catch (IOException | URISyntaxException | RuntimeException exception) {
+                    future.completeExceptionally(new IllegalStateException("Unable to fetch latest version", exception));
+                }
+            });
+        } catch (RuntimeException exception) {
+            future.completeExceptionally(new IllegalStateException("Unable to schedule update check", exception));
+        }
+
         return future.orTimeout(10_000, TimeUnit.MILLISECONDS);
     }
 
-    private static List<VersionEntry> parseVersionEntries(BufferedReader reader) throws IOException {
-        StringBuilder stringBuilder = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            stringBuilder.append(line);
+    static List<VersionEntry> readVersionEntries(URLConnection connection) throws IOException {
+        long declaredLength = connection.getContentLengthLong();
+        if (declaredLength > MAX_RESPONSE_BYTES) {
+            throw new IOException("Update response exceeded " + MAX_RESPONSE_BYTES + " bytes");
         }
 
-        JsonArray jsonArray = JsonParser.parseString(stringBuilder.toString()).getAsJsonArray();
+        try (InputStream input = connection.getInputStream()) {
+            return parseVersionEntries(readUtf8Body(input, MAX_RESPONSE_BYTES));
+        }
+    }
+
+    static String readUtf8Body(InputStream input, int maxBytes) throws IOException {
+        if (maxBytes < 0) {
+            throw new IllegalArgumentException("maxBytes must not be negative");
+        }
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maxBytes, 8 * 1024));
+        byte[] buffer = new byte[Math.min(Math.max(maxBytes + 1, 1), 8 * 1024)];
+        while (true) {
+            int remaining = maxBytes - output.size();
+            int readLimit = Math.min(buffer.length, remaining + 1);
+            int read = input.read(buffer, 0, readLimit);
+            if (read == -1) {
+                break;
+            }
+            if (read == 0) {
+                int singleByte = input.read();
+                if (singleByte == -1) {
+                    break;
+                }
+                if (remaining == 0) {
+                    throw new IOException("Update response exceeded " + maxBytes + " bytes");
+                }
+                output.write(singleByte);
+                continue;
+            }
+            if (read > remaining) {
+                throw new IOException("Update response exceeded " + maxBytes + " bytes");
+            }
+            output.write(buffer, 0, read);
+        }
+
+        return output.toString(StandardCharsets.UTF_8);
+    }
+
+    private static List<VersionEntry> parseVersionEntries(String responseBody) {
+        JsonArray jsonArray = JsonParser.parseString(responseBody).getAsJsonArray();
         List<VersionEntry> versionEntries = new ArrayList<>();
 
         for (JsonElement element : jsonArray) {
@@ -301,8 +338,8 @@ public class UpdateChecker {
                 return;
             }
             PaperScheduler.runForAudience(plugin, audience, () -> audience.sendRichMessage(formatUpdateMessage(report)));
-        }).exceptionally(ex -> {
-            Logger.error("An error occurred while checking for plugin updates", ex, 4, UpdateChecker.class);
+        }).exceptionally(exception -> {
+            Logger.error("An error occurred while checking for plugin updates", exception, 4, UpdateChecker.class);
             return null;
         });
     }
