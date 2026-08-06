@@ -4,19 +4,19 @@ default_branch: main
 coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
-state: READY_FOR_AGENT
-current_package: 06-final-integration-review
-recorded_pr_head: 1c3b8c572030cdafb96975f36d471142aa9399bc
+state: READY_FOR_OWNER
+current_package: none
+recorded_pr_head: 72489966f5c45261e61538c8725c955750fd188b
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0005-20260806T012531Z-optional-integrations-hardening.md
+current_handoff: ai-agents/reports/agent-handoffs/0006-20260806T015743Z-final-integration-review.md
 ---
 
 # PieCloak workspace state
 
-Last coordinated: 2026-08-05
+Last coordinated: 2026-08-06
 
-This routing record lives on `main`. Every worker must reconcile it with live GitHub before acting.
+This routing record lives on `main`. The sequential remediation sequence is complete. PR #11 remains open and unmerged; owner review and a separate explicit merge instruction are required.
 
 ## Branch responsibilities
 
@@ -25,20 +25,18 @@ This routing record lives on `main`. Every worker must reconcile it with live Gi
 | `main` | Agent rules, package definitions, routing state, and handoff reports only |
 | `agent/sync-upstream-clean-history` | PR #11 implementation, tests, builds, workflows, metadata, and product documentation |
 
-Workers implement on the PR branch first, then make one coordination-only commit to `main` containing the handoff and next routing state.
-
 ## Active work
 
 | Field | Recorded value |
 | --- | --- |
-| State | `READY_FOR_AGENT` |
+| State | `READY_FOR_OWNER` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `1c3b8c572030cdafb96975f36d471142aa9399bc` |
-| Current package | `06-final-integration-review` |
+| Recorded implementation head | `72489966f5c45261e61538c8725c955750fd188b` |
+| Current package | None — packages 01–06 are complete |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Future target | Stable Paper `26.2` or newer after a separate verified upgrade |
-| Merge authority | None for workers; owner instruction required |
+| Merge authority | Owner only; workers have no merge or deployment authority |
 
 ## Package routing
 
@@ -49,84 +47,59 @@ Workers implement on the PR branch first, then make one coordination-only commit
 | 03 | Idempotent entity-transition reconciliation | `COMPLETE` | 02 |
 | 04 | Async-engine scheduling and complete lifecycle cleanup | `COMPLETE` | 03 |
 | 05 | Optional integrations and remaining hardening | `COMPLETE` | 04 |
-| 06 | Final coordinator integration and brutal review | `READY` | 01–05 |
+| 06 | Final coordinator integration and brutal review | `COMPLETE` | 01–05 |
 
-Packages are sequential to avoid overlapping controller, lifecycle, and build edits.
+Detailed package evidence remains in the timestamped handoffs indexed under `ai-agents/reports/agent-handoffs/INDEX.md`.
 
-## Completed package 01 baseline
+## Final package 06 result
 
-- Minecraft `1.21.11`, Paper development bundle `1.21.11-R0.1-SNAPSHOT`, and Java `21` are centralized in `gradle.properties`.
-- Build, Paper test-server tasks, generated plugin metadata, and CI use the same values.
-- Pull-request workflows validate the exact implementation head rather than GitHub's synthetic merge ref.
-- Exact head `d23c6a577ead79fb4d70b230d1344a91095fb97b` passed Build run `31043407191` and Static analysis run `31043407187`.
-- The shaded artifact records the exact Git SHA and the selected Minecraft, Paper bundle, and Java baseline.
-- Stable Paper `26.2` or newer remains a separate future migration with no current support claim.
+The independent final review covered the complete PR across platform/build, block protocol, entity protocol, concurrency, lifecycle, security/operability, test integrity, and documentation.
 
-## Completed package 02 block-transition reliability
+A confirmed cross-package defect was found at the package 05 head: the per-viewer block repair queue evicted its oldest staged repair at capacity and retried persistent failures indefinitely. Exact final commit `72489966f5c45261e61538c8725c955750fd188b` now preserves existing staged repairs, rejects the newest distinct repair when 256 entries are already queued, and stops each repair after eight failed attempts. Regression tests prove capacity preservation and the terminal bound.
 
-- Packed block-transition callbacks are failure-isolated; one callback cannot discard later packed or queued transitions.
-- HIDE, SHOW, and mode-disable repairs use explicit packet stages and resume at the first incomplete write.
-- Block repairs are deduplicated, backoff-bounded, capped at 256 entries per viewer, and invalidated by world, mode, disconnect, removed-tile, and expected-block changes.
-- Desired tile visibility is committed independently from client repair so one failed mode-disable write does not block later repairs.
-- Authoritative managed/non-managed/unknown block-entity classification works with both full-block tracking and the default occlusion-only mode.
-- Unknown standalone managed block-entity data fails closed without logging NBT; known virtual/non-managed data remains pass-through.
-- Unexpected `MAP_CHUNK_BULK` packets pass through with bounded diagnostics rather than throwing.
-- Exact head `dd1cf6c2784a721cff6c1d5fd437cb5b65f5616b` passed Build run `31052209121`, Static analysis run `31052209222`, and focused validation run `31052271820` with seven package test groups repeated 25 times.
-- The exact shaded JAR declares PieCloak API `1.21.11` and records the exact implementation SHA, Minecraft `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, and Java `21`.
+## Exact final validation
 
-## Completed package 03 entity-transition reconciliation
+- Build run `31063979744` passed twice on exact head `72489966f5c45261e61538c8725c955750fd188b`:
+  - job `92497703991`;
+  - rerun job `92497994410`.
+- Both executions used Java 21, generated LeafPile sources, and ran the clean platform-baseline, compile, full test, Paper build, snapshot build, JAR inspection, and artifact upload workflow.
+- Static analysis run `31063979737` passed:
+  - PMD job `92497703968`;
+  - Semgrep job `92497703981`;
+  - Trivy job `92497704004`.
+- Trivy reported zero findings.
+- Semgrep's three reflection warnings were reviewed as fixed-name optional/platform adapter seams, not attacker-controlled reflection.
+- Remaining PMD warnings are report-only inherited or adapter findings reviewed in the final handoff; none was confirmed as a release blocker.
+- Final rerun artifact ID: `8953220635`.
+- Artifact archive digest: `sha256:ffc4693d7a3f26c0178e5c0388b26329f1e377f8ec4f49df86202dbe75abef90`.
+- Shaded JAR SHA-256: `e41dbf24523963ac39fa92f48f952d80b1f27f1ca07b5f548bb8cd22f23ba2f0`.
+- JAR metadata records PieCloak, Minecraft/API `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, Java `21`, and exact Git SHA `72489966f5c45261e61538c8725c955750fd188b`.
+- Unresolved PR review threads: `0`.
+- CodeRabbit's displayed success is not review evidence; its comment says the 207-file review was skipped because of file limits and unavailable review capacity/credits.
 
-- SHOW and HIDE use immutable packet plans with independent checkpoints for spawn, corrections, replay, relationships, and destroy.
-- A successful packet write advances state immediately, so a later failure resumes at the first incomplete packet rather than duplicating spawn or destroy.
-- Packet-confirmed visibility and local `clientVisible` bookkeeping are repaired separately; superseding opposite transitions inherit confirmed external state.
-- Retry work is keyed, exponential-backoff bounded, limited to eight failures, capped at 256 entries per viewer and 4096 globally, and rejects new work at capacity instead of evicting queued partial repairs.
-- Retry validation and cleanup cover viewer disconnect, join/respawn, world epoch, entity UUID/ID/object identity, despawn, destroyed IDs, desired visibility changes, and entity-ID reuse.
-- Direct forced-show/bypass paths use the same staged reconciliation.
-- Focused transition tests passed once plus 20 forced reruns in run `31056041879`.
-- Exact head `3e18acde563809f68f003229266258687ce8ce10` passed Build run `31056637735`, Static analysis run `31056637857`, and CodeRabbit.
-- The exact shaded JAR declares PieCloak API `1.21.11`, records the exact Git SHA and current platform baseline, and has SHA-256 `1e776b5b352026058e064e6200c6eed9feea6466ed41edd7d5d1d0d1db4a8a0d`.
-- Live Leaf, Geyser/Floodgate, and real injected packet send-then-throw behavior remain unverified and are recorded in the package handoff.
+## Owner validation still pending
 
-## Completed package 04 engine scheduling and lifecycle
+`READY_FOR_OWNER` means no known source or exact-head CI blocker remains. It does not mean the following live scenarios passed:
 
-- Async worker submission uses a submission gate and idempotent worker permits, so fast completion, partial rejection, run-then-throw schedulers, worker failure, and shutdown cannot bypass exact-once finalization.
-- Engine shutdown rejects new ticks, cancels pending reservations, drains accepted work with a bounded wait, and does not reset shared state while workers may still use it.
-- Transactional startup owns ticker, PacketEvents controllers, Bukkit listeners, compatibility listeners, metrics, registries, and singleton references in reverse-cleanup order.
-- PacketEvents teardown unregisters exact returned registration handles; Bukkit and Folia listeners/tasks have explicit idempotent close paths.
-- Successful disable/re-enable creates fresh effective components. Failed drain or critical unregistering fences old state and explicitly blocks same-JVM re-enable.
-- Deterministic local scheduling stress passed 500/500 iterations.
-- Exact head `f203d7d1fe4781936fa69d4f7cf96083bbf73ab7` passed Build run `31059767805` twice (jobs `92484943305` and `92485323007`), Static analysis run `31059767818`, and CodeRabbit.
-- The exact shaded JAR declares PieCloak API `1.21.11`, records the exact implementation SHA, and has SHA-256 `91a178f90b558bef0901d688e49d49e776d7fac5f248216a5b558c9d73981854`.
-- Live Leaf, Geyser/Floodgate, Folia, same-JVM re-enable, forced drain-timeout, and real PacketEvents failure scenarios remain unverified and are recorded in the package handoff.
+- Leaf 1.21.11 startup, disable, partial startup, and same-JVM re-enable;
+- Java and Geyser/Floodgate client behavior under movement, teleport, respawn, dimension changes, relog, and chunk reload;
+- real injected failures at every block/entity packet stage, including send-then-throw behavior;
+- live queue saturation and eight-failure terminal reporting;
+- shutdown with active retry/transition/async work;
+- bypass and minecart/passenger/leash transitions during failures;
+- FancyNpcs/FancyHolograms lifecycle and absence/incompatibility paths;
+- long-running memory, registry, queue, farm, trading, and restock behavior.
 
-## Completed package 05 optional integrations and remaining hardening
-
-- FancyNpcs and FancyHolograms APIs are isolated in separate classes and loaded by name only when the exact optional Bukkit plugin is enabled.
-- One absent or incompatible optional integration cannot resolve or initialize the other and cannot disable PieCloak.
-- Successful optional listeners transfer into the existing reverse-order lifecycle owner and close on disable or failed startup.
-- NPC removal and hologram deletion clear both bypass classifications only after non-cancelled deletion; ordinary entity removal and shutdown reset remain idempotent cleanup backstops.
-- The updater uses one configured connection, rejects declared or streamed responses above 50 KiB, avoids unbounded body accumulation, and delivers messages without a blocking scheduler hop.
-- The join notification window uses elapsed monotonic ticks and is correct across boundaries and integer counter wrap.
-- The inspected block-entity diagnostic path does not log raw NBT.
-- Exact head `1c3b8c572030cdafb96975f36d471142aa9399bc` passed Build run `31062577947`, Static analysis run `31062577977`, and CodeRabbit.
-- The exact shaded JAR declares PieCloak API `1.21.11`, records the exact implementation SHA, and has SHA-256 `b8c1323e9e33993d1b23f5691cc1c3ef7b912d5173ba2ce3ea43be6e51fd801f`.
-- Live Leaf, Geyser/Floodgate, optional-plugin lifecycle, real network failure, and in-game join-notification scenarios remain unverified and are recorded in the package handoff.
-
-## Final review focus
-
-Package 06 must review the entire exact PR head rather than only package 05. It must reconcile every package handoff with live code, inspect cross-package interactions and exact-head checks, assess all recorded live/manual gaps, review the remaining non-fatal PMD findings including the optional-resource ownership warning, and issue the final `READY_FOR_OWNER` or `NOT_READY` verdict. It must not merge or deploy.
+The owner should complete or explicitly accept these gaps before release.
 
 ## Current boundaries
 
-- No production deployment or server modification.
-- No merge, close, or replacement of PR #11 without current owner instruction.
-- No target change away from Minecraft 1.21.11.
-- No Paper 26.2 support claim until a future stable build is selected and directly tested.
-- No parallel workers.
-- No product code, tests, workflows, or plugin metadata directly on `main`.
-- No agent-routing files on the implementation branch.
-- `agent/package03-worker-20260805` is a non-authoritative temporary validation branch with no PR; it must not be used for routing or implementation.
+- Do not merge or close PR #11 without a new explicit owner instruction.
+- Do not deploy a JAR or modify production from this coordination state.
+- Do not switch the active target away from Minecraft `1.21.11`.
+- Do not claim stable Paper `26.2` support until a future version is selected and directly validated.
+- Do not place product code, tests, builds, workflows, metadata, or ordinary product documentation directly on `main`.
 
 ## Next route
 
-The next ChatGPT worker must complete `ai-agents/work-packages/06-final-integration-review.md` against exact PR #11 head `1c3b8c572030cdafb96975f36d471142aa9399bc`, perform the final cross-package brutal review and exact-head validation, write the final timestamped coordinator handoff to `main`, issue the required READY/NOT READY verdict, and stop without merging or deploying.
+There is no next worker package. The next action is owner review of PR #11 and the package 06 handoff. The owner may request targeted follow-up work or separately authorize a merge after reviewing the remaining manual/live validation.

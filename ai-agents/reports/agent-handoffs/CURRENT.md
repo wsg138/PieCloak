@@ -2,6 +2,6 @@
 
 Read this report next:
 
-`ai-agents/reports/agent-handoffs/0005-20260806T012531Z-optional-integrations-hardening.md`
+`ai-agents/reports/agent-handoffs/0006-20260806T015743Z-final-integration-review.md`
 
-It completes package `05-optional-integrations-hardening`, records PR #11 head `1c3b8c572030cdafb96975f36d471142aa9399bc`, and routes the next worker to `06-final-integration-review`.
+It completes package `06-final-integration-review`, records final PR #11 head `72489966f5c45261e61538c8725c955750fd188b`, and sets the workspace to `READY_FOR_OWNER` with no next implementation package. PR #11 remains open and unmerged pending owner review, live/manual validation, and any separate explicit merge instruction.
