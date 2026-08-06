@@ -21,7 +21,13 @@ public class PaperPacketEventsEntityViewController extends PacketEventsEntityVie
     private final PacketListenerCommon registration;
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    public PaperPacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+    public static PaperPacketEventsEntityViewController create(
+            IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+        return EntityControllerOwnership.create(currentTickSupplier, targetFilter);
+    }
+
+    private PaperPacketEventsEntityViewController(
+            IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
         super(currentTickSupplier, targetFilter);
         PacketListenerCommon createdRegistration = asAbstract(PacketListenerPriority.HIGHEST);
         try {
@@ -39,6 +45,10 @@ public class PaperPacketEventsEntityViewController extends PacketEventsEntityVie
 
     @Override
     public void close() {
+        EntityControllerOwnership.close(this, this::rollbackRegistration);
+    }
+
+    void rollbackRegistration() {
         if (closed.compareAndSet(false, true)) {
             PacketEvents.getAPI().getEventManager().unregisterListener(registration);
         }

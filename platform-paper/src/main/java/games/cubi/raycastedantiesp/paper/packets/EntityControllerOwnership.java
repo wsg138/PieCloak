@@ -1,0 +1,47 @@
+package games.cubi.raycastedantiesp.paper.packets;
+
+import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewController;
+import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
+import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
+
+import java.util.function.IntSupplier;
+
+/**
+ * Binds the current controller implementation's two private singleton slots to one lifecycle.
+ *
+ * <p>These fields have no supported release API in the inherited upstream implementation. The
+ * fixed-name reflective binding is intentionally isolated at the Paper adapter boundary so a later
+ * upstream or platform upgrade fails explicitly here instead of leaving stale controller state.</p>
+ */
+final class EntityControllerOwnership {
+    private static final ControllerOwnership OWNERSHIP = new ControllerOwnership(
+            PacketEntityViewController.class,
+            ControllerOwnership.reflectiveStaticSlot(PacketEntityViewController.class, "SELF"),
+            ControllerOwnership.reflectiveStaticSlot(PacketEventsEntityViewController.class, "SELF")
+    );
+
+    private EntityControllerOwnership() {
+    }
+
+    static PaperPacketEventsEntityViewController create(
+            IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+        return OWNERSHIP.construct(
+                () -> new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter),
+                controller -> {
+                    PacketEventsEntityViewController published = PacketEventsEntityViewController.get();
+                    if (published != controller) {
+                        throw new IllegalStateException("PacketEvents published a different entity controller owner");
+                    }
+                },
+                PaperPacketEventsEntityViewController::rollbackRegistration
+        );
+    }
+
+    static void close(PaperPacketEventsEntityViewController owner, ControllerOwnership.Cleanup cleanup) {
+        OWNERSHIP.closeOwned(owner, cleanup);
+    }
+
+    static void verifyBindings() {
+        OWNERSHIP.verifyConsistentOrEmpty();
+    }
+}
