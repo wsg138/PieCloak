@@ -1,40 +1,56 @@
 package games.cubi.raycastedantiesp.core.view;
 
-import games.cubi.logs.Logger;
-
+import java.util.Objects;
 import java.util.function.IntSupplier;
 
 public final class ViewRegistry {
-    private static EntityView.Factory entityViewFactory;
-    private static EntityView.Factory playerEntityViewFactory;
-    private static BlockView.Factory blockViewFactory;
+    private static volatile EntityView.Factory entityViewFactory;
+    private static volatile EntityView.Factory playerEntityViewFactory;
+    private static volatile BlockView.Factory blockViewFactory;
 
     private ViewRegistry() {}
 
-    public static void initialise(BlockView.Factory blockViewFactory1, EntityView.Factory entityViewFactory1, EntityView.Factory playerEntityViewFactory1) {
-        blockViewFactory = blockViewFactory1;
-        entityViewFactory = entityViewFactory1;
-        playerEntityViewFactory = playerEntityViewFactory1;
+    public static synchronized void initialise(BlockView.Factory blockFactory, EntityView.Factory entityFactory,
+                                               EntityView.Factory playerFactory) {
+        if (isInitialised()) {
+            throw new IllegalStateException("ViewRegistry is already initialised");
+        }
+        blockViewFactory = Objects.requireNonNull(blockFactory, "blockFactory");
+        entityViewFactory = Objects.requireNonNull(entityFactory, "entityFactory");
+        playerEntityViewFactory = Objects.requireNonNull(playerFactory, "playerFactory");
+    }
+
+    public static synchronized void reset() {
+        blockViewFactory = null;
+        entityViewFactory = null;
+        playerEntityViewFactory = null;
+    }
+
+    public static boolean isInitialised() {
+        return blockViewFactory != null && entityViewFactory != null && playerEntityViewFactory != null;
     }
 
     public static BlockView createBlockView(IntSupplier worldEpochSupplier) {
-        if (blockViewFactory == null) {
-            Logger.error(new IllegalStateException("Block view factory is null. Did you forget to initialise ViewRegistry?"), 1, ViewRegistry.class);
+        BlockView.Factory factory = blockViewFactory;
+        if (factory == null) {
+            throw new IllegalStateException("Block view factory is null. Did you forget to initialise ViewRegistry?");
         }
-        return blockViewFactory.createBlockView(worldEpochSupplier);
+        return factory.createBlockView(worldEpochSupplier);
     }
 
     public static EntityView<?> createEntityView(IntSupplier worldEpochSupplier) {
-        if (entityViewFactory == null) {
-            Logger.error(new IllegalStateException("Entity view factory is null. Did you forget to initialise ViewRegistry?"), 1, ViewRegistry.class);
+        EntityView.Factory factory = entityViewFactory;
+        if (factory == null) {
+            throw new IllegalStateException("Entity view factory is null. Did you forget to initialise ViewRegistry?");
         }
-        return entityViewFactory.createEntityView(worldEpochSupplier);
+        return factory.createEntityView(worldEpochSupplier);
     }
 
     public static EntityView<?> createPlayerEntityView(IntSupplier worldEpochSupplier) {
-        if (playerEntityViewFactory == null) {
-            Logger.error(new IllegalStateException("Player entity view factory is null. Did you forget to initialise ViewRegistry?"), 1, ViewRegistry.class);
+        EntityView.Factory factory = playerEntityViewFactory;
+        if (factory == null) {
+            throw new IllegalStateException("Player entity view factory is null. Did you forget to initialise ViewRegistry?");
         }
-        return playerEntityViewFactory.createEntityView(worldEpochSupplier);
+        return factory.createEntityView(worldEpochSupplier);
     }
 }

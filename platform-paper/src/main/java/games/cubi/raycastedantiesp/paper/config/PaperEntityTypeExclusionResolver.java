@@ -12,26 +12,19 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
-
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.config.raycast.EntityTypeExclusions;
-
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntSets;
-
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 
 import java.util.Collection;
-
-import static games.cubi.raycastedantiesp.core.config.raycast.EntityTypeExclusions.volatileExclusionSet;
 
 public final class PaperEntityTypeExclusionResolver {
     private PaperEntityTypeExclusionResolver() {}
 
     public static void resolveAndInitialise(Collection<String> configuredNames) {
         ClientVersion version = PacketEvents.getAPI().getServerManager().getVersion().toClientVersion();
-
         IntOpenHashSet excludedTypes = new IntOpenHashSet(configuredNames.size());
         for (String configuredName : configuredNames) {
             NamespacedKey key = NamespacedKey.fromString(configuredName);
@@ -40,7 +33,6 @@ public final class PaperEntityTypeExclusionResolver {
                 continue;
             }
 
-            // Have to use FQN since we have PE EntityType imported (it's a longer FQN)
             org.bukkit.entity.EntityType paperType = Registry.ENTITY_TYPE.get(key);
             if (paperType == null) {
                 warn("contains unknown entity type '" + configuredName + "'");
@@ -64,10 +56,7 @@ public final class PaperEntityTypeExclusionResolver {
             }
             excludedTypes.add(entityType);
         }
-        synchronized (EntityTypeExclusions.class) {
-            if (volatileExclusionSet != null) throw new RuntimeException("Volatile exclusion set already initialised");
-            volatileExclusionSet = IntSets.unmodifiable(excludedTypes);
-        }
+        EntityTypeExclusions.initialise(excludedTypes);
         Logger.info("Resolved " + EntityTypeExclusions.size() + " excluded entity types.", 5);
     }
 

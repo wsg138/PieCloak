@@ -8,7 +8,9 @@
 
 package games.cubi.raycastedantiesp.paper;
 
-import de.oliver.fancyholograms.api.events.*;
+import de.oliver.fancyholograms.api.events.HologramCreateEvent;
+import de.oliver.fancyholograms.api.events.HologramShowEvent;
+import de.oliver.fancyholograms.api.events.HologramsLoadedEvent;
 import de.oliver.fancyholograms.api.hologram.Hologram;
 import de.oliver.fancynpcs.api.events.NpcCreateEvent;
 import de.oliver.fancynpcs.api.events.NpcModifyEvent;
@@ -16,21 +18,32 @@ import de.oliver.fancynpcs.api.events.NpcSpawnEvent;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.paper.utils.PaperListener;
-import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 
-// Entity remove events aren't listened to because the event names are a bit confusing to me and I'm unclear when each event is called.
-// This should not be an issue as NPCs and Holograms are typically static entities which are not spawned or unspawned.
-public class FancyCompatibility {
+public final class FancyCompatibility implements AutoCloseable {
+    private final NPCs npcs;
+    private final Holograms holograms;
+
     FancyCompatibility() {
         Logger.info("Attempting to initiate FancyNPCs and FancyHolograms compatibility layer. If you are not using those plugins, you will see an error. This is safe to ignore.", 5);
-        new NPCs();
-        new Holograms();
+        NPCs startedNpcs = new NPCs().register();
+        try {
+            holograms = new Holograms().register();
+            npcs = startedNpcs;
+        } catch (Throwable throwable) {
+            startedNpcs.close();
+            throw throwable;
+        }
+    }
+
+    @Override
+    public void close() {
+        holograms.close();
+        npcs.close();
     }
 
     static class NPCs extends PaperListener {
-
         @EventHandler(priority = EventPriority.LOWEST)
         public void npcLoad(NpcSpawnEvent event) {
             EntityBypassRegistry.addEntity(event.getNpc().getEntityId());

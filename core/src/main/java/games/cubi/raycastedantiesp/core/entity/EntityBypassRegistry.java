@@ -10,40 +10,38 @@ package games.cubi.raycastedantiesp.core.entity;
 
 import games.cubi.utils.sets.CopyOnWriteMTIntSet;
 
-/**
- * Global registry of entity IDs which RaycastedAntiESP must ignore.
- */
+/** Global registry of entity IDs which RaycastedAntiESP must ignore. */
 public final class EntityBypassRegistry {
-    private static final CopyOnWriteMTIntSet BYPASSED_ENTITY_IDS = CopyOnWriteMTIntSet.get();
-    private static final CopyOnWriteMTIntSet RELATIONSHIP_SUPPORT_ENTITY_IDS = CopyOnWriteMTIntSet.get();
-    // Technically, (26.2+) Minecraft only guarantees that an entity ID corresponds to one-and-only-one entity within a single world, and entities in different worlds can have the same ID.
-    //              (26.1.2-) Minecraft does not guarantee that an entity ID is unique.
-    // However, this requires the int id counter to overflow from Integer.MAX_VALUE all the way back to 0. This is unlikely to occur, and even if it does occur, it is unlikely that the original entities are still alive.
+    private static volatile CopyOnWriteMTIntSet bypassedEntityIds = CopyOnWriteMTIntSet.get();
+    private static volatile CopyOnWriteMTIntSet relationshipSupportEntityIds = CopyOnWriteMTIntSet.get();
+
     private EntityBypassRegistry() {
     }
 
     public static void addEntity(int entityID) {
-        BYPASSED_ENTITY_IDS.add(entityID);
+        bypassedEntityIds.add(entityID);
     }
 
     public static void addRelationshipSupportEntity(int entityID) {
-        RELATIONSHIP_SUPPORT_ENTITY_IDS.add(entityID);
+        relationshipSupportEntityIds.add(entityID);
     }
 
-    /**
-     * For use when an entity is despawned/killed, or in other words completely gone from the server.
-     */
     public static boolean markEntityDespawned(int entityID) {
-        boolean removedBypass = BYPASSED_ENTITY_IDS.remove(entityID);
-        boolean removedSupport = RELATIONSHIP_SUPPORT_ENTITY_IDS.remove(entityID);
+        boolean removedBypass = bypassedEntityIds.remove(entityID);
+        boolean removedSupport = relationshipSupportEntityIds.remove(entityID);
         return removedBypass || removedSupport;
     }
 
     public static boolean isBypassed(int entityID) {
-        return BYPASSED_ENTITY_IDS.contains(entityID);
+        return bypassedEntityIds.contains(entityID);
     }
 
     public static boolean isRelationshipSupportEntity(int entityID) {
-        return RELATIONSHIP_SUPPORT_ENTITY_IDS.contains(entityID);
+        return relationshipSupportEntityIds.contains(entityID);
+    }
+
+    public static synchronized void reset() {
+        bypassedEntityIds = CopyOnWriteMTIntSet.get();
+        relationshipSupportEntityIds = CopyOnWriteMTIntSet.get();
     }
 }

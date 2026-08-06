@@ -13,13 +13,21 @@ import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntSupplier;
 
-
-public class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController {
+public class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController implements AutoCloseable {
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public PaperPacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
         super(currentTickSupplier, targetFilter);
         PacketEvents.getAPI().getEventManager().registerListener(this, PacketListenerPriority.HIGHEST);
+    }
+
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            PacketEvents.getAPI().getEventManager().unregisterListeners(this);
+        }
     }
 }

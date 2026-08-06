@@ -10,8 +10,10 @@ package games.cubi.raycastedantiesp.core;
 
 import java.util.function.IntSupplier;
 
-/**
- * Implementations should increment (starting from 0) once a tick, and should call AsyncEngine's tick method each time the tick increments.
- */
-public interface Ticker extends IntSupplier {
+/** Implementations increment once per tick and dispatch the async engine only after start. */
+public interface Ticker extends IntSupplier, AutoCloseable {
+    void start();
+
+    @Override
+    void close();
 }

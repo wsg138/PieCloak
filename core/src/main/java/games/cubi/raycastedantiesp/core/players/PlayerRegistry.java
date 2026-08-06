@@ -39,6 +39,11 @@ public class PlayerRegistry {
         unregisteredPlayer.markDisconnected();
     }
 
+    public void clear() {
+        playerDataMap.values().forEach(PlayerData::markDisconnected);
+        playerDataMap.clear();
+    }
+
     public PlayerData getPlayerData(UUID playerUUID) {
         return playerDataMap.get(playerUUID);
     }

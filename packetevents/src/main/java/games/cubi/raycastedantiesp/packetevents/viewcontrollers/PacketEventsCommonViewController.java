@@ -12,23 +12,34 @@ import java.util.UUID;
 import java.util.function.IntSupplier;
 
 public abstract class PacketEventsCommonViewController {
-    private static PacketEventsCommonViewController INSTANCE;
-    private final  IntSupplier currentTickSupplier;
+    private static volatile PacketEventsCommonViewController instance;
+    private final IntSupplier currentTickSupplier;
     public final boolean v_1_21_5_orAbove = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21_5);
 
     protected PacketEventsCommonViewController(IntSupplier currentTick) {
         this.currentTickSupplier = currentTick;
     }
 
-    public static void initialise(PacketEventsCommonViewController instance) {
-        INSTANCE = Objects.requireNonNull(instance);
+    public static synchronized void initialise(PacketEventsCommonViewController newInstance) {
+        Objects.requireNonNull(newInstance, "newInstance");
+        if (instance != null) {
+            throw new IllegalStateException("PacketEventsCommonViewController is already initialised");
+        }
+        instance = newInstance;
+    }
+
+    public static synchronized void reset(PacketEventsCommonViewController expectedInstance) {
+        if (instance == expectedInstance) {
+            instance = null;
+        }
     }
 
     public static PacketEventsCommonViewController get(IntSupplier currentTick) {
-        if (INSTANCE == null) {
+        PacketEventsCommonViewController current = instance;
+        if (current == null) {
             throw new IllegalStateException("PacketEventsCommonViewController has not been initialised.");
         }
-        return INSTANCE;
+        return current;
     }
 
     public abstract UUID resolveWorldUUID(User user);

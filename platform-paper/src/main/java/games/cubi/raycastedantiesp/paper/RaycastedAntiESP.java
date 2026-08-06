@@ -8,79 +8,85 @@
 
 package games.cubi.raycastedantiesp.paper;
 
+import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.Core;
+import games.cubi.raycastedantiesp.core.Ticker;
+import games.cubi.raycastedantiesp.core.config.ConfigManager;
 import games.cubi.raycastedantiesp.core.config.TargetFilterConfig;
+import games.cubi.raycastedantiesp.core.config.raycast.EntityTypeExclusions;
+import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
+import games.cubi.raycastedantiesp.core.lifecycle.LifecycleScope;
+import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.view.ViewRegistry;
+import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
+import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
+import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
+import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsCommonViewController;
+import games.cubi.raycastedantiesp.paper.bStats.MetricsCollector;
 import games.cubi.raycastedantiesp.paper.commands.Attribution;
 import games.cubi.raycastedantiesp.paper.commands.AttributionBrigadier;
 import games.cubi.raycastedantiesp.paper.commands.RaycastedAntiESPCommandBrigadier;
 import games.cubi.raycastedantiesp.paper.commands.SourceCommandBrigadier;
 import games.cubi.raycastedantiesp.paper.config.PaperEntityTypeExclusionResolver;
 import games.cubi.raycastedantiesp.paper.engine.PaperAsyncEngine;
-import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
-import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
-import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
-import games.cubi.raycastedantiesp.core.view.ViewRegistry;
-import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsCommonViewController;
+import games.cubi.raycastedantiesp.paper.packets.PacketEventsPaperBlockInfoResolver;
 import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsBlockViewController;
 import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsCommonViewController;
 import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsEntityViewController;
-import games.cubi.raycastedantiesp.paper.packets.PacketEventsPaperBlockInfoResolver;
 import games.cubi.raycastedantiesp.paper.target.PaperTargetFilterService;
 import games.cubi.raycastedantiesp.paper.target.TargetFilteringBlockInfoResolver;
-import games.cubi.raycastedantiesp.core.config.ConfigManager;
-import games.cubi.raycastedantiesp.paper.bStats.MetricsCollector;
-import games.cubi.logs.Logger;
-
 import games.cubi.raycastedantiesp.paper.utils.FoliaTicker;
 import games.cubi.raycastedantiesp.paper.utils.PaperTicker;
-
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
-
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandExecutor;
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
-
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Set;
-import java.util.function.IntSupplier;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntSupplier;
 
 public final class RaycastedAntiESP extends JavaPlugin implements CommandExecutor {
+    private static final long ENGINE_SHUTDOWN_TIMEOUT_SECONDS = 5;
+
     private static ConfigManager config;
+    private static PaperPacketEventsCommonViewController commonController;
     private static PaperPacketEventsEntityViewController packetEventsController;
+    private static PaperPacketEventsBlockViewController blockController;
     private static PaperAsyncEngine engine;
     private static MetricsCollector metricsCollector;
     private static RaycastedAntiESP instance;
     private static PaperLoggerAdapter loggerAdapter;
     private static PaperTargetFilterService targetFilter;
     private static IntSupplier currentTickSupplier;
+    private static LifecycleScope activeLifecycle;
+
+    private boolean commandsRegistered;
 
     public static final boolean isFolia = getClass("io.papermc.paper.threadedregions.RegionizedServer") != null;
-    //todo: should probably rethink this entire class structure at some point. Too many static fields/methods. Also, a lot of the classes no longer need a reference to the main plugin class since Logger has been abstracted out and config could be given its own getter if needed
+
     {
         instance = this;
-        loggerAdapter = new PaperLoggerAdapter(getLogger(), getDataPath().resolve("logs/" +System.currentTimeMillis()+ ".log"));
+        loggerAdapter = new PaperLoggerAdapter(getLogger(), getDataPath().resolve("logs/" + System.currentTimeMillis() + ".log"));
         Core.initialize(loggerAdapter);
     }
 
     public static @Nullable Class<?> getClass(String className) {
         try {
             return Class.forName(className);
-        } catch (ClassNotFoundException e) {
+        } catch (ClassNotFoundException exception) {
             return null;
         }
     }
 
     @Override
     public void onLoad() {
-        config = ConfigManager.initialiseConfigManager(
-                () -> getResource("config.yml"),
-                getDataFolder().toPath(),
-                List.of(PacketEventsBlockProcessorConfig.EXTENSION, TargetFilterConfig.EXTENSION)
-        );
+        instance = this;
+        Core.initialize(loggerAdapter);
+        initialiseConfigIfNeeded();
         Plugin packetEvents = Bukkit.getPluginManager().getPlugin("packetevents");
         if (packetEvents == null) {
             throw new IllegalStateException("PacketEvents is required but was not found.");
@@ -90,75 +96,170 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
 
     @Override
     public void onEnable() {
-        if (isFolia) {
-            Logger.info("Folia detected. Some features may not work as expected.", 5);
-            currentTickSupplier = new FoliaTicker();
-        }
-        else {
-            currentTickSupplier = new PaperTicker();
-        }
-        PaperEntityTypeExclusionResolver.resolveAndInitialise(config.getEntityConfig().excludedTypes());
-        targetFilter = new PaperTargetFilterService(config);
-        PacketEventsPaperBlockInfoResolver upstreamBlockInfoResolver = new PacketEventsPaperBlockInfoResolver();
-        TargetFilteringBlockInfoResolver blockInfoResolver = new TargetFilteringBlockInfoResolver(upstreamBlockInfoResolver, targetFilter);
-        boolean trackAllBlocks = config.getBlockProcessorConfig().trackAllBlocks();
-        ViewRegistry.initialise(worldEpoch -> new PacketEventsBlockView(blockInfoResolver, trackAllBlocks, worldEpoch), PacketEventsEntityView::createEntityView, PacketEventsEntityView::createPlayerView);
-        PacketEventsCommonViewController.initialise(new PaperPacketEventsCommonViewController(currentTickSupplier));
-        packetEventsController = new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter);
-        new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier);
+        instance = this;
+        Core.initialize(loggerAdapter);
+        finishPriorShutdownOrThrow();
+        initialiseConfigIfNeeded();
 
-        engine = new PaperAsyncEngine(this, config, currentTickSupplier);
-        UpdateChecker.checkForUpdates(this, Bukkit.getConsoleSender());
-        EventListener.initialise(this, engine, currentTickSupplier);
-
-        this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS.newHandler(event -> {
-        RaycastedAntiESPCommandBrigadier.register(event.registrar());
-        AttributionBrigadier.register(event.registrar());
-        SourceCommandBrigadier.register(event.registrar());
-        }));
-        //bStats
-        metricsCollector =  new MetricsCollector(this, config);
-/*
-        Bukkit.getScheduler().scheduleSyncRepeatingTask(this, () -> {
-            for (World world : Bukkit.getWorlds()) {
-                Logger.debug("Printing bukkit info for world " + world.getName() + ": " + world.getLoadedChunks().length + " loaded chunks, " + world.getEntities().size() + " entities");
-                for (Entity entity : world.getEntities()) {
-                    Logger.debug("Entity " + entity.getType() + " at " + entity.getLocation() + " with id " + entity.getEntityId() + " and uuid " + entity.getUniqueId() +  " is tracked by " + parseTrackers(entity.getTrackedPlayers()));
-                }
+        LifecycleScope startup = new LifecycleScope();
+        AtomicBoolean engineDrained = new AtomicBoolean(true);
+        startup.onClose(() -> {
+            if (engineDrained.get()) {
+                resetSharedState();
+            } else {
+                Logger.error("Engine shutdown timed out. Shared controllers and registries remain fenced until a later enable/disable completes the drain.", 1, RaycastedAntiESP.class);
             }
-        }, 1200, 1200);*/
-        /*Do not delete, this is a legal notice*/Attribution.sendAttributionMessage(Bukkit.getConsoleSender()); // Legal notice as required by AGPLv3, it prominently offers users of this plugin the source code and displays an appropriate copyright notice. If you are a fork developer, do NOT remove this unless you have a thorough understanding of the AGPL and have replaced it with a suitable equivalent notice which is "prominently visible", displays the copyright notice, and includes a link to the source code of your fork which is accessible to all users of the plugin.
-        new FancyCompatibility();
-    }
+        });
 
-    private String parseTrackers(Set<Player> trackers) {
-        if (trackers.isEmpty()) return "no one";
-        StringBuilder sb = new StringBuilder();
-        for (Player tracker : trackers) {
-            sb.append(tracker.getName()).append(", ");
+        try {
+            PaperEntityTypeExclusionResolver.resolveAndInitialise(config.getEntityConfig().excludedTypes());
+            targetFilter = new PaperTargetFilterService(config);
+            PacketEventsPaperBlockInfoResolver upstreamBlockInfoResolver = new PacketEventsPaperBlockInfoResolver();
+            TargetFilteringBlockInfoResolver blockInfoResolver = new TargetFilteringBlockInfoResolver(upstreamBlockInfoResolver, targetFilter);
+            boolean trackAllBlocks = config.getBlockProcessorConfig().trackAllBlocks();
+            ViewRegistry.initialise(
+                    worldEpoch -> new PacketEventsBlockView(blockInfoResolver, trackAllBlocks, worldEpoch),
+                    PacketEventsEntityView::createEntityView,
+                    PacketEventsEntityView::createPlayerView
+            );
+
+            Ticker ticker = createTicker();
+            currentTickSupplier = ticker;
+            engine = new PaperAsyncEngine(this, config, currentTickSupplier);
+            PaperAsyncEngine engineForShutdown = engine;
+            startup.onClose(() -> engineDrained.set(engineForShutdown.shutdownAndAwait(
+                    ENGINE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)));
+
+            commonController = new PaperPacketEventsCommonViewController(currentTickSupplier);
+            PacketEventsCommonViewController.initialise(commonController);
+            startup.own(commonController);
+
+            packetEventsController = startup.own(new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter));
+            blockController = startup.own(new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier));
+            startup.own(ticker);
+            startup.own(EventListener.initialise(this, currentTickSupplier));
+
+            UpdateChecker.checkForUpdates(this, Bukkit.getConsoleSender());
+            registerCommandsOnce();
+
+            metricsCollector = new MetricsCollector(this, config);
+            MetricsCollector metricsForShutdown = metricsCollector;
+            startup.onClose(metricsForShutdown::shutdown);
+            startup.own(new FancyCompatibility());
+
+            activeLifecycle = startup;
+            ticker.start();
+
+            /*Do not delete, this is a legal notice*/Attribution.sendAttributionMessage(Bukkit.getConsoleSender());
+        } catch (Throwable throwable) {
+            activeLifecycle = null;
+            try {
+                startup.close();
+            } catch (RuntimeException cleanupFailure) {
+                throwable.addSuppressed(cleanupFailure);
+            }
+            if (throwable instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (throwable instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Unexpected checked failure during plugin startup", throwable);
         }
-        if (sb.length() > 0) {
-            sb.setLength(sb.length() - 2); // Remove trailing comma and space
-        }
-        return sb.toString();
     }
 
     @Override
     public void onDisable() {
-        metricsCollector.shutdown();
-        loggerAdapter.forceFlushToFileNow();
+        LifecycleScope lifecycle = activeLifecycle;
+        activeLifecycle = null;
+        if (lifecycle != null) {
+            try {
+                lifecycle.close();
+            } catch (RuntimeException exception) {
+                Logger.error("One or more plugin shutdown actions failed.", exception, 1, RaycastedAntiESP.class);
+            }
+        } else if (engine != null && engine.isShutdownRequested() && engine.isQuiescent()) {
+            resetSharedState();
+        }
+
+        if (loggerAdapter != null) {
+            loggerAdapter.forceFlushToFileNow();
+        }
     }
 
+    private Ticker createTicker() {
+        if (isFolia) {
+            return new FoliaTicker();
+        }
+        PaperTicker paperTicker = new PaperTicker();
+        paperTicker.register();
+        return paperTicker;
+    }
+
+    private void registerCommandsOnce() {
+        if (commandsRegistered) {
+            return;
+        }
+        this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS.newHandler(event -> {
+            RaycastedAntiESPCommandBrigadier.register(event.registrar());
+            AttributionBrigadier.register(event.registrar());
+            SourceCommandBrigadier.register(event.registrar());
+        }));
+        commandsRegistered = true;
+    }
+
+    private void finishPriorShutdownOrThrow() {
+        PaperAsyncEngine previous = engine;
+        if (previous == null) {
+            return;
+        }
+        if (!previous.isShutdownRequested()) {
+            throw new IllegalStateException("RaycastedAntiESP is already enabled");
+        }
+        if (!previous.shutdownAndAwait(ENGINE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Previous RaycastedAntiESP engine workers are still active; refusing to reuse shared state");
+        }
+        resetSharedState();
+    }
+
+    private void initialiseConfigIfNeeded() {
+        if (config == null) {
+            config = ConfigManager.initialiseConfigManager(
+                    () -> getResource("config.yml"),
+                    getDataFolder().toPath(),
+                    List.of(PacketEventsBlockProcessorConfig.EXTENSION, TargetFilterConfig.EXTENSION)
+            );
+        }
+    }
+
+    private static void resetSharedState() {
+        PacketEventsCommonViewController.reset(commonController);
+        PlayerRegistry.getInstance().clear();
+        EntityBypassRegistry.reset();
+        ViewRegistry.reset();
+        EntityTypeExclusions.reset();
+
+        commonController = null;
+        packetEventsController = null;
+        blockController = null;
+        targetFilter = null;
+        metricsCollector = null;
+        currentTickSupplier = null;
+        engine = null;
+    }
 
     public static ConfigManager getConfigManager() {
         return config;
     }
+
     public static PaperPacketEventsEntityViewController getPacketEventsController() {
         return packetEventsController;
     }
+
     public static PaperAsyncEngine getEngine() {
         return engine;
     }
+
     public static RaycastedAntiESP get() {
         return instance;
     }

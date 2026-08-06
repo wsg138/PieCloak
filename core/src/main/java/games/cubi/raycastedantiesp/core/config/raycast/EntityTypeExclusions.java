@@ -9,34 +9,40 @@
 package games.cubi.raycastedantiesp.core.config.raycast;
 
 import games.cubi.logs.Logger;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.ints.IntSets;
 
-/**
- * Immutable entity-type exclusion policy resolved during plugin startup.
- */
+/** Immutable entity-type exclusion policy resolved during plugin startup. */
 public final class EntityTypeExclusions {
-    public static volatile IntSet volatileExclusionSet = null;
+    private static volatile IntSet exclusions;
 
-    // Is this sort of an insane approach? Yes. But it works.
-    static class FakeLazyConstant {
-        private static final IntSet finalEntityTypeExclusions = init();
+    private EntityTypeExclusions() {
+    }
 
-        private static IntSet init() {
-            IntSet set = volatileExclusionSet;
-            if (set == null) {
-                Logger.error(new RuntimeException("Exclusion set was not initialised before being read"), 4, EntityTypeExclusions.class);
-                return IntSets.emptySet();
-            }
-            return set;
+    public static synchronized void initialise(IntSet resolved) {
+        if (exclusions != null) {
+            throw new IllegalStateException("Entity type exclusions are already initialised");
         }
+        exclusions = IntSets.unmodifiable(new IntOpenHashSet(resolved));
+    }
+
+    public static synchronized void reset() {
+        exclusions = null;
     }
 
     public static boolean excludes(int entityType) {
-        return FakeLazyConstant.finalEntityTypeExclusions.contains(entityType);
+        IntSet current = exclusions;
+        if (current == null) {
+            Logger.error(new IllegalStateException("Exclusion set was not initialised before being read"), 4,
+                    EntityTypeExclusions.class);
+            return false;
+        }
+        return current.contains(entityType);
     }
 
     public static int size() {
-        return FakeLazyConstant.finalEntityTypeExclusions.size();
+        IntSet current = exclusions;
+        return current == null ? 0 : current.size();
     }
 }

@@ -1,24 +1,27 @@
 package games.cubi.raycastedantiesp.paper.packets;
 
 import com.github.retrooper.packetevents.protocol.player.User;
+import games.cubi.raycastedantiesp.core.utils.VarHandler;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsCommonViewController;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
-import games.cubi.raycastedantiesp.core.utils.VarHandler;
 import it.unimi.dsi.fastutil.objects.Object2ObjectArrayMap;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 
 import java.lang.invoke.VarHandle;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntSupplier;
 
-public final class PaperPacketEventsCommonViewController extends PacketEventsCommonViewController implements Listener {
+public final class PaperPacketEventsCommonViewController extends PacketEventsCommonViewController implements Listener, AutoCloseable {
     /** NEVER mutate a published map instance; replace it with a copied map. **/
     private volatile Object2ObjectArrayMap<String, UUID> worldIdByWorldName = new Object2ObjectArrayMap<>(); private static final VarHandle WORLD_ID_BY_WORLD_NAME = VarHandler.get(PaperPacketEventsCommonViewController.class, "worldIdByWorldName", Object2ObjectArrayMap.class);
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public PaperPacketEventsCommonViewController(IntSupplier currentTickSupplier) {
         super(currentTickSupplier);
@@ -51,6 +54,13 @@ public final class PaperPacketEventsCommonViewController extends PacketEventsCom
     @EventHandler
     public void onWorldUnload(WorldUnloadEvent event) {
         unregisterWorld(event.getWorld());
+    }
+
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            HandlerList.unregisterAll(this);
+        }
     }
 
     private synchronized void registerWorld(World world) {

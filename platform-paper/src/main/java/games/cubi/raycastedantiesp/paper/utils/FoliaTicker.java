@@ -19,30 +19,38 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.bukkit.Bukkit;
 
 import java.lang.invoke.VarHandle;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class FoliaTicker implements Ticker {
     private volatile int currentTick; private static final VarHandle CURRENT_TICK = VarHandler.get(FoliaTicker.class, "currentTick", int.class);
     private final HackyEntityIDGuard entityIDGuard = new HackyEntityIDGuard();
+    private final AtomicReference<ScheduledTask> task = new AtomicReference<>();
 
-    public FoliaTicker() {
-        Bukkit.getGlobalRegionScheduler().runAtFixedRate(RaycastedAntiESP.get(), this::increment, 1L, 1L); //Is this guaranteed to be a specific thread?
+    @Override
+    public void start() {
+        ScheduledTask scheduled = Bukkit.getGlobalRegionScheduler().runAtFixedRate(RaycastedAntiESP.get(), this::increment, 1L, 1L);
+        if (!task.compareAndSet(null, scheduled)) {
+            scheduled.cancel();
+            throw new IllegalStateException("Folia ticker was already started");
+        }
     }
 
     private void increment(ScheduledTask scheduledTask) {
+        if (task.get() != scheduledTask) {
+            return;
+        }
         int previous = (int) CURRENT_TICK.getAndAdd(this, 1);
-
         int newTick = previous + 1;
 
         entityIDGuard.tick(newTick);
         AsyncEngine engine = RaycastedAntiESP.getEngine();
-        if (!engine.markTickRunning()) {
-            Logger.info("Skipped starting tick because previous tick is still running. This likely means the server is overloaded.", 6, EventListener.class);
+        if (engine == null || !engine.markTickRunning()) {
+            Logger.info("Skipped starting tick because previous tick is still running or shutdown has begun.", 6, EventListener.class);
             return;
         }
-        // Capture this before async handoff so timing diagnostics can separate scheduler queueing from engine work.
         long scheduledNanos = System.nanoTime();
         try {
-            Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), task -> engine.tick(newTick, scheduledNanos));
+            Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> engine.tick(newTick, scheduledNanos));
         } catch (RuntimeException exception) {
             engine.cancelPendingTickReservation();
             Logger.error("Failed to schedule engine tick after reserving it. Cleared the pending reservation so future ticks can continue.", exception, 2, EventListener.class);
@@ -52,5 +60,13 @@ public class FoliaTicker implements Ticker {
     @Override
     public int getAsInt() {
         return (int) CURRENT_TICK.getOpaque(this);
+    }
+
+    @Override
+    public void close() {
+        ScheduledTask scheduled = task.getAndSet(null);
+        if (scheduled != null) {
+            scheduled.cancel();
+        }
     }
 }
