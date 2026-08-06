@@ -5,18 +5,29 @@ coordination_branch: main
 active_pr: 11
 active_branch: agent/sync-upstream-clean-history
 state: READY_FOR_AGENT
-current_package: 10-codacy-provenance-and-remediation
-recorded_pr_head: c650595a9a2d010ac5adef6725f1a63abaf294a7
+current_package: 11-final-codacy-verification
+recorded_pr_head: ee5c80f8c96cdd565eb95edcb1cf8128469741bb
 target_minecraft: 1.21.11
 future_platform_target: stable Paper 26.2-or-newer
-current_handoff: ai-agents/reports/agent-handoffs/0011-20260806T051806Z-codacy-provenance-review-reopen.md
+current_handoff: ai-agents/reports/agent-handoffs/0012-20260806T082300Z-package-10-complete.md
 ---
 
 # PieCloak workspace state
 
 Last coordinated: 2026-08-06
 
-The package-09 `READY_FOR_OWNER` verdict is superseded for the Codacy review boundary. Owner review found an unclassified Codacy `action_required` result on PR #11: live check run `92522261869` at recorded head `c650595a9a2d010ac5adef6725f1a63abaf294a7` reports 573 added and 68 solved issues. Because PR #11 contains a major `Cubicake/RaycastedAntiESP` upstream synchronization, those findings require exact per-annotation provenance rather than being treated as PieCloak-introduced by default.
+Package 10 completed the Codacy provenance and remediation boundary. The
+authoritative initial dataset contained 573 findings: 390 upstream and 183
+PieCloak-attributed. All 183 PieCloak findings and all 11 findings newly surfaced
+during remediation were fixed. The complete final exact-head export contains 376
+findings, all reproduced against the authoritative upstream baseline.
+
+```text
+remaining PieCloak-attributed findings: 0
+```
+
+Package 11 is selected for independent final verification. The PR remains not
+ready for owner review until package 11 confirms the package-10 evidence.
 
 ## Branch responsibilities
 
@@ -32,11 +43,13 @@ The package-09 `READY_FOR_OWNER` verdict is superseded for the Codacy review bou
 | State | `READY_FOR_AGENT` |
 | Pull request | `#11 — Sync latest RaycastedAntiESP upstream and preserve PieCloak filtering` |
 | Implementation branch | `agent/sync-upstream-clean-history` |
-| Recorded implementation head | `c650595a9a2d010ac5adef6725f1a63abaf294a7` |
-| Current package | `10-codacy-provenance-and-remediation` |
-| Codacy check run | `92522261869` |
-| Codacy result | `action_required` |
-| Recorded issues | `573 added`, `68 solved` |
+| Recorded implementation head | `ee5c80f8c96cdd565eb95edcb1cf8128469741bb` |
+| Current package | `11-final-codacy-verification` |
+| Final Codacy check run | `92561079845` |
+| Final Codacy result | `action_required` |
+| Complete final findings | `376 upstream`, `0 PieCloak` |
+| Initial remediation result | `183 of 183 PieCloak findings fixed` |
+| Newly reported remediation findings | `11 investigated`, `11 fixed`, `0 remaining` |
 | Current target | Minecraft `1.21.11`, Leaf/Paper-compatible, Geyser/Floodgate-compatible |
 | Merge authority | Owner only; workers have no merge or deployment authority |
 
@@ -53,24 +66,38 @@ The package-09 `READY_FOR_OWNER` verdict is superseded for the Codacy review bou
 | 07 | Controller ownership and same-JVM re-enable | `COMPLETE` | 04, owner review |
 | 08 | Respawn visibility-state invalidation | `COMPLETE` | 07 |
 | 09 | Superseding final integration, PR cleanup, and release review | `COMPLETE; VERDICT SUPERSEDED FOR CODACY` | 07–08 |
-| 10 | Codacy provenance and remediation | `SELECTED` | owner review, 09 |
-| 11 | Final Codacy verification | `PENDING` | 10 |
+| 10 | Codacy provenance and remediation | `COMPLETE` | owner review, 09 |
+| 11 | Final Codacy verification | `SELECTED` | 10 |
 
-## Package-10 boundary
+## Package-10 evidence
 
-Package 10 must classify every exported Codacy annotation exactly as `UPSTREAM` or `PIECLOAK`, establish the authoritative synchronized upstream SHA, fix all PieCloak-attributed findings, preserve behavior and current platform compatibility, produce the required CSV and Markdown reports on `main`, validate the exact final PR head, and prove zero remaining PieCloak-attributed annotations after the final push.
-
-Do not mass-refactor, suppress, exclude, or silently reclassify upstream-only findings. A remaining Codacy `action_required` result is acceptable only with exact reproducible evidence that every remaining annotation is upstream.
+- Authoritative upstream commit:
+  `853fa1531acbbb1458f776bbe2dc637fd0d40b7c`
+- PieCloak sync commit:
+  `18f08ab7d70f3b5c4b7a0addc1e777e310381086`
+- Shared tree:
+  `c7f17bf195a1cc3d493eba4d35782387a16e6668`
+- Final implementation head:
+  `ee5c80f8c96cdd565eb95edcb1cf8128469741bb`
+- Final implementation tree:
+  `9b672eec8b2aef8a7af58073ca85677d0c35fb5c`
+- Final complete export:
+  `376 upstream`, `0 PieCloak`
+- Reports:
+  `ai-agents/reports/codacy/package-10-findings.csv` and
+  `ai-agents/reports/codacy/package-10-summary.md`
 
 ## Current boundaries
 
-- PR #11 is `NOT READY — CODACY PROVENANCE REVIEW PENDING`.
-- Complete package 10 only; do not begin package 11 in the same channel.
-- Do not merge, close, or deploy PR #11.
+- PR #11 is `NOT READY — PACKAGE 11 FINAL CODACY VERIFICATION PENDING`.
+- Execute package 11 only through the canonical package routing.
+- Do not merge, close, deploy, or mark PR #11 owner-ready before package 11.
 - Do not change the current target away from Minecraft `1.21.11`.
 - Do not weaken Codacy rules, quality gates, or exclusions.
+- Do not mass-refactor or suppress the 376 upstream findings.
 - Preserve all completed package and handoff history.
 
 ## Next route
 
-Execute `10-codacy-provenance-and-remediation`. On completion, route to `11-final-codacy-verification` and stop.
+Execute `11-final-codacy-verification`. Independently verify package 10 and stop
+at the verdict required by that package.
