@@ -37,7 +37,7 @@ final class FancyNpcsCompatibility extends PaperListener {
         EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onNpcRemove(NpcRemoveEvent event) {
         EntityBypassRegistry.markEntityDespawned(event.getNpc().getEntityId());
     }

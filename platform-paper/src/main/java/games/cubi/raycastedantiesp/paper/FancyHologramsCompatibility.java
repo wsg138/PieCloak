@@ -38,7 +38,7 @@ final class FancyHologramsCompatibility extends PaperListener {
         event.getManager().forEach(this::add);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onHologramDelete(HologramDeleteEvent event) {
         EntityBypassRegistry.markEntityDespawned(event.getHologram().getEntityId());
     }
