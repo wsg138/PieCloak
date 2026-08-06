@@ -127,25 +127,34 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             );
 
             Ticker ticker = createTicker();
-            currentTickSupplier = ticker;
-            engine = new PaperAsyncEngine(this, config, currentTickSupplier);
-            PaperAsyncEngine engineForShutdown = engine;
-            startup.onClose(() -> {
-                engineDrained.set(false);
-                if (engineForShutdown.shutdownAndAwait(ENGINE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                    engineDrained.set(true);
+            try {
+                currentTickSupplier = ticker;
+                engine = new PaperAsyncEngine(this, config, currentTickSupplier);
+                PaperAsyncEngine engineForShutdown = engine;
+                startup.onClose(() -> {
+                    engineDrained.set(false);
+                    if (engineForShutdown.shutdownAndAwait(ENGINE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                        engineDrained.set(true);
+                    }
+                });
+                ownCritical(startup, teardownSafe, ticker);
+            } catch (RuntimeException | Error throwable) {
+                try {
+                    ticker.close();
+                } catch (Exception | Error cleanupFailure) {
+                    throwable.addSuppressed(cleanupFailure);
                 }
-            });
+                throw throwable;
+            }
 
-            commonController = new PaperPacketEventsCommonViewController(currentTickSupplier);
+            commonController = ownCritical(startup, teardownSafe,
+                    new PaperPacketEventsCommonViewController(currentTickSupplier));
             PacketEventsCommonViewController.initialise(commonController);
-            ownCritical(startup, teardownSafe, commonController);
 
             packetEventsController = ownCritical(startup, teardownSafe,
                     new PaperPacketEventsEntityViewController(currentTickSupplier, targetFilter));
             blockController = ownCritical(startup, teardownSafe,
                     new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier));
-            ownCritical(startup, teardownSafe, ticker);
             ownCritical(startup, teardownSafe, EventListener.initialise(this, currentTickSupplier));
 
             UpdateChecker.checkForUpdates(this, Bukkit.getConsoleSender());
