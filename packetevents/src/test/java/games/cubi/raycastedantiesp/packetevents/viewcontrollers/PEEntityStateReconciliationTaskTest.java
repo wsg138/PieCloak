@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class PEEntityStateReconciliationTaskTest {
@@ -118,6 +119,31 @@ class PEEntityStateReconciliationTaskTest {
         playerData.nettyData().evictOldPendingPostSpawnTasks(EntitySpawnTask.TICKS_BEFORE_EVICTION);
 
         assertNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
+    }
+
+    @Test
+    void expiredUnknownEntityQueueIsSuppressedUntilSpawnResetsIt() {
+        PlayerData playerData = playerData();
+        int entityID = 46;
+
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                playerData, entityID, 10, 20, 30, 0, 0, 0, 0, 0, false, 0));
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.headLook(
+                playerData, entityID, 15, 1));
+
+        playerData.nettyData().evictOldPendingPostSpawnTasks(EntitySpawnTask.TICKS_BEFORE_EVICTION);
+        assertNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
+
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.headLook(
+                playerData, entityID, 30, EntitySpawnTask.TICKS_BEFORE_EVICTION + 1));
+        assertNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
+
+        insertEntity(playerData, entityID);
+        playerData.nettyData().runPendingPostSpawnTaskForEntity(entityID);
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.headLook(
+                playerData, entityID, 45, EntitySpawnTask.TICKS_BEFORE_EVICTION + 2));
+
+        assertNotNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
     }
 
     private PlayerData playerData() {
