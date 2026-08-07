@@ -16,6 +16,7 @@ import it.unimi.dsi.fastutil.ints.Int2IntArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import org.jetbrains.annotations.Nullable;
 
@@ -199,6 +200,12 @@ public class NettyData implements Clearable {
     // START Netty entity spawn task queue:
     //
     private final Int2ObjectArrayMap<EntitySpawnTask> pendingPostEntitySpawnTasksByEntityID = new Int2ObjectArrayMap<>(16); // shot in the dark guess at capacity here. Can't be the more generic Int2ObjectMap because that doesn't expose a fast iterator.
+    /**
+     * Entity IDs whose spawn never arrived within the reconciliation window for this viewer.
+     * Once quarantined, additional unknown-entity packets are allowed through without rebuilding an
+     * endlessly expiring queue. A real spawn or destroy packet clears the quarantine for that ID.
+     */
+    private final IntOpenHashSet suppressedPostEntitySpawnTaskEntityIDs = new IntOpenHashSet(DEFAULT_MAP_SIZE);
     private volatile boolean evictPendingPostSpawnTasksOnNextPacket; private static final VarHandle EVICT_PENDING_POST_SPAWN_TASKS_ON_NEXT_PACKET_HANDLE = VarHandler.get(NettyData.class, "evictPendingPostSpawnTasksOnNextPacket", boolean.class);
     /**
      * This is intended for reconciliation tasks due to Minecraft sending packets out of order. For example, {@link Packets#ENTITY_EQUIPMENT} is sent before the corresponding {@link Packets#SPAWN_ENTITY} packet, so caching of the equipment packet must await the spawn packet.
@@ -209,6 +216,9 @@ public class NettyData implements Clearable {
         if (task.getNext() != null) {
             Logger.errorAndReturn(new IllegalArgumentException("Pending netty task was chained before queueing. Task=" + task), 4, NettyData.class);
         }
+        if (suppressedPostEntitySpawnTaskEntityIDs.contains(entityID)) {
+            return;
+        }
         EntitySpawnTask existing = pendingPostEntitySpawnTasksByEntityID.get(entityID);
         if (existing == null) {
             pendingPostEntitySpawnTasksByEntityID.put(entityID, task);
@@ -218,6 +228,7 @@ public class NettyData implements Clearable {
     }
 
     public void runPendingPostSpawnTaskForEntity(int entityID) {
+        suppressedPostEntitySpawnTaskEntityIDs.remove(entityID);
         EntitySpawnTask pendingTasks = consumePendingPostSpawnTasksForEntity(entityID);
         if (pendingTasks != null) {
             pendingTasks.runLinkedTasks();
@@ -239,18 +250,25 @@ public class NettyData implements Clearable {
 
     public void clearPendingPostSpawnTasksForEntity(int entityID) {
         pendingPostEntitySpawnTasksByEntityID.remove(entityID);
+        suppressedPostEntitySpawnTaskEntityIDs.remove(entityID);
     }
 
     public void evictOldPendingPostSpawnTasks(int currentTick) {
         ObjectIterator<Int2ObjectMap.Entry<EntitySpawnTask>> iterator = pendingPostEntitySpawnTasksByEntityID.int2ObjectEntrySet().fastIterator();
         while (iterator.hasNext()) {
             Int2ObjectMap.Entry<EntitySpawnTask> entry = iterator.next();
-            EntitySpawnTask survivingHead = entry.getValue().trimExpiredTasks(currentTick);
-            if (survivingHead == null) {
-                iterator.remove();
-            } else {
-                entry.setValue(survivingHead);
+            EntitySpawnTask oldestTask = entry.getValue();
+            if (!oldestTask.thisShouldBeEvicted(currentTick)) {
+                continue;
             }
+
+            int entityID = entry.getIntKey();
+            iterator.remove();
+            suppressedPostEntitySpawnTaskEntityIDs.add(entityID);
+            Logger.warning("Discarding expired Netty post-spawn reconciliation queue for entityID=" + entityID
+                    + " because no spawn packet arrived within " + EntitySpawnTask.TICKS_BEFORE_EVICTION
+                    + " ticks. Further unknown-entity reconciliation for this viewer/entity ID is suppressed until a spawn or destroy packet resets it. Current tick="
+                    + currentTick + " Oldest task=" + oldestTask, 3, NettyData.class);
         }
     }
 
@@ -360,6 +378,7 @@ public class NettyData implements Clearable {
         unresolvedPassengerIDsByVehicleID.clear();
         unresolvedVehicleIDsByPassengerID.clear();
         pendingPostEntitySpawnTasksByEntityID.clear();
+        suppressedPostEntitySpawnTaskEntityIDs.clear();
         evictPendingPostSpawnTasksOnNextPacket = false;
     }
 
