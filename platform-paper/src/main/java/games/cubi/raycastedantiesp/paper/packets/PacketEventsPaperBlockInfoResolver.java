@@ -15,6 +15,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
+    private static final int MAX_CLASSIFICATION_DIAGNOSTICS = 5;
+
     private final boolean[] occlusionArray;
     /** Raw Bukkit TileState capability, before plugin config overrides. */
     private final boolean[] rawTileEntityArray;
@@ -51,6 +53,7 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
         boolean run = true;
         int airs = 0;
         int lastNonAirID = 0;
+        int classificationDiagnostics = 0;
         Map<Integer, Boolean> occlusion = new HashMap<>(111000); //Tests show 30,000 block IDs in 1.21.11, and we scan forwards for 80k air ids just in case, so 111k is enough. This is a pointless micro optimization but why not
         Map<Integer, Boolean> tileEntity = new HashMap<>(111000);
         int iterator = 0;
@@ -78,15 +81,25 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
 
             occlusion.put(iterator, blockData.getMaterial().isOccluding());
             try {
-                if (blockData.createBlockState() instanceof TileState) {
-                    //Logger.debug("tile at" + iterator + " is tile entity" + material.name());
-                    tileEntity.put(iterator, true);
-                } else {
-                    tileEntity.put(iterator, false);
-                }
-            } catch (Exception a) {
+                // Paper treats MOVING_PISTON as an optional block entity: an unplaced BlockData snapshot may not
+                // materialize as TileState even though real moving pistons legitimately carry piston block-entity data.
+                boolean hasBlockEntityData = blockData.getMaterial() == Material.MOVING_PISTON
+                        || blockData.createBlockState() instanceof TileState;
+                tileEntity.put(iterator, hasBlockEntityData);
+            } catch (RuntimeException exception) {
                 tileEntity.put(iterator, false);
-                // will sometimes inconsistently happen, just ignore it ig?
+                classificationDiagnostics++;
+                if (classificationDiagnostics <= MAX_CLASSIFICATION_DIAGNOSTICS) {
+                    String suffix = classificationDiagnostics == MAX_CLASSIFICATION_DIAGNOSTICS
+                            ? " (further block-state classification failures suppressed)"
+                            : "";
+                    Logger.warning("Failed to classify PacketEvents block state as a block entity. blockStateId="
+                            + iterator + " material=" + blockData.getMaterial()
+                            + " blockData=" + blockData.getAsString()
+                            + " exception=" + exception.getClass().getName()
+                            + (exception.getMessage() == null ? "" : ": " + exception.getMessage())
+                            + suffix, 3, PacketEventsPaperBlockInfoResolver.class);
+                }
             }
             iterator++;
         }
