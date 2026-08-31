@@ -22,10 +22,13 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntUnaryOperator;
 
 abstract class AbstractChunkParser<D> implements ChunkParser {
     private static final TileEntity[] EMPTY_TILE_ENTITIES = new TileEntity[0];
+    private static final int MAX_INVALID_BLOCK_ENTITY_DIAGNOSTICS = 10;
+    private static final AtomicInteger INVALID_BLOCK_ENTITY_DIAGNOSTICS = new AtomicInteger();
 
     protected final BlockInfoResolver blockInfoResolver;
     private final boolean mutatePackets;
@@ -204,14 +207,44 @@ abstract class AbstractChunkParser<D> implements ChunkParser {
                     + blockX + "," + blockY + "," + blockZ, 3, AbstractChunkParser.class);
             return true;
         }
-        int blockID = sections[sectionIndex].getBlockId(
-                localX, blockY & ChunkData.LOCAL_MASK, localZ);
-        if (blockInfoResolver.hasBlockEntityData(blockID) && !blockInfoResolver.isTileEntity(blockID)) {
+        int localY = blockY & ChunkData.LOCAL_MASK;
+        int blockID = sections[sectionIndex].getBlockId(localX, localY, localZ);
+        boolean rawBlockEntity = blockInfoResolver.hasBlockEntityData(blockID);
+        boolean managedBlockEntity = blockInfoResolver.isTileEntity(blockID);
+        if (rawBlockEntity && !managedBlockEntity) {
             return false;
         }
-        Logger.warning("Received invalid or uncached chunk block entity at "
-                + blockX + "," + blockY + "," + blockZ, 3, AbstractChunkParser.class);
+        logInvalidChunkBlockEntity(world, blockOriginX >> 4, blockOriginZ >> 4,
+                blockX, blockY, blockZ, localX, localY, localZ, sectionIndex,
+                blockID, rawBlockEntity, managedBlockEntity, tileEntity);
         return true;
+    }
+
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
+    private void logInvalidChunkBlockEntity(UUID world, int chunkX, int chunkZ,
+            int blockX, int blockY, int blockZ, int localX, int localY, int localZ,
+            int sectionIndex, int blockID, boolean rawBlockEntity, boolean managedBlockEntity,
+            TileEntity tileEntity) {
+        int diagnostic = INVALID_BLOCK_ENTITY_DIAGNOSTICS.incrementAndGet();
+        if (diagnostic > MAX_INVALID_BLOCK_ENTITY_DIAGNOSTICS) {
+            return;
+        }
+        Object blockEntityType = BlockEntityTypes.getById(clientVersion, tileEntity.getType());
+        String suffix = diagnostic == MAX_INVALID_BLOCK_ENTITY_DIAGNOSTICS
+                ? " (further invalid chunk block-entity messages suppressed)"
+                : "";
+        Logger.warning("Received invalid or uncached chunk block entity. world=" + world
+                + " chunk=" + chunkX + "," + chunkZ
+                + " position=" + blockX + "," + blockY + "," + blockZ
+                + " local=" + localX + "," + localY + "," + localZ
+                + " sectionIndex=" + sectionIndex
+                + " blockStateId=" + blockID
+                + " blockEntityType=" + blockEntityType
+                + " blockEntityTypeId=" + tileEntity.getType()
+                + " rawBlockEntity=" + rawBlockEntity
+                + " managedBlockEntity=" + managedBlockEntity
+                + " action=" + (mutatePackets ? "strip" : "observe")
+                + suffix, 3, AbstractChunkParser.class);
     }
 
     @SuppressWarnings("unchecked")
