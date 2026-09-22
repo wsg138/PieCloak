@@ -11,7 +11,7 @@ Upstream reference reviewed: `Cubicake/RaycastedAntiESP` through `1fcec23a57cad6
 
 With a one-block step this allowed a target slightly beyond a configured 48-block maximum (for example 48.5 blocks away) to pass the radius gate. It also enlarged the always-show radius by the same mechanism.
 
-The hardening branch now performs both radius decisions against the real start-to-target distance and applies the step subtraction only to the occlusion walk. Regression tests cover both boundaries.
+The hardening branch now performs both radius decisions against the real start-to-target distance. Regression tests cover both boundaries.
 
 This is directly relevant to reports of entities being visible just beyond 48 blocks. It does not explain entities visible substantially farther than roughly one extra step.
 
@@ -29,13 +29,15 @@ The hardening branch now:
 - removes the async-engine bypassed-vehicle visibility exception;
 - keeps the existing legitimate SHOW replay path, which remounts the passenger when it later becomes independently visible.
 
-Regression coverage verifies that a managed passenger 100 blocks away riding a bypassed vehicle is hidden by the normal 48-block policy.
+Regression coverage exercises immediate, passenger-late, and bypassed-vehicle-late relationship ordering without force-revealing the managed passenger.
 
-### 3. Occlusion raycasting deliberately favors false-visible results
+### 3. Approximate one-block ray sampling could false-show diagonal/corner targets — fixed on this branch
 
-The current raycast is a one-block stepping sampler rather than exact voxel traversal. Its own contract explicitly accepts missing corner blocks and treats those misses as visible.
+The previous raycast was a one-block stepping sampler whose contract explicitly accepted missing corner blocks and treated those misses as visible. That was a performance tradeoff, but it meant the visibility system was not mathematically strict for all diagonal/corner geometries.
 
-That is a performance tradeoff, not a state-machine bug, but it means the visibility system is not mathematically fail-closed for all diagonal/corner geometries. If the project requirement becomes strict anti-information-leak correctness, exact/supercover 3D voxel traversal should be evaluated and benchmarked before replacing the current sampler.
+The hardening branch now uses exact voxel traversal of the center ray between viewer and target. The viewer's start voxel and the target voxel are intentionally excluded so neither endpoint can occlude itself, and simultaneous axis crossings are handled together. The configured `max-occluding-count` now applies directly to real intermediate occluding voxels, so block targets no longer need the old caller-side `+1` compensation.
+
+Regression coverage includes a diagonal voxel skipped by the old one-block sampler, target-voxel self-occlusion, and the block-target occluder threshold. This is a stricter algorithm and must still be profiled under realistic live entity counts before merge because correctness has been prioritized over the old approximate sampler's speed tradeoff.
 
 ### 4. Glowing entities bypass normal radius/occlusion hiding
 
@@ -45,13 +47,13 @@ This refers to the entity metadata glowing flag, not the `glow_item_frame` entit
 
 Diagnostics should report this state so a glow-related exception is immediately visible during testing.
 
-### 5. Configured positional-sound protection is not currently enforced
+### 5. Configured positional-sound protection is not currently enforced — configuration made fail-honest on this branch
 
-PieCloak exposes and ships an enabled `checks.sound-effects` policy with occlusion/radius fields, but no active packet controller consumes that policy. PacketEvents' clientbound positional sound packet contains explicit effect coordinates.
+PieCloak exposes a `checks.sound-effects` policy with occlusion/radius fields, but no active packet controller consumes that policy. PacketEvents' clientbound positional sound packet contains explicit effect coordinates.
 
-As a result, a hidden entity or block entity can still have activity inferred through positional sounds when the server emits an ordinary coordinate-based sound packet. This is an information side channel rather than a direct entity-spawn leak, but it matters for a strict anti-ESP threat model and the current configuration overstates the implemented protection.
+As a result, a hidden entity or block entity can still have activity inferred through positional sounds when the server emits an ordinary coordinate-based sound packet. This is an information side channel rather than a direct entity-spawn leak, but it matters for a strict anti-ESP threat model.
 
-This needs a dedicated packet-semantic implementation and tests before being changed; the network sound coordinates must be converted correctly before applying the ray policy.
+The bundled configuration now sets `checks.sound-effects.enabled: false` instead of implying protection that is not actually implemented. A dedicated packet-semantic implementation and tests are still needed before this protection can truthfully be enabled; network sound coordinates must be interpreted correctly before applying ray policy.
 
 ### 6. PieCloak has not yet incorporated upstream bundle-boundary reliability fixes
 
@@ -65,6 +67,8 @@ Upstream issue #45 still tracks clientbound packets that are not fully visibilit
 
 PieCloak currently ships with player checks disabled, so the exact #94 hidden-player scenario is not active under the bundled production configuration. Entity-side equivalents and other unhandled packets should nevertheless be reviewed if the goal is strict leak resistance.
 
+Relationship packets also deserve explicit packet-order testing: packets such as `SET_PASSENGERS` or leash state can reference an entity ID before every endpoint has spawned. PieCloak retains and replays unresolved relationships, so a strict anti-information-leak pass should verify whether any pre-spawn relationship packet can be safely suppressed rather than exposing an otherwise-hidden endpoint ID.
+
 ### 8. Bypass permission is cached for the session
 
 The Paper join handler snapshots `raycastedantiesp.bypass` into `PlayerData`, and no corresponding permission-change refresh path was found in this review. If a player's bypass permission is granted or revoked while they remain connected, the anti-ESP decision can remain stale until reconnect.
@@ -75,7 +79,7 @@ This does not explain the reported player if they never had the permission, but 
 
 The configured entity names match PacketEvents' registry names, and the bundled exclusions do not exclude item frames, glow item frames, or armor stands. The live server configuration was also confirmed by the operator to include them. A normal non-glowing, non-attached, non-plugin-bypassed instance of one of these types should enter the managed entity view.
 
-Once managed, the normal state machine starts distant spawns hidden and repeatedly rechecks hidden entities. After the radius-boundary fix, the configured maximum radius is strict. Therefore a report of ordinary frames/stands visible only slightly beyond 48 blocks is consistent with the confirmed radius bug; a report of them visible much farther away requires checking exceptional state (glowing, attachment, explicit plugin bypass) or reproducing the report.
+Once managed, the normal state machine starts distant spawns hidden and repeatedly rechecks hidden entities. After the radius-boundary fix, the configured maximum radius is strict, and the new exact voxel traversal removes the old sampler's deliberate diagonal/corner misses. Therefore a remaining report of ordinary frames/stands visible much farther away requires checking exceptional state (glowing, attachment, explicit plugin bypass), packet-order behavior, or reproducing the report against the hardened build.
 
 FancyHolograms and FancyNPCs intentionally register their own entity IDs in the bypass registry. This can explain plugin-owned armor stands or hologram internals, but it does not explain ordinary vanilla item frames at a normal base.
 
@@ -101,13 +105,13 @@ No normal-protocol player-controlled block-entity reveal equivalent to the bypas
 
 An untracked/missing occlusion section currently answers “not occluding.” Hidden-on-spawn behavior limits the obvious race window, so this audit does not classify that alone as a reproduced leak. A dedicated packet-order/concurrency test should establish whether a visible entity can be rechecked while required section data is absent before changing the policy.
 
-### Exact raycasting
+### Exact raycasting runtime validation
 
-If strict structural privacy is prioritized over the current speed tradeoff, prototype a voxel-exact/supercover ray and benchmark it against realistic entity counts. Do not silently call the existing approximate sampler exact.
+Exact voxel traversal is now implemented on this branch and covered by correctness tests. Before merge, benchmark and profile it under realistic production entity/player counts. Do not trade correctness back to approximate sampling merely to recover a synthetic microbenchmark result; if the exact implementation is too expensive, optimize its state representation and hot-path allocation profile while preserving the exact traversal contract.
 
 ### Packet side channels
 
-Audit packets that reference entity IDs or reveal entity-associated location/activity without going through the managed visibility gate, especially `COLLECT_ITEM`, entity sounds, coordinate-based sounds, damage/effect/particle events, and vehicle-specific synchronization.
+Audit packets that reference entity IDs or reveal entity-associated location/activity without going through the managed visibility gate, especially `COLLECT_ITEM`, entity sounds, coordinate-based sounds, damage/effect/particle events, pre-spawn passenger/leash relationships, and vehicle-specific synchronization.
 
 ## Diagnostics design
 
@@ -141,6 +145,8 @@ Recommended block-entity output:
 
 For useful bypass diagnostics, evolve `EntityBypassRegistry` so diagnostic state records why an ID is bypassed (for example target-filter exclusion, entity-type exclusion, FancyHolograms, FancyNPCs, relationship support, or future WorldGuard skip) while preserving a cheap hot-path membership check.
 
+The earlier diagnostic-command prototype was intentionally removed from this hardening PR after it expanded scope and static-analysis complexity. Diagnostics should be implemented as a separate focused package rather than coupled to the visibility fixes.
+
 ## WorldGuard exemption design
 
 A future WorldGuard state flag such as `piecloak-skip` should be treated as a target-location policy: entities and block entities inside an effective flagged region are always sent normally and should avoid normal anti-ESP tracking/raycast work where safe.
@@ -162,9 +168,9 @@ High-value selective candidates found in this review:
 
 1. strict radius semantics — ported and regression-tested in this branch;
 2. issue #88 bundle-boundary transition handling — applicable, requires careful adaptation to PieCloak's hardened retry/transition paths;
-3. allocation/performance improvements — evaluate after correctness ports;
-4. large raycast/chunk-parser rewrites — do not import blindly because PieCloak's target filtering and reliability behavior diverge.
+3. allocation/performance improvements — evaluate against the new exact traversal without weakening its correctness contract;
+4. large upstream raycast/chunk-parser rewrites — do not import blindly because PieCloak's target filtering and reliability behavior diverge.
 
 ## Validation status
 
-At branch head `863a14fc98f00d470bb603df609f23407598d887`, the repository Build workflow and Static analysis workflow both completed successfully with the strict-radius and bypassed-vehicle regression coverage included.
+At exact code head `fd3620c5396bf8a8896057519b699a50bb9ea72d`, Codacy completed successfully with zero annotations, and Semgrep/Trivy reported no new alerts. Static analysis completed successfully. The immediately preceding code-identical head completed the full Gradle compile/test/build successfully before its superseded workflow was cancelled after the successful build step. A fresh exact-head Build workflow is still required to complete before this report should be treated as final merge evidence.
