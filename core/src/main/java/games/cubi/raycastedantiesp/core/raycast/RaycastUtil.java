@@ -2,52 +2,124 @@ package games.cubi.raycastedantiesp.core.raycast;
 
 import games.cubi.locatables.api.BlockSpatial;
 import games.cubi.locatables.api.Locatable;
-import games.cubi.locatables.api.MutableFloatingSpatial;
 import games.cubi.locatables.api.Spatial;
-import games.cubi.locatables.implementations.MutableSpatialImpl;
+import games.cubi.locatables.implementations.ImmutableSpatialImpl;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 
 public class RaycastUtil {
+    private static final double AXIS_TIE_EPSILON = 1.0E-12;
 
-    //True: Has line-of-sight
-    //This is deliberately a ray-stepping algorithm rather than DDA as it is much faster (2x in benchmarking)
-    //Missing blocks is acceptable, as it will be assumed the player can see past those corners.
-    //While this uses objects, JHM and in-game profiling have both shown that all objects used here are consistently scalarised by the JVM.
-    public static boolean raycast(Locatable start, Spatial end, int maxOccluding, int alwaysShowRadius, int maxRaycastRadius, boolean debug, BlockView snap, int stepSize, ParticleSpawner particleSpawner) {
-        return raycast(start, end, maxOccluding, alwaysShowRadius, maxRaycastRadius, debug, snap, 0f, stepSize, particleSpawner);
+    // True: has line-of-sight.
+    // Traverse every voxel whose interior the centre ray enters. The start and target voxels are
+    // intentionally excluded so the viewer's own block and the target block cannot occlude themselves.
+    public static boolean raycast(Locatable start, Spatial end, int maxOccluding, int alwaysShowRadius,
+            int maxRaycastRadius, boolean debug, BlockView snap, int stepSize,
+            ParticleSpawner particleSpawner) {
+        return raycast(start, end, maxOccluding, alwaysShowRadius, maxRaycastRadius,
+                debug, snap, 0f, stepSize, particleSpawner);
     }
 
-    public static boolean raycast(Locatable start, Spatial end, int maxOccluding, int alwaysShowRadius, int maxRaycastRadius, boolean debug, BlockView snap, float yOffsetEnd, int stepSize, ParticleSpawner particleSpawner) {
-        double endOffset = end instanceof BlockSpatial ? 0.5 : 0.0;
-        MutableFloatingSpatial clonedEnd = new MutableSpatialImpl(end.x() + endOffset, end.y() + endOffset + yOffsetEnd, end.z() + endOffset);
-        //Equivalent to end.cloneAndIfBlockThenCentre(); but not used since the JVM was not reliably scalarising that method (probably due to the polymorphic overriding?). This causes 0 object allocations.
-        double distance = start.distance(clonedEnd);
-        // Radius semantics are based on the real start-to-target distance. The one-block stepping adjustment below
-        // only controls how far the occlusion loop walks and must not extend either configured radius by one block.
-        if (distance <= alwaysShowRadius) return true;
-        if (distance > maxRaycastRadius) return false;
-        double total = distance - stepSize; //benchmarking shows that calling distance() is faster than distanceSquared() then checking distanceSquared < stepSize*stepSize every time despite the latter replacing a square root with multiplication
-        if (debug && particleSpawner == null) {
-            Logger.errorAndReturn(new RuntimeException("raycast called with debug enabled but no ParticleSpawner supplied"), 2, RaycastUtil.class);
+    public static boolean raycast(Locatable start, Spatial end, int maxOccluding, int alwaysShowRadius,
+            int maxRaycastRadius, boolean debug, BlockView snap, float yOffsetEnd, int stepSize,
+            ParticleSpawner particleSpawner) {
+        if (stepSize <= 0) {
+            throw new IllegalArgumentException("stepSize must be positive");
         }
 
-        Spatial dir = clonedEnd.subtract(start).normalise().scalarMultiply(stepSize);
+        double endOffset = end instanceof BlockSpatial ? 0.5 : 0.0;
+        double endX = end.x() + endOffset;
+        double endY = end.y() + endOffset + yOffsetEnd;
+        double endZ = end.z() + endOffset;
+        double deltaX = endX - start.x();
+        double deltaY = endY - start.y();
+        double deltaZ = endZ - start.z();
+        double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
 
-        MutableFloatingSpatial current = new MutableSpatialImpl(start.x(),start.y(),start.z());
+        if (distance <= alwaysShowRadius) {
+            return true;
+        }
+        if (distance > maxRaycastRadius) {
+            return false;
+        }
+        if (debug && particleSpawner == null) {
+            Logger.errorAndReturn(new RuntimeException(
+                    "raycast called with debug enabled but no ParticleSpawner supplied"),
+                    2, RaycastUtil.class);
+        }
 
-        for (double traveled = 0; traveled < total; traveled += stepSize) { //benchmarking shows that for loop is marginally faster than while loop initially (after running for a while they are equal
-            current.add(dir);
+        int x = floorBlock(start.x());
+        int y = floorBlock(start.y());
+        int z = floorBlock(start.z());
+        int targetX = floorBlock(endX);
+        int targetY = floorBlock(endY);
+        int targetZ = floorBlock(endZ);
+        if (x == targetX && y == targetY && z == targetZ) {
+            return true;
+        }
 
-            if (snap.isBlockOccluding(current.blockX(), current.blockY(), current.blockZ())) {
-                maxOccluding--;
-                if (debug) particleSpawner.spawnParticleAt(start.world(), current, ParticleSpawner.Colour.RED);
-                if (maxOccluding < 1) return false;
-                continue;
+        int stepX = Integer.compare(targetX, x);
+        int stepY = Integer.compare(targetY, y);
+        int stepZ = Integer.compare(targetZ, z);
+        double tDeltaX = axisDelta(deltaX);
+        double tDeltaY = axisDelta(deltaY);
+        double tDeltaZ = axisDelta(deltaZ);
+        double tMaxX = firstBoundaryT(start.x(), deltaX, x, stepX);
+        double tMaxY = firstBoundaryT(start.y(), deltaY, y, stepY);
+        double tMaxZ = firstBoundaryT(start.z(), deltaZ, z, stepZ);
+
+        while (x != targetX || y != targetY || z != targetZ) {
+            double nextBoundary = Math.min(tMaxX, Math.min(tMaxY, tMaxZ));
+            if (tMaxX <= nextBoundary + AXIS_TIE_EPSILON) {
+                x += stepX;
+                tMaxX += tDeltaX;
+            }
+            if (tMaxY <= nextBoundary + AXIS_TIE_EPSILON) {
+                y += stepY;
+                tMaxY += tDeltaY;
+            }
+            if (tMaxZ <= nextBoundary + AXIS_TIE_EPSILON) {
+                z += stepZ;
+                tMaxZ += tDeltaZ;
             }
 
-            if (debug) particleSpawner.spawnParticleAt(start.world(), current, ParticleSpawner.Colour.GREEN);
+            if (x == targetX && y == targetY && z == targetZ) {
+                return true;
+            }
+
+            boolean occluding = snap.isBlockOccluding(x, y, z);
+            if (debug) {
+                spawnVoxelParticle(start, particleSpawner, x, y, z,
+                        occluding ? ParticleSpawner.Colour.RED : ParticleSpawner.Colour.GREEN);
+            }
+            if (occluding && --maxOccluding < 1) {
+                return false;
+            }
         }
         return true;
+    }
+
+    private static int floorBlock(double coordinate) {
+        return (int) Math.floor(coordinate);
+    }
+
+    private static double axisDelta(double delta) {
+        return delta == 0.0 ? Double.POSITIVE_INFINITY : Math.abs(1.0 / delta);
+    }
+
+    private static double firstBoundaryT(double start, double delta, int block, int step) {
+        if (step > 0) {
+            return (block + 1.0 - start) / delta;
+        }
+        if (step < 0) {
+            return (start - block) / -delta;
+        }
+        return Double.POSITIVE_INFINITY;
+    }
+
+    private static void spawnVoxelParticle(Locatable start, ParticleSpawner particleSpawner,
+            int x, int y, int z, ParticleSpawner.Colour colour) {
+        particleSpawner.spawnParticleAt(start.world(),
+                new ImmutableSpatialImpl(x + 0.5, y + 0.5, z + 0.5), colour);
     }
 }
