@@ -24,7 +24,8 @@ class RaycastUtilTest {
         Locatable start = new ImmutableLocatableImpl(world, 0, 0, 0);
         RecordingParticleSpawner particles = new RecordingParticleSpawner();
 
-        assertTrue(RaycastUtil.raycast(start, new ImmutableSpatialImpl(2, 0, 0), 1, 0, 10, true, emptyBlockView(), 1, particles));
+        assertTrue(RaycastUtil.raycast(start, new ImmutableSpatialImpl(2, 0, 0), 1, 0, 10,
+                true, emptyBlockView(), 1, particles));
         assertEquals(List.of(world), particles.worlds);
     }
 
@@ -34,7 +35,8 @@ class RaycastUtilTest {
         Locatable start = new ImmutableLocatableImpl(world, 0.5, 0.5, 0.5);
         RecordingParticleSpawner particles = new RecordingParticleSpawner();
 
-        assertTrue(RaycastUtil.raycast(start, new ImmutableBlockSpatialImpl(3, 0, 0), 1, 0, 10, true, emptyBlockView(), 1, particles));
+        assertTrue(RaycastUtil.raycast(start, new ImmutableBlockSpatialImpl(3, 0, 0), 1, 0, 10,
+                true, emptyBlockView(), 1, particles));
         assertEquals(0.5, particles.positions.getFirst().y());
         assertEquals(0.5, particles.positions.getFirst().z());
     }
@@ -73,6 +75,33 @@ class RaycastUtilTest {
                 null));
     }
 
+    @Test
+    void exactTraversalChecksVoxelsSkippedByOneBlockSampling() {
+        UUID world = UUID.randomUUID();
+        Locatable start = new ImmutableLocatableImpl(world, 0.5, 0.5, 0.5);
+        Spatial target = new ImmutableSpatialImpl(5.5, 1.5, 2.5);
+
+        assertFalse(RaycastUtil.raycast(
+                start, target, 1, 0, 48, false, occludingAt(1, 0, 1), 1, null));
+    }
+
+    @Test
+    void targetVoxelDoesNotOccludeItself() {
+        UUID world = UUID.randomUUID();
+        Locatable start = new ImmutableLocatableImpl(world, 0.5, 0.5, 0.5);
+
+        assertTrue(RaycastUtil.raycast(
+                start,
+                new ImmutableBlockSpatialImpl(3, 0, 0),
+                1,
+                0,
+                48,
+                false,
+                occludingAt(3, 0, 0),
+                1,
+                null));
+    }
+
     private static BlockView emptyBlockView() {
         return blockView(false);
     }
@@ -86,6 +115,22 @@ class RaycastUtilTest {
                 BlockView.class.getClassLoader(),
                 new Class<?>[]{BlockView.class},
                 (proxy, method, args) -> method.getReturnType() == boolean.class ? occluding : null
+        );
+    }
+
+    private static BlockView occludingAt(int x, int y, int z) {
+        return (BlockView) Proxy.newProxyInstance(
+                BlockView.class.getClassLoader(),
+                new Class<?>[]{BlockView.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("isBlockOccluding")
+                            && args != null && args.length == 3) {
+                        return (Integer) args[0] == x
+                                && (Integer) args[1] == y
+                                && (Integer) args[2] == z;
+                    }
+                    return method.getReturnType() == boolean.class ? false : null;
+                }
         );
     }
 
