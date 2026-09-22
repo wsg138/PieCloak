@@ -12,17 +12,25 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
+import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.players.WorldEpochGuard;
+import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
+import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.IntSupplier;
+
+import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_LEASHER;
+import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_VEHICLE;
 
 public final class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController implements AutoCloseable {
     private final ListenerRegistration<PacketListenerCommon> registration;
@@ -74,6 +82,128 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
                     afterSendTasks.get(index)
             ));
         }
+    }
+
+    /**
+     * A bypassed vehicle is already known to the client, but that must not make a managed passenger
+     * visible. Keep the authoritative relationship in NettyData and rewrite the client relationship
+     * to contain only passengers which are independently client-visible.
+     */
+    @Override
+    protected boolean handleEntityPassengers(
+            int entityID, int[] passengers, PlayerData playerData, int currentTick) {
+        if (!EntityBypassRegistry.isBypassed(entityID)) {
+            return super.handleEntityPassengers(entityID, passengers, playerData, currentTick);
+        }
+
+        int[] previousPassengers = playerData.nettyData().getUnresolvedPassengers(entityID);
+        playerData.nettyData().setUnresolvedPassengers(entityID, passengers);
+        clearStaleBypassedPassengerReferences(entityID, previousPassengers, passengers, playerData);
+
+        if (passengers != null) {
+            for (int passengerID : passengers) {
+                NettyEntity<?> passenger = playerData.entityFromID(passengerID);
+                if (passenger != null) {
+                    passenger.setVehicleID(entityID);
+                }
+            }
+        }
+
+        IntArrayList visiblePassengers = collectClientVisiblePassengers(passengers, playerData);
+        int passengerCount = passengers == null ? 0 : passengers.length;
+        if (visiblePassengers.size() == passengerCount) {
+            return false;
+        }
+
+        writeBypassedVehiclePassengerState(entityID, visiblePassengers, playerData);
+        return true;
+    }
+
+    /**
+     * Preserve the core reconciliation behavior except for the one unsafe rule which force-shows a
+     * passenger merely because its already-known vehicle is bypassed.
+     */
+    @Override
+    protected void reconcileUnresolvedPassengers(NettyEntity<?> insertedEntity, PlayerData playerData) {
+        int unresolvedVehicleID = playerData.nettyData().getUnresolvedVehicleForPassenger(insertedEntity.entityID());
+        if (unresolvedVehicleID == NO_VEHICLE || !EntityBypassRegistry.isBypassed(unresolvedVehicleID)) {
+            super.reconcileUnresolvedPassengers(insertedEntity, playerData);
+            return;
+        }
+
+        int[] pendingPassengers = playerData.nettyData().getUnresolvedPassengers(insertedEntity.entityID());
+        if (!PrimitiveIntArrayList.isEmpty(pendingPassengers)) {
+            // The inserted entity itself is tracked, so the normal tracked-vehicle handler is safe.
+            super.handleEntityPassengers(
+                    insertedEntity.entityID(), pendingPassengers, playerData, insertedEntity.lastChecked());
+        }
+        insertedEntity.setVehicleID(unresolvedVehicleID);
+    }
+
+    /**
+     * A bypassed entity can spawn after its passenger relationship. Resolve that relationship without
+     * turning the bypass into a visibility override for managed passengers.
+     */
+    @Override
+    protected void handleBypassedEntitySpawn(int entityID, PlayerData playerData, int currentTick) {
+        playerData.nettyData().clearPendingPostSpawnTasksForEntity(entityID);
+
+        int[] pendingPassengers = playerData.nettyData().getUnresolvedPassengers(entityID);
+        if (!PrimitiveIntArrayList.isEmpty(pendingPassengers)) {
+            for (int passengerID : pendingPassengers) {
+                NettyEntity<?> passenger = playerData.entityFromID(passengerID);
+                if (passenger != null) {
+                    passenger.setVehicleID(entityID);
+                }
+            }
+        }
+
+        int holderEntityID = playerData.nettyData().getUnresolvedHolderForLeashedEntity(entityID);
+        if (holderEntityID != NO_LEASHER) {
+            NettyEntity<?> holder = playerData.entityFromID(holderEntityID);
+            if (holder != null) {
+                holder.addLeashedEntity(entityID);
+            }
+        }
+
+        int[] pendingLeashedEntityIDs = playerData.nettyData().getUnresolvedLeashes(entityID);
+        if (!PrimitiveIntArrayList.isEmpty(pendingLeashedEntityIDs)) {
+            for (int leashedEntityID : pendingLeashedEntityIDs) {
+                NettyEntity<?> leashedEntity = playerData.entityFromID(leashedEntityID);
+                if (leashedEntity != null) {
+                    leashedEntity.setLeashingEntity(entityID);
+                }
+            }
+        }
+    }
+
+    private static void clearStaleBypassedPassengerReferences(
+            int vehicleID, int[] previousPassengers, int[] newPassengers, PlayerData playerData) {
+        if (PrimitiveIntArrayList.isEmpty(previousPassengers)) {
+            return;
+        }
+        for (int previousPassengerID : previousPassengers) {
+            if (PrimitiveIntArrayList.contains(newPassengers, previousPassengerID)) {
+                continue;
+            }
+            NettyEntity<?> previousPassenger = playerData.entityFromID(previousPassengerID);
+            if (previousPassenger != null && previousPassenger.vehicleID() == vehicleID) {
+                previousPassenger.setVehicleEntity(null);
+            }
+        }
+    }
+
+    private static void writeBypassedVehiclePassengerState(
+            int vehicleID, IntArrayList passengers, PlayerData playerData) {
+        Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
+        if (channel == null) {
+            return;
+        }
+        var user = PacketEvents.getAPI().getProtocolManager().getUser(channel);
+        if (user == null) {
+            return;
+        }
+        user.writePacketSilently(new WrapperPlayServerSetPassengers(vehicleID, passengers.toIntArray()));
     }
 
     @Override
