@@ -22,9 +22,12 @@ public class RaycastUtil {
         double endOffset = end instanceof BlockSpatial ? 0.5 : 0.0;
         MutableFloatingSpatial clonedEnd = new MutableSpatialImpl(end.x() + endOffset, end.y() + endOffset + yOffsetEnd, end.z() + endOffset);
         //Equivalent to end.cloneAndIfBlockThenCentre(); but not used since the JVM was not reliably scalarising that method (probably due to the polymorphic overriding?). This causes 0 object allocations.
-        double total = start.distance(clonedEnd) - stepSize; //benchmarking shows that calling distance() is faster than distanceSquared() then checking distanceSquared < stepSize*stepSize every time despite the latter replacing a square root with multiplication
-        if (total <= alwaysShowRadius) return true;
-        if (total > maxRaycastRadius) return false;
+        double distance = start.distance(clonedEnd);
+        // Radius semantics are based on the real start-to-target distance. The one-block stepping adjustment below
+        // only controls how far the occlusion loop walks and must not extend either configured radius by one block.
+        if (distance <= alwaysShowRadius) return true;
+        if (distance > maxRaycastRadius) return false;
+        double total = distance - stepSize; //benchmarking shows that calling distance() is faster than distanceSquared() then checking distanceSquared < stepSize*stepSize every time despite the latter replacing a square root with multiplication
         if (debug && particleSpawner == null) {
             Logger.errorAndReturn(new RuntimeException("raycast called with debug enabled but no ParticleSpawner supplied"), 2, RaycastUtil.class);
         }
