@@ -1,7 +1,7 @@
 # PieCloak entity visibility hardening audit — 2026-09-22
 
 Base reviewed: `main` at `6b552bda324f5240967dab333e4a14d76bebe235`.
-Upstream reference reviewed: `Cubicake/RaycastedAntiESP` through `1fcec23a57cad64886713e67dcc6b0e16bdbfa98`.
+Upstream reference reviewed: `Cubicake/RaycastedAntiESP` through `1fcec23a57cad64886713e67dcc6b0e16bdbfa98`, plus targeted review of accepted upstream issues #88 and #94.
 
 ## Confirmed findings
 
@@ -55,31 +55,48 @@ As a result, a hidden entity or block entity can still have activity inferred th
 
 The bundled configuration now sets `checks.sound-effects.enabled: false` instead of implying protection that is not actually implemented. A dedicated packet-semantic implementation and tests are still needed before this protection can truthfully be enabled; network sound coordinates must be interpreted correctly before applying ray policy.
 
-### 6. PieCloak has not yet incorporated upstream bundle-boundary reliability fixes
+### 6. Visibility repair packets could be emitted inside an unrelated protocol bundle — fixed on this branch
 
-Upstream issue #88 reported client disconnects when anti-ESP show packets were emitted inside an unrelated existing protocol bundle. Upstream fixed entity and block transition emission so pending transitions are deferred until the outer bundle ends.
+Upstream issue #88 documented client disconnects caused by anti-ESP repair packets being emitted while Minecraft was inside another packet bundle. PieCloak initially lacked upstream's bundle-state guard, and the fork also has direct SHOW/HIDE paths, bounded entity retries, block retries, and tile-mode repairs which upstream's smaller fix does not fully cover.
 
-The current PieCloak controllers do not contain upstream's bundle-state guard. This is a genuine reliability difference worth selectively porting. A wholesale upstream merge is not appropriate because PieCloak has substantial fork-specific target filtering, transition hardening, and chunk/block-entity behavior.
+The hardening branch now tracks per-viewer clientbound bundle state and prevents PieCloak repair traffic from being injected into an unrelated open bundle:
 
-### 7. Packet coverage remains an anti-information-leak surface
+- ordinary entity transition drains are deferred until the outer bundle closes;
+- direct entity SHOW/HIDE repairs are coalesced and deferred while a bundle is open;
+- entity retry work does not run inside the unrelated bundle;
+- tile-check mode changes, block transition retries, and block SHOW/HIDE repairs are held until the closing delimiter has actually been sent;
+- deferred block repair callbacks are fenced to the world epoch that scheduled them, so a respawn/world transition cannot make an old-world callback write stale block state.
 
-Upstream issue #45 still tracks clientbound packets that are not fully visibility-aware. Upstream issue #94 is an accepted concrete example: `COLLECT_ITEM` can expose a visible effect when its collector is hidden from a Java client.
+The moving-entity exemption boundary path was reviewed alongside this change: if a hidden entity is directly repaired after a relative movement update, the triggering movement packet is suppressed so the client does not apply the same movement twice.
 
-PieCloak currently ships with player checks disabled, so the exact #94 hidden-player scenario is not active under the bundled production configuration. Entity-side equivalents and other unhandled packets should nevertheless be reviewed if the goal is strict leak resistance.
+Focused core, PacketEvents, and Paper tests passed for the adapted bundle behavior and the stale callback fence before temporary validation tooling was removed.
 
-Relationship packets also deserve explicit packet-order testing: packets such as `SET_PASSENGERS` or leash state can reference an entity ID before every endpoint has spawned. PieCloak retains and replays unresolved relationships, so a strict anti-information-leak pass should verify whether any pre-spawn relationship packet can be safely suppressed rather than exposing an otherwise-hidden endpoint ID.
+### 7. `COLLECT_ITEM` could expose hidden entities — fixed on this branch
 
-### 8. Bypass permission is cached for the session
+Upstream issue #94 is an accepted, reproducible Java-client side channel: when a hidden collector picks up an item, the clientbound `COLLECT_ITEM` packet can reference a collector entity that is absent from the viewer's client. On Java this can produce the misleading item-pickup animation toward the local viewer and reveals activity associated with the hidden player.
 
-The Paper join handler snapshots `raycastedantiesp.bypass` into `PlayerData`, and no corresponding permission-change refresh path was found in this review. If a player's bypass permission is granted or revoked while they remain connected, the anti-ESP decision can remain stale until reconnect.
+PieCloak now suppresses `COLLECT_ITEM` for managed references when either the collected entity or collector is:
 
-This does not explain the reported player if they never had the permission, but it is an authorization-state hardening gap.
+- logically hidden by PieCloak; or
+- not currently client-visible, including a SHOW transition which has not completed yet.
+
+This deliberately checks both engine/logical visibility and client visibility. That matters when `keep-client-entity-when-hidden` retains an entity client-side: the entity ID may still exist locally even though activity associated with that hidden target must not be forwarded. Unknown/unmanaged references are not guessed hidden, and the viewer's own entity remains valid as a collector.
+
+Focused core, PacketEvents, and Paper tests passed before the fix was promoted to the branch.
+
+### 8. Bypass permission is cached for the connected session — unresolved by design in this pass
+
+The Paper join handler snapshots `raycastedantiesp.bypass` into `PlayerData`, and no safe live permission-change refresh path was found.
+
+A simple periodic permission poll is not a complete fix. While bypass is active, managed packet interception is deliberately skipped, so entities which spawn during that bypass window may never enter the viewer's managed entity view. If bypass were then revoked in-place, forcing a visibility recheck would still lack authoritative tracked state for those entities. In addition, a configured visible recheck interval of `-1` can leave entities revealed during bypass visible indefinitely unless a one-time recomputation is explicitly forced.
+
+A correct live grant/revoke feature therefore needs either continuous shadow tracking while bypassed or an explicit full client/view resynchronization contract. Until that larger state-machine change exists, live bypass changes should be treated as requiring reconnect rather than partially refreshing only the cached boolean.
 
 ## Item frame / armor stand conclusion
 
 The configured entity names match PacketEvents' registry names, and the bundled exclusions do not exclude item frames, glow item frames, or armor stands. The live server configuration was also confirmed by the operator to include them. A normal non-glowing, non-attached, non-plugin-bypassed instance of one of these types should enter the managed entity view.
 
-Once managed, the normal state machine starts distant spawns hidden and repeatedly rechecks hidden entities. After the radius-boundary fix, the configured maximum radius is strict, and the new exact voxel traversal removes the old sampler's deliberate diagonal/corner misses. Therefore a remaining report of ordinary frames/stands visible much farther away requires checking exceptional state (glowing, attachment, explicit plugin bypass), packet-order behavior, or reproducing the report against the hardened build.
+Once managed, the normal state machine starts distant spawns hidden and repeatedly rechecks hidden entities. After the radius-boundary fix, the configured maximum radius is strict, and the exact voxel traversal removes the old sampler's deliberate diagonal/corner misses. Therefore a remaining report of ordinary frames/stands visible much farther away requires checking exceptional state (glowing, attachment, explicit plugin bypass), packet-order behavior, or reproducing the report against the hardened build.
 
 FancyHolograms and FancyNPCs intentionally register their own entity IDs in the bypass registry. This can explain plugin-owned armor stands or hologram internals, but it does not explain ordinary vanilla item frames at a normal base.
 
@@ -93,11 +110,30 @@ The normal 1.21.11 block-entity paths are comparatively defensive:
 - single block changes hide newly tracked managed tile entities before the real state reaches the client;
 - multi-block changes replace hidden managed state IDs;
 - standalone block-entity data without tracked tile state fails closed when either the cached block or packet type establishes that the target is managed;
-- SHOW/HIDE repairs use bounded transition retries.
+- SHOW/HIDE repairs use bounded transition retries;
+- WorldGuard-exempt block entities are preserved as real block state in initial chunk/block output rather than being briefly replaced and repaired later;
+- deferred repair callbacks are rejected after world-epoch changes.
 
 No normal-protocol player-controlled block-entity reveal equivalent to the bypassed-vehicle entity flaw was proven in this audit.
 
 `MAP_CHUNK_BULK` is currently passed through unchanged with a warning, but that is not a normal 1.21.11 server packet path and is not classified here as a practical exploit without evidence that it can occur on the production baseline.
+
+## WorldGuard `piecloak-skip` exemption — implemented on this branch
+
+The hardening branch adds an optional WorldGuard target-location exemption using the custom `piecloak-skip` state flag. Targets in an effective flagged region bypass normal PieCloak hiding and raycast work.
+
+The integration is designed around the target's location, not the viewer's region:
+
+- the flag is registered during WorldGuard's flag-registration phase;
+- WorldGuard remains a soft/optional dependency, and the main plugin class no longer exposes concrete WorldGuard types which could break class loading when WorldGuard is absent;
+- entities entering an exempt region are directly revealed and their triggering movement packet is suppressed when necessary to avoid double-applying movement after respawn/sync;
+- entities leaving an exempt region immediately return to the normal visibility decision path;
+- stationary visible entities are re-evaluated at a bounded interval so removing the region flag does not leave them exempt for an arbitrarily long configured visible-recheck interval;
+- exempt checks short-circuit the raycast itself;
+- initial chunk/block parsing preserves exempt managed block entities as their real state instead of hiding them first and repairing them afterward;
+- an absent-WorldGuard classloading regression test covers the optional dependency boundary.
+
+This implementation still deserves realistic production profiling in regions with high target density. Region lookups are now on visibility/block-target decision paths, so correctness is established by tests but live cost must be measured on the actual server workload.
 
 ## Hardening candidates requiring more proof or design
 
@@ -105,13 +141,15 @@ No normal-protocol player-controlled block-entity reveal equivalent to the bypas
 
 An untracked/missing occlusion section currently answers “not occluding.” Hidden-on-spawn behavior limits the obvious race window, so this audit does not classify that alone as a reproduced leak. A dedicated packet-order/concurrency test should establish whether a visible entity can be rechecked while required section data is absent before changing the policy.
 
-### Exact raycasting runtime validation
+### Exact raycasting and WorldGuard runtime validation
 
-Exact voxel traversal is now implemented on this branch and covered by correctness tests. Before merge, benchmark and profile it under realistic production entity/player counts. Do not trade correctness back to approximate sampling merely to recover a synthetic microbenchmark result; if the exact implementation is too expensive, optimize its state representation and hot-path allocation profile while preserving the exact traversal contract.
+Exact voxel traversal and WorldGuard exemption handling are implemented and covered by correctness tests. Before merge, benchmark/profile them under realistic production player/entity/block-entity counts and representative flagged regions. Do not trade correctness back to approximate sampling merely to recover a synthetic microbenchmark result; if the exact implementation is too expensive, optimize state representation and hot-path allocation/profile behavior while preserving the exact traversal contract.
 
-### Packet side channels
+### Remaining packet side channels
 
-Audit packets that reference entity IDs or reveal entity-associated location/activity without going through the managed visibility gate, especially `COLLECT_ITEM`, entity sounds, coordinate-based sounds, damage/effect/particle events, pre-spawn passenger/leash relationships, and vehicle-specific synchronization.
+`COLLECT_ITEM` is now covered, but packet coverage remains part of the anti-information-leak surface. Continue reviewing packets that reference entity IDs or reveal entity-associated location/activity without going through the managed visibility gate, especially entity sounds, coordinate-based sounds, damage/particle events, pre-spawn passenger/leash relationships, and vehicle-specific synchronization.
+
+Do not suppress these blindly: each packet needs its protocol semantics and client behavior established first, particularly where an unknown/unmanaged entity ID may legitimately pass through PieCloak.
 
 ## Diagnostics design
 
@@ -128,6 +166,7 @@ Recommended entity output:
 - engine-visible and client-visible state;
 - last-checked tick;
 - glowing state;
+- WorldGuard exemption state;
 - vehicle/passenger/leash relationships;
 - current radius result and raycast/occlusion result;
 - pending visibility transition/retry state.
@@ -139,38 +178,29 @@ Recommended block-entity output:
 - block-entity classification/status;
 - tracked tile state and last-checked tick;
 - visibility state;
+- WorldGuard exemption state;
 - whether the containing section is loaded in the occlusion view;
 - current radius and raycast result;
 - pending block transition/retry state.
 
-For useful bypass diagnostics, evolve `EntityBypassRegistry` so diagnostic state records why an ID is bypassed (for example target-filter exclusion, entity-type exclusion, FancyHolograms, FancyNPCs, relationship support, or future WorldGuard skip) while preserving a cheap hot-path membership check.
+For useful bypass diagnostics, evolve `EntityBypassRegistry` so diagnostic state records why an ID is bypassed (for example target-filter exclusion, entity-type exclusion, FancyHolograms, FancyNPCs, or relationship support) while preserving a cheap hot-path membership check. WorldGuard exemption should be reported separately because it is a location policy rather than an entity-ID bypass source.
 
 The earlier diagnostic-command prototype was intentionally removed from this hardening PR after it expanded scope and static-analysis complexity. Diagnostics should be implemented as a separate focused package rather than coupled to the visibility fixes.
 
-## WorldGuard exemption design
-
-A future WorldGuard state flag such as `piecloak-skip` should be treated as a target-location policy: entities and block entities inside an effective flagged region are always sent normally and should avoid normal anti-ESP tracking/raycast work where safe.
-
-Important structural requirements:
-
-- register the custom flag during the WorldGuard flag-registration phase;
-- keep the integration optional/soft-dependent;
-- for static block entities, avoid inserting exempt targets into managed tile tracking where practical;
-- for moving entities, handle both region-boundary directions: entering an exempt region must reveal and stop normal hiding work, while leaving it must re-enter managed tracking and immediately receive the correct hidden/visible decision;
-- do not perform an expensive WorldGuard region query for every block in every chunk; cache region/section intersection or otherwise restrict detailed checks to affected areas;
-- define exemption precedence explicitly over target allowlists and normal raycast policy.
-
 ## Upstream sync policy
 
-The reviewed upstream baseline is 74 commits ahead of the historical PieCloak import point. The delta contains meaningful fixes, but also large refactors and behavior changes that conflict with fork-specific design. Continue selective provenance-based ports rather than merging upstream `main` wholesale.
+The reviewed upstream baseline is substantially ahead of PieCloak's historical import point. The delta contains meaningful fixes, but also large refactors and behavior changes that conflict with fork-specific design. Continue selective provenance-based ports rather than merging upstream `main` wholesale.
 
-High-value selective candidates found in this review:
+High-value selective results from this review:
 
 1. strict radius semantics — ported and regression-tested in this branch;
-2. issue #88 bundle-boundary transition handling — applicable, requires careful adaptation to PieCloak's hardened retry/transition paths;
-3. allocation/performance improvements — evaluate against the new exact traversal without weakening its correctness contract;
-4. large upstream raycast/chunk-parser rewrites — do not import blindly because PieCloak's target filtering and reliability behavior diverge.
+2. issue #88 bundle-boundary transition handling — selectively ported and extended across PieCloak's direct/retry/block repair paths;
+3. issue #94 `COLLECT_ITEM` hidden-reference handling — selectively implemented using PieCloak's logical and client visibility state;
+4. allocation/performance improvements — evaluate against the exact traversal without weakening its correctness contract;
+5. large upstream raycast/chunk-parser rewrites — do not import blindly because PieCloak's target filtering and reliability behavior diverge.
 
 ## Validation status
 
-The final code and report tree was validated successfully before this validation-only documentation update: Build and Static analysis passed, Codacy passed with zero annotations and reported 14 issues solved, and Semgrep/Trivy reported no new alerts. This final update changes only this audit report; no production code, configuration, or tests changed after the validated tree.
+Focused validation has passed for the WorldGuard exemption hardening, the adapted #88 bundle-boundary behavior, the stale block callback world-epoch fence, and the #94 `COLLECT_ITEM` suppression. Each focused lane ran the relevant core, PacketEvents, and Paper tests plus Paper compilation before its production changes were promoted.
+
+Temporary patch scripts and one-shot validation workflows used during review were removed after their product commits landed. The final merge decision must use the normal Build/Static/external checks from the cleaned exact PR head; older green checks are not treated as evidence for later heads. Runtime profiling/manual testing of exact ray traversal and WorldGuard behavior on a realistic server remains a pre-merge requirement.
