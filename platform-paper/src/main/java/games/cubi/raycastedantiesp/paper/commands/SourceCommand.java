@@ -8,8 +8,6 @@ package games.cubi.raycastedantiesp.paper.commands;
 
 import net.strokkur.commands.Command;
 import net.strokkur.commands.Executes;
-import net.strokkur.commands.arguments.StringArg;
-import net.strokkur.commands.arguments.StringArgType;
 import org.bukkit.command.CommandSender;
 
 @Command("piecloak")
@@ -19,22 +17,6 @@ public class SourceCommand {
     @Executes("source")
     public void source(CommandSender sender) {
         sendSourceLink(sender);
-    }
-
-    @Executes("inspect")
-    public void inspect(@StringArg(StringArgType.STRING) String viewer, int entityId, CommandSender sender) {
-        if (!canInspect(sender)) {
-            return;
-        }
-        EntityVisibilityInspector.inspect(sender, viewer, entityId);
-    }
-
-    private static boolean canInspect(CommandSender sender) {
-        if (sender.hasPermission("raycastedantiesp.command")) {
-            return true;
-        }
-        sender.sendRichMessage("<red>You do not have permission to inspect PieCloak visibility state.");
-        return false;
     }
 
     static void sendSourceLink(CommandSender sender) {
