@@ -85,7 +85,7 @@ class RaycastUtilTest {
         return (BlockView) Proxy.newProxyInstance(
                 BlockView.class.getClassLoader(),
                 new Class<?>[]{BlockView.class},
-                (proxy, method, args) -> method.getReturnType() == boolean.class && occluding
+                (proxy, method, args) -> method.getReturnType() == boolean.class ? occluding : null
         );
     }
 
