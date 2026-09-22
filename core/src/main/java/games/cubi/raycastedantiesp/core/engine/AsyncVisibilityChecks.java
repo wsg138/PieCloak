@@ -154,12 +154,21 @@ final class AsyncVisibilityChecks {
             int currentTick,
             int worldEpoch) {
         int selfEntityID = player.nettyData().getSelfEntityID();
-        if (!player.nettyData().isSelfEntityID(entity.leashingEntity())
-                && !player.nettyData().isSelfEntityID(entity.vehicleID())
-                && !PrimitiveIntArrayList.contains(entity.passengerIDs(), selfEntityID)) {
+        if (!attachmentRequiresVisibility(
+                entity.leashingEntity(), entity.vehicleID(), entity.passengerIDs(), selfEntityID)) {
             return false;
         }
         view.setVisibility(entity, true, currentTick, worldEpoch);
         return true;
+    }
+
+    static boolean attachmentRequiresVisibility(
+            int leashingEntityID,
+            int vehicleID,
+            int[] passengerIDs,
+            int selfEntityID) {
+        return leashingEntityID == selfEntityID
+                || vehicleID == selfEntityID
+                || PrimitiveIntArrayList.contains(passengerIDs, selfEntityID);
     }
 }
