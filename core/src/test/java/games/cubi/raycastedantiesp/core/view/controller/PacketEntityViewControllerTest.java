@@ -1,5 +1,6 @@
 package games.cubi.raycastedantiesp.core.view.controller;
 
+import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
@@ -11,6 +12,7 @@ import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -22,6 +24,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PacketEntityViewControllerTest {
@@ -37,39 +40,28 @@ class PacketEntityViewControllerTest {
         );
     }
 
+    @BeforeEach
+    void clearControllerState() {
+        CONTROLLER.directlyShownEntityIDs.clear();
+        CONTROLLER.replacementPassengerPackets.clear();
+    }
+
     @AfterEach
     void unregisterPlayers() {
         for (UUID player : registeredPlayers) {
             PlayerRegistry.getInstance().unregisterPlayer(player);
         }
         registeredPlayers.clear();
+        EntityBypassRegistry.reset();
     }
 
     @Test
     void directlyShownSelfVehiclePassengersRemainMountedInReplacementPacket() {
-        CONTROLLER.directlyShownEntityIDs.clear();
-        CONTROLLER.replacementPassengerPackets.clear();
-        UUID playerUUID = UUID.randomUUID();
-        registeredPlayers.add(playerUUID);
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
-                playerUUID,
-                0,
-                1,
-                TestEntity::createSelf
-        );
         UUID world = UUID.randomUUID();
-        playerData.beginWorldTransition();
-        playerData.completeWorldTransition(world);
+        PlayerData playerData = registerPlayer(world);
 
-        TestEntity firstPassenger = new TestEntity(playerData, 2, UUID.randomUUID(), false);
-        TestEntity secondPassenger = new TestEntity(playerData, 3, UUID.randomUUID(), false);
-        @SuppressWarnings("unchecked")
-        EntityView<NettyEntity<?>> entityView = (EntityView<NettyEntity<?>>) (EntityView<?>) playerData.entityView();
-        for (TestEntity passenger : List.of(firstPassenger, secondPassenger)) {
-            passenger.setVisible(false);
-            passenger.setClientVisible(false);
-            entityView.insertEntity(world, passenger);
-        }
+        TestEntity firstPassenger = insertPassenger(playerData, world, 2, false, false);
+        TestEntity secondPassenger = insertPassenger(playerData, world, 3, false, false);
 
         TestEntity self = (TestEntity) playerData.nettyData().getSelfEntity();
         boolean cancelled = CONTROLLER.handleEntityPassengersNow(self, new int[]{2, 3}, playerData, 17);
@@ -84,6 +76,82 @@ class PacketEntityViewControllerTest {
             assertEquals(1, passenger.vehicleID(), "the passenger must remain attached to the self vehicle");
         }
         assertArrayEquals(new int[]{2, 3}, self.passengerIDs());
+    }
+
+    @Test
+    void bypassedVehicleFiltersHiddenManagedPassengerWithoutReveal() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        TestEntity passenger = insertPassenger(playerData, world, 2, false, false);
+        EntityBypassRegistry.addEntity(20);
+
+        boolean cancelled = CONTROLLER.handleEntityPassengers(20, new int[]{2}, playerData, 17);
+
+        assertTrue(cancelled, "the original relationship packet must not expose the hidden passenger");
+        assertFalse(passenger.visible());
+        assertFalse(passenger.clientVisible());
+        assertEquals(20, passenger.vehicleID());
+        assertArrayEquals(new int[]{2}, playerData.nettyData().getUnresolvedPassengers(20));
+        assertEquals(1, CONTROLLER.replacementPassengerPackets.size());
+        assertArrayEquals(new int[0], CONTROLLER.replacementPassengerPackets.get(0));
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    @Test
+    void passengerResolvedAfterBypassedRelationshipDoesNotReveal() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        EntityBypassRegistry.addEntity(20);
+
+        assertTrue(CONTROLLER.handleEntityPassengers(20, new int[]{2}, playerData, 17));
+        TestEntity passenger = insertPassenger(playerData, world, 2, false, false);
+        CONTROLLER.reconcileUnresolvedPassengers(passenger, playerData);
+
+        assertFalse(passenger.visible());
+        assertFalse(passenger.clientVisible());
+        assertEquals(20, passenger.vehicleID());
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    @Test
+    void vehicleIdentifiedAsBypassedAfterRelationshipDoesNotRevealPassenger() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        TestEntity passenger = insertPassenger(playerData, world, 2, false, false);
+
+        CONTROLLER.handleEntityPassengers(20, new int[]{2}, playerData, 17);
+        EntityBypassRegistry.addEntity(20);
+        CONTROLLER.handleBypassedEntitySpawn(20, playerData, 18);
+
+        assertFalse(passenger.visible());
+        assertFalse(passenger.clientVisible());
+        assertEquals(20, passenger.vehicleID());
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    private PlayerData registerPlayer(UUID world) {
+        UUID playerUUID = UUID.randomUUID();
+        registeredPlayers.add(playerUUID);
+        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+                playerUUID,
+                0,
+                1,
+                TestEntity::createSelf
+        );
+        playerData.beginWorldTransition();
+        playerData.completeWorldTransition(world);
+        return playerData;
+    }
+
+    private static TestEntity insertPassenger(
+            PlayerData playerData, UUID world, int entityID, boolean visible, boolean clientVisible) {
+        TestEntity passenger = new TestEntity(playerData, entityID, UUID.randomUUID(), visible);
+        passenger.setClientVisible(clientVisible);
+        @SuppressWarnings("unchecked")
+        EntityView<NettyEntity<?>> entityView =
+                (EntityView<NettyEntity<?>>) (EntityView<?>) playerData.entityView();
+        entityView.insertEntity(world, passenger);
+        return passenger;
     }
 
     private static EntityView<?> entityView(boolean playerView) {
