@@ -19,7 +19,6 @@ import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -43,16 +42,9 @@ final class EntityVisibilityInspector {
             return;
         }
 
-        EntityView<?> view = findManagedView(playerData, entityID);
-        boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
-        boolean relationshipSupport = EntityBypassRegistry.isRelationshipSupportEntity(entityID);
+        EntityView<?> view = managedView(playerData, entityID);
         if (view == null) {
-            sender.sendRichMessage("<gold>PieCloak inspect <gray>viewer=<white>" + viewer.getName()
-                    + " <gray>entityId=<white>" + entityID);
-            sender.sendRichMessage("<gray>managed=<red>false</red> bypassed=<white>" + bypassed
-                    + " <gray>relationshipSupport=<white>" + relationshipSupport
-                    + " <gray>viewerBypass=<white>" + playerData.hasBypassPermission());
-            sender.sendRichMessage("<gray>No managed state exists for this viewer. If bypassed=true, the entity is intentionally forwarded without anti-ESP tracking.");
+            renderUnmanaged(sender, viewer, playerData, entityID);
             return;
         }
 
@@ -61,56 +53,73 @@ final class EntityVisibilityInspector {
             sender.sendRichMessage("<red>The entity disappeared from the managed view while it was being inspected.");
             return;
         }
+        renderManaged(sender, viewer, playerData, view, entity);
+    }
 
-        Locatable viewerLocation = playerData.ownLocation();
+    private static EntityView<?> managedView(PlayerData playerData, int entityID) {
+        EntityView<?> entityView = playerData.entityView();
+        if (entityView.exists(entityID)) {
+            return entityView;
+        }
+        EntityView<?> playerView = playerData.playerView();
+        return playerView.exists(entityID) ? playerView : null;
+    }
+
+    private static void renderUnmanaged(CommandSender sender, Player viewer, PlayerData playerData, int entityID) {
+        sender.sendRichMessage("<gold>PieCloak inspect <gray>viewer=<white>" + viewer.getName()
+                + " <gray>entityId=<white>" + entityID);
+        sender.sendRichMessage("<gray>managed=<red>false</red> bypassed=<white>"
+                + EntityBypassRegistry.isBypassed(entityID)
+                + " <gray>relationshipSupport=<white>"
+                + EntityBypassRegistry.isRelationshipSupportEntity(entityID)
+                + " <gray>viewerBypass=<white>" + playerData.hasBypassPermission());
+        sender.sendRichMessage("<gray>No managed state exists for this viewer. A bypassed entity is intentionally forwarded without anti-ESP tracking.");
+    }
+
+    private static void renderManaged(CommandSender sender, Player viewer, PlayerData playerData,
+            EntityView<?> view, NettyEntity<?> entity) {
         RaycastConfig config = view.isPlayerView()
                 ? ConfigManager.get().getPlayerConfig()
                 : ConfigManager.get().getEntityConfig();
-        double distance = distance(viewerLocation, entity);
-        Boolean freshRaycast = freshRaycast(playerData, viewerLocation, entity, view, config, distance);
-        int currentTick = RaycastedAntiESP.getCurrentTick();
+        Locatable viewerLocation = playerData.ownLocation();
 
         sender.sendRichMessage("<gold>PieCloak inspect <gray>viewer=<white>" + viewer.getName()
-                + " <gray>entityId=<white>" + entityID
+                + " <gray>entityId=<white>" + entity.entityID()
                 + " <gray>type=<white>" + typeName(entity));
         sender.sendRichMessage("<gray>uuid=<white>" + entity.entityUUID()
-                + " <gray>view=<white>" + (view.isPlayerView() ? "player" : "entity")
+                + " <gray>view=<white>" + viewName(view)
                 + " <gray>worldEpoch=<white>" + playerData.acquireWorldEpoch());
         sender.sendRichMessage("<gray>position=<white>" + format(entity.x()) + "," + format(entity.y()) + "," + format(entity.z())
-                + " <gray>distance=<white>" + format(distance)
+                + " <gray>distance=<white>" + distance(viewerLocation, entity)
                 + " <gray>alwaysShow=<white>" + config.getAlwaysShowRadius()
                 + " <gray>maxRadius=<white>" + config.getRaycastRadius());
         sender.sendRichMessage("<gray>engineVisible=<white>" + entity.visible()
                 + " <gray>clientVisible=<white>" + entity.clientVisible()
-                + " <gray>freshRaycast=<white>" + formatNullable(freshRaycast)
+                + " <gray>freshRaycast=<white>" + freshRaycast(playerData, viewerLocation, entity, view, config)
                 + " <gray>glowing=<white>" + entity.glowing());
         sender.sendRichMessage("<gray>lastChecked=<white>" + entity.lastChecked()
-                + " <gray>ticksSinceCheck=<white>" + ticksSince(currentTick, entity.lastChecked())
                 + " <gray>viewerBypass=<white>" + playerData.hasBypassPermission()
-                + " <gray>bypassed=<white>" + bypassed
-                + " <gray>relationshipSupport=<white>" + relationshipSupport);
+                + " <gray>bypassed=<white>" + EntityBypassRegistry.isBypassed(entity.entityID())
+                + " <gray>relationshipSupport=<white>" + EntityBypassRegistry.isRelationshipSupportEntity(entity.entityID()));
         sender.sendRichMessage("<gray>vehicle=<white>" + entity.vehicleID()
                 + " <gray>leashHolder=<white>" + entity.leashingEntity()
                 + " <gray>passengers=<white>" + PrimitiveIntArrayList.toString(entity.passengerIDs()));
     }
 
-    private static EntityView<?> findManagedView(PlayerData playerData, int entityID) {
-        if (playerData.entityView().exists(entityID)) {
-            return playerData.entityView();
-        }
-        if (playerData.playerView().exists(entityID)) {
-            return playerData.playerView();
-        }
-        return null;
+    private static String viewName(EntityView<?> view) {
+        return view.isPlayerView() ? "player" : "entity";
     }
 
-    private static Boolean freshRaycast(PlayerData playerData, Locatable viewerLocation, NettyEntity<?> entity,
-            EntityView<?> view, RaycastConfig config, double distance) {
-        if (!config.enabled() || viewerLocation == null || viewerLocation.world() == null || !Double.isFinite(distance)) {
-            return null;
+    private static String freshRaycast(PlayerData playerData, Locatable viewerLocation, NettyEntity<?> entity,
+            EntityView<?> view, RaycastConfig config) {
+        if (!config.enabled()) {
+            return "disabled";
+        }
+        if (viewerLocation == null || viewerLocation.world() == null) {
+            return "n/a";
         }
         float yOffset = view.isPlayerView() ? 1.5f : entity.getYOffset();
-        return RaycastUtil.raycast(
+        return Boolean.toString(RaycastUtil.raycast(
                 viewerLocation,
                 entity,
                 config.getMaxOccludingCount(),
@@ -121,40 +130,26 @@ final class EntityVisibilityInspector {
                 yOffset,
                 1,
                 null
-        );
+        ));
     }
 
-    private static double distance(Locatable start, NettyEntity<?> end) {
+    private static String distance(Locatable start, NettyEntity<?> end) {
         if (start == null || start.world() == null) {
-            return Double.NaN;
+            return "n/a";
         }
         double x = end.x() - start.x();
         double y = end.y() - start.y();
         double z = end.z() - start.z();
-        return Math.sqrt(x * x + y * y + z * z);
+        return format(Math.sqrt(x * x + y * y + z * z));
     }
 
     private static String typeName(NettyEntity<?> entity) {
         EntityType type = EntityTypes.getById(
                 PacketEvents.getAPI().getServerManager().getVersion().toClientVersion(), entity.entityType());
-        return type == null ? "unknown(" + entity.entityType() + ")" : type.getName().toString();
-    }
-
-    private static String ticksSince(int currentTick, int lastChecked) {
-        if (lastChecked == NettyEntity.NEVER_CHECKED) {
-            return "never";
-        }
-        return Integer.toString(currentTick - lastChecked);
-    }
-
-    private static String formatNullable(Boolean value) {
-        return value == null ? "n/a" : value.toString();
+        return type == null ? "unknown(" + entity.entityType() + ")" : String.valueOf(type.getName());
     }
 
     private static String format(double value) {
-        if (!Double.isFinite(value)) {
-            return "n/a";
-        }
         return String.format(Locale.ROOT, "%.2f", value);
     }
 }
