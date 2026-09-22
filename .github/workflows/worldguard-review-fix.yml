@@ -25,7 +25,10 @@ jobs:
           java-version: 21
           cache: gradle
       - name: Apply reviewed fixes
-        run: python .github/worldguard_review_fix.py
+        shell: bash
+        run: |
+          python .github/worldguard_review_fix.py
+          python .github/worldguard_review_fix2.py
       - name: Generate LeafPile sources
         shell: bash
         run: |
