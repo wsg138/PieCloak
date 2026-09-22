@@ -173,4 +173,4 @@ High-value selective candidates found in this review:
 
 ## Validation status
 
-At exact code head `fd3620c5396bf8a8896057519b699a50bb9ea72d`, Codacy completed successfully with zero annotations, and Semgrep/Trivy reported no new alerts. Static analysis completed successfully. The immediately preceding code-identical head completed the full Gradle compile/test/build successfully before its superseded workflow was cancelled after the successful build step. A fresh exact-head Build workflow is still required to complete before this report should be treated as final merge evidence.
+The final code and report tree was validated successfully before this validation-only documentation update: Build and Static analysis passed, Codacy passed with zero annotations and reported 14 issues solved, and Semgrep/Trivy reported no new alerts. This final update changes only this audit report; no production code, configuration, or tests changed after the validated tree.
