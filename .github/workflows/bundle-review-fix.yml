@@ -28,6 +28,7 @@ jobs:
         run: |
           python .github/bundle_review_fix.py
           python .github/bundle_review_fix2.py
+          python .github/bundle_review_fix3.py
       - name: Generate LeafPile sources
         shell: bash
         run: |
