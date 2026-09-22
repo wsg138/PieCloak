@@ -87,7 +87,7 @@ final class AsyncVisibilityChecks {
                                 entityView, entity, true, currentTick, worldEpoch);
                         return;
                     }
-                    if (attachedToAlwaysVisibleEntityOrSelf(
+                    if (attachedToViewerOrSelf(
                             player, entityView, entity, currentTick, worldEpoch)) {
                         return;
                     }
@@ -133,7 +133,7 @@ final class AsyncVisibilityChecks {
                         playerView.setVisibility(otherPlayer, true, currentTick, worldEpoch);
                         return;
                     }
-                    if (attachedToAlwaysVisibleEntityOrSelf(
+                    if (attachedToViewerOrSelf(
                             player, playerView, otherPlayer, currentTick, worldEpoch)) {
                         return;
                     }
@@ -147,7 +147,7 @@ final class AsyncVisibilityChecks {
         timings.addPlayerChecked(checked);
     }
 
-    private static boolean attachedToAlwaysVisibleEntityOrSelf(
+    private static boolean attachedToViewerOrSelf(
             PlayerData player,
             EntityView<?> view,
             NettyEntity<?> entity,
@@ -156,7 +156,6 @@ final class AsyncVisibilityChecks {
         int selfEntityID = player.nettyData().getSelfEntityID();
         if (!player.nettyData().isSelfEntityID(entity.leashingEntity())
                 && !player.nettyData().isSelfEntityID(entity.vehicleID())
-                && !EntityBypassRegistry.isBypassed(entity.vehicleID())
                 && !PrimitiveIntArrayList.contains(entity.passengerIDs(), selfEntityID)) {
             return false;
         }
