@@ -15,12 +15,14 @@ import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.chunks.ChunkData;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkData;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkDataImpl;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsTileEntityReplayData;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntUnaryOperator;
@@ -33,14 +35,22 @@ abstract class AbstractChunkParser<D> implements ChunkParser {
     protected final BlockInfoResolver blockInfoResolver;
     private final boolean mutatePackets;
     private final IntUnaryOperator hiddenBlockID;
+    private final VisibilityExemptionPolicy visibilityExemptionPolicy;
     private final boolean modernHeightmaps;
     private final ClientVersion clientVersion;
 
     protected AbstractChunkParser(BlockInfoResolver blockInfoResolver, boolean mutatePackets,
             IntUnaryOperator hiddenBlockID) {
+        this(blockInfoResolver, mutatePackets, hiddenBlockID, VisibilityExemptionPolicy.DISABLED);
+    }
+
+    protected AbstractChunkParser(BlockInfoResolver blockInfoResolver, boolean mutatePackets,
+            IntUnaryOperator hiddenBlockID, VisibilityExemptionPolicy visibilityExemptionPolicy) {
         this.blockInfoResolver = blockInfoResolver;
         this.mutatePackets = mutatePackets;
         this.hiddenBlockID = hiddenBlockID;
+        this.visibilityExemptionPolicy = Objects.requireNonNull(
+                visibilityExemptionPolicy, "visibilityExemptionPolicy");
         ServerVersion version = PacketEvents.getAPI().getServerManager().getVersion();
         this.modernHeightmaps = version.isNewerThanOrEquals(ServerVersion.V_1_21_5);
         this.clientVersion = version.toClientVersion();
@@ -99,9 +109,12 @@ abstract class AbstractChunkParser<D> implements ChunkParser {
                                 key = new MutableBlockSpatialImpl(0, 0, 0);
                             }
                             key.setBlockPosition(blockX, blockY, blockZ);
+                            boolean exempt = mutatePackets && visibilityExemptionPolicy.isExempt(
+                                    world, blockX + 0.5, blockY + 0.5, blockZ + 0.5);
                             TrackedTileEntity<?> state = blockView.updateOrInsertTileEntity(
-                                    world, key, blockID, !mutatePackets);
-                            if (!mutatePackets) {
+                                    world, key, blockID, !mutatePackets || exempt);
+                            updateExemptionState(state, exempt);
+                            if (!mutatePackets || exempt) {
                                 blockView.recordOutboundTileEntityVisibility(state, true);
                             } else if (state != null && !state.visible()) {
                                 section.set(localX, localY, localZ, hiddenBlockID.applyAsInt(blockY));
@@ -153,6 +166,17 @@ abstract class AbstractChunkParser<D> implements ChunkParser {
         }
 
         return mutatePackets && (mutatedBlock || stripped) ? copyColumn(column, filtered) : null;
+    }
+
+    private static void updateExemptionState(TrackedTileEntity<?> state, boolean exempt) {
+        if (state == null) {
+            return;
+        }
+        boolean wasExempt = state.visibilityExempt();
+        state.setVisibilityExempt(exempt);
+        if (wasExempt && !exempt) {
+            state.setLastChecked(TrackedTileEntity.NEVER_CHECKED);
+        }
     }
 
     private boolean sectionMayContainManagedTiles(Chunk_v1_18 section) {

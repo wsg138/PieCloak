@@ -235,6 +235,9 @@ public abstract class PacketEntityViewController<P> {
         if (exempt) {
             if (!entity.visible() || !entity.clientVisible()) {
                 applyDirectVisibility(playerData, entity, true, currentTick);
+                // Direct SHOW is built from the already-updated tracked position. Forwarding the
+                // movement packet as well would apply relative movement twice on the client.
+                return true;
             }
             return false;
         }

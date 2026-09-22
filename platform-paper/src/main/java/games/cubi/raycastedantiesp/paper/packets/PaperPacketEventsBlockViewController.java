@@ -5,6 +5,7 @@ import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsBlockViewController;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
@@ -20,8 +21,14 @@ public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewC
     private final PacketListenerCommon registration;
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    public PaperPacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks, IntSupplier currentTickSupplier) {
-        super(blockInfoResolver, trackAllBlocks, currentTickSupplier);
+    public PaperPacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks,
+            IntSupplier currentTickSupplier) {
+        this(blockInfoResolver, trackAllBlocks, currentTickSupplier, VisibilityExemptionPolicy.DISABLED);
+    }
+
+    public PaperPacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks,
+            IntSupplier currentTickSupplier, VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        super(blockInfoResolver, trackAllBlocks, currentTickSupplier, visibilityExemptionPolicy);
         PacketListenerCommon createdRegistration = asAbstract(PacketListenerPriority.HIGHEST);
         try {
             registration = PacketEvents.getAPI().getEventManager().registerListener(createdRegistration);

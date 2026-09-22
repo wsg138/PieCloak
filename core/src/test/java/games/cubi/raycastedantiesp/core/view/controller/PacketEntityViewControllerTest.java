@@ -3,6 +3,7 @@ package games.cubi.raycastedantiesp.core.view.controller;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
@@ -30,7 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PacketEntityViewControllerTest {
-    private static final HarnessController CONTROLLER = new HarnessController();
+    private static final HarnessVisibilityPolicy VISIBILITY_POLICY = new HarnessVisibilityPolicy();
+    private static final HarnessController CONTROLLER = new HarnessController(VISIBILITY_POLICY);
     private static final Map<Class<?>, Object> PRIMITIVE_DEFAULTS = Map.of(
             boolean.class, false,
             byte.class, (byte) 0,
@@ -55,7 +57,10 @@ class PacketEntityViewControllerTest {
     @BeforeEach
     void clearControllerState() {
         CONTROLLER.directlyShownEntityIDs.clear();
+        CONTROLLER.directlyHiddenEntityIDs.clear();
         CONTROLLER.replacementPassengerPackets.clear();
+        CONTROLLER.movementEntityID = -1;
+        VISIBILITY_POLICY.disable();
     }
 
     @AfterEach
@@ -88,6 +93,62 @@ class PacketEntityViewControllerTest {
             assertEquals(1, passenger.vehicleID(), "the passenger must remain attached to the self vehicle");
         }
         assertArrayEquals(new int[]{2, 3}, self.passengerIDs());
+    }
+
+    @Test
+    void hiddenEntityEnteringExemptRegionSuppressesMovementAfterDirectShow() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        playerData.updateOwnLocation(world, 0, 64, 0);
+        HarnessEntity entity = insertPassenger(playerData, world, 2, false, false);
+        entity.setPosition(10, 64, 0);
+        VISIBILITY_POLICY.exemptAtOrAboveX(10);
+        CONTROLLER.movementEntityID = 2;
+
+        boolean cancelled = CONTROLLER.handleRelativeMove(null, playerData, 20);
+
+        assertTrue(cancelled, "the triggering relative move must not be applied after a direct spawn at the new position");
+        assertTrue(entity.visibilityExempt());
+        assertTrue(entity.visible());
+        assertTrue(entity.clientVisible());
+        assertEquals(List.of(2), CONTROLLER.directlyShownEntityIDs);
+    }
+
+    @Test
+    void visibleEntityEnteringExemptRegionCanKeepItsMovementPacket() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        playerData.updateOwnLocation(world, 0, 64, 0);
+        HarnessEntity entity = insertPassenger(playerData, world, 2, true, true);
+        entity.setPosition(10, 64, 0);
+        VISIBILITY_POLICY.exemptAtOrAboveX(10);
+        CONTROLLER.movementEntityID = 2;
+
+        boolean cancelled = CONTROLLER.handleRelativeMove(null, playerData, 20);
+
+        assertFalse(cancelled);
+        assertTrue(entity.visibilityExempt());
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    @Test
+    void entityLeavingExemptRegionIsHiddenBeforeMovementIsForwarded() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        playerData.updateOwnLocation(world, 0, 64, 0);
+        HarnessEntity entity = insertPassenger(playerData, world, 2, true, true);
+        entity.setVisibilityExempt(true);
+        entity.setPosition(0, 64, 0);
+        VISIBILITY_POLICY.exemptAtOrAboveX(10);
+        CONTROLLER.movementEntityID = 2;
+
+        boolean cancelled = CONTROLLER.handleRelativeMove(null, playerData, 20);
+
+        assertTrue(cancelled);
+        assertFalse(entity.visibilityExempt());
+        assertFalse(entity.visible());
+        assertFalse(entity.clientVisible());
+        assertEquals(List.of(2), CONTROLLER.directlyHiddenEntityIDs);
     }
 
     @Test
@@ -287,9 +348,34 @@ class PacketEntityViewControllerTest {
         }
     }
 
+    private static final class HarnessVisibilityPolicy implements VisibilityExemptionPolicy {
+        private volatile boolean enabled;
+        private volatile double minimumX;
+
+        private void exemptAtOrAboveX(double x) {
+            minimumX = x;
+            enabled = true;
+        }
+
+        private void disable() {
+            enabled = false;
+        }
+
+        @Override
+        public boolean isExempt(UUID world, double x, double y, double z) {
+            return enabled && x >= minimumX;
+        }
+    }
+
     private static final class HarnessController extends PacketEntityViewController<Void> {
         private final List<Integer> directlyShownEntityIDs = new ArrayList<>();
+        private final List<Integer> directlyHiddenEntityIDs = new ArrayList<>();
         private final List<int[]> replacementPassengerPackets = new ArrayList<>();
+        private int movementEntityID = -1;
+
+        private HarnessController(VisibilityExemptionPolicy visibilityExemptionPolicy) {
+            super(visibilityExemptionPolicy);
+        }
 
         @Override
         protected NettyEntity<?> createSelfEntity(PlayerData ownData, int entityID, UUID playerUUID) {
@@ -309,6 +395,7 @@ class PacketEntityViewControllerTest {
 
         @Override
         protected void processDirectEntityHide(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
+            directlyHiddenEntityIDs.add(entity.entityID());
             entity.setClientVisible(false);
         }
 
@@ -319,7 +406,7 @@ class PacketEntityViewControllerTest {
 
         @Override
         protected int processRelativeMovePacket(Void packet, PlayerData playerData, int currentTick) {
-            return -1;
+            return movementEntityID;
         }
 
         @Override

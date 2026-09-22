@@ -567,8 +567,7 @@ public abstract class AsyncEngine implements Engine {
                 blockView,
                 particleSpawner);
         int configuredRecheckTicks = tileEntityConfig.getVisibleRecheckIntervalTicks();
-        int recheckTicks = configuredRecheckTicks >= 0 || !visibilityExemptionPolicy.isActive()
-                ? configuredRecheckTicks : 20;
+        int recheckTicks = visibilityExemptionPolicy.effectiveVisibleRecheckTicks(configuredRecheckTicks);
         int checked = blockView.updateVisibilityForEachNeedingRecheck(
                 recheckTicks, currentTick, modeToken, worldEpoch, tileEntityLocation -> {
             boolean wasExempt = tileEntityLocation.visibilityExempt();

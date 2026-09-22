@@ -23,6 +23,7 @@ import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
 import games.cubi.raycastedantiesp.core.logging.CubiLog;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.BlockView;
@@ -38,6 +39,7 @@ import games.cubi.raycastedantiesp.packetevents.viewcontrollers.chunkparser.NonM
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.chunkparser.OcclusionChunkParser;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -55,6 +57,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     private final IntSupplier currentTickSupplier;
     private final PacketEventsCommonViewController common;
     private final BlockTransitionRetryQueue transitionRetries = new BlockTransitionRetryQueue();
+    private final VisibilityExemptionPolicy visibilityExemptionPolicy;
     private final AtomicInteger unknownBlockEntityDiagnostics = new AtomicInteger();
     private final AtomicInteger bulkChunkDiagnostics = new AtomicInteger();
     private final AtomicInteger retryOverflowDiagnostics = new AtomicInteger();
@@ -63,17 +66,26 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
 
     protected PacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks,
             IntSupplier currentTickSupplier) {
+        this(blockInfoResolver, trackAllBlocks, currentTickSupplier, VisibilityExemptionPolicy.DISABLED);
+    }
+
+    protected PacketEventsBlockViewController(BlockInfoResolver blockInfoResolver, boolean trackAllBlocks,
+            IntSupplier currentTickSupplier, VisibilityExemptionPolicy visibilityExemptionPolicy) {
         this.blockInfoResolver = blockInfoResolver;
         this.targetFilter = blockInfoResolver instanceof PacketEventsTargetFilter filter
                 ? filter
                 : PacketEventsTargetFilter.DISABLED;
         this.currentTickSupplier = currentTickSupplier;
+        this.visibilityExemptionPolicy = Objects.requireNonNull(
+                visibilityExemptionPolicy, "visibilityExemptionPolicy");
         common = PacketEventsCommonViewController.get(currentTickSupplier);
         if (trackAllBlocks) {
-            mutatingChunkParser = new BlockChunkParser(blockInfoResolver, this::getHiddenBlockId);
+            mutatingChunkParser = new BlockChunkParser(
+                    blockInfoResolver, this::getHiddenBlockId, visibilityExemptionPolicy);
             nonMutatingChunkParser = new NonMutatingBlockChunkParser(blockInfoResolver, this::getHiddenBlockId);
         } else {
-            mutatingChunkParser = new OcclusionChunkParser(blockInfoResolver, this::getHiddenBlockId);
+            mutatingChunkParser = new OcclusionChunkParser(
+                    blockInfoResolver, this::getHiddenBlockId, visibilityExemptionPolicy);
             nonMutatingChunkParser = new NonMutatingOcclusionChunkParser(blockInfoResolver, this::getHiddenBlockId);
         }
     }
@@ -180,7 +192,19 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             return;
         }
 
+        boolean exempt = tileChecksEnabled && isVisibilityExempt(world, position);
+        updateTileExemptionState(tileEntity, exempt);
         ensureTileReplayData(tileEntity).setBlockEntityData(packet.getBlockEntityType(), packet.getNBT());
+        if (tileChecksEnabled && exempt) {
+            if (!tileEntity.visible()) {
+                blockView.recordOutboundTileEntityVisibility(tileEntity, true);
+                event.setCancelled(true);
+                processInitialTileEntityOperationSafely(playerData, viewer, Operation.SHOW, tileEntity,
+                        blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK,
+                        playerData.acquireWorldEpoch());
+            }
+            return;
+        }
         if (tileChecksEnabled && !blockView.isVisible(world, position, currentTick)) {
             event.setCancelled(true);
             processInitialTileEntityOperationSafely(playerData, viewer, Operation.HIDE, tileEntity,
@@ -192,6 +216,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     private void handleUnknownBlockEntity(PacketSendEvent event, User viewer, BlockView blockView,
             UUID world, ImmutableBlockSpatialImpl position, WrapperPlayServerBlockEntityData packet,
             boolean tileChecksEnabled) {
+        if (tileChecksEnabled && isVisibilityExempt(world, position)) {
+            return;
+        }
         BlockView.BlockEntityStatus blockStatus = blockView.getBlockEntityStatus(world, position);
         boolean packetTypeManaged = targetFilter.shouldCullBlockEntity(packet.getBlockEntityType());
         boolean failClosed = shouldFailClosedForUnknownBlockEntity(
@@ -278,10 +305,12 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             blockView.upsertBlock(world, change.getX(), change.getY(), change.getZ(), blockID);
             key.setBlockPosition(change.getX(), change.getY(), change.getZ());
             if (tileEntity) {
-                boolean visibleIfNew = !tileChecksEnabled || visibleIfNew(key, playerLocation, world);
+                boolean exempt = tileChecksEnabled && isVisibilityExempt(world, key);
+                boolean visibleIfNew = !tileChecksEnabled || exempt || visibleIfNew(key, playerLocation, world);
                 TrackedTileEntity<?> state =
                         blockView.updateOrInsertTileEntity(world, key, blockID, visibleIfNew);
-                if (!tileChecksEnabled) {
+                updateTileExemptionState(state, exempt);
+                if (!tileChecksEnabled || exempt) {
                     blockView.recordOutboundTileEntityVisibility(state, true);
                 } else if (state != null && !state.visible()) {
                     change.setBlockId(getHiddenBlockId(key.blockY()));
@@ -550,10 +579,13 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         BlockView blockView = playerData.blockView();
         blockView.upsertBlock(world, position.getX(), position.getY(), position.getZ(), blockID);
         if (tileEntity) {
-            boolean visibleIfNew = !tileChecksEnabled || visibleIfNew(location, playerData.ownLocation(), world);
+            boolean exempt = tileChecksEnabled && isVisibilityExempt(world, location);
+            boolean visibleIfNew = !tileChecksEnabled || exempt
+                    || visibleIfNew(location, playerData.ownLocation(), world);
             TrackedTileEntity<?> state =
                     blockView.updateOrInsertTileEntity(world, location, blockID, visibleIfNew);
-            if (!tileChecksEnabled) {
+            updateTileExemptionState(state, exempt);
+            if (!tileChecksEnabled || exempt) {
                 blockView.recordOutboundTileEntityVisibility(state, true);
             } else if (state != null && !state.visible()) {
                 event.setCancelled(true);
@@ -563,6 +595,25 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             }
         } else {
             blockView.removeTileEntity(world, location);
+        }
+    }
+
+    private boolean isVisibilityExempt(UUID world, BlockSpatial position) {
+        return visibilityExemptionPolicy.isExempt(
+                world,
+                position.blockX() + 0.5,
+                position.blockY() + 0.5,
+                position.blockZ() + 0.5);
+    }
+
+    private static void updateTileExemptionState(TrackedTileEntity<?> tileEntity, boolean exempt) {
+        if (tileEntity == null) {
+            return;
+        }
+        boolean wasExempt = tileEntity.visibilityExempt();
+        tileEntity.setVisibilityExempt(exempt);
+        if (wasExempt && !exempt) {
+            tileEntity.setLastChecked(TrackedTileEntity.NEVER_CHECKED);
         }
     }
 

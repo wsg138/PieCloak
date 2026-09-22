@@ -10,6 +10,8 @@ import java.util.UUID;
  */
 @FunctionalInterface
 public interface VisibilityExemptionPolicy {
+    int MAX_EXEMPTION_RECHECK_TICKS = 20;
+
     VisibilityExemptionPolicy DISABLED = new VisibilityExemptionPolicy() {
         @Override
         public boolean isExempt(UUID world, double x, double y, double z) {
@@ -32,5 +34,17 @@ public interface VisibilityExemptionPolicy {
 
     default boolean isActive() {
         return true;
+    }
+
+    /**
+     * Exemption changes must be noticed even when ordinary visible-target rechecks are disabled or slow.
+     */
+    default int effectiveVisibleRecheckTicks(int configuredRecheckTicks) {
+        if (!isActive()) {
+            return configuredRecheckTicks;
+        }
+        return configuredRecheckTicks < 0
+                ? MAX_EXEMPTION_RECHECK_TICKS
+                : Math.min(configuredRecheckTicks, MAX_EXEMPTION_RECHECK_TICKS);
     }
 }

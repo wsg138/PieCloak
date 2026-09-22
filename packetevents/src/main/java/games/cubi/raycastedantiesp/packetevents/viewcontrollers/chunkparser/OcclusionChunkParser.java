@@ -6,6 +6,7 @@ import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.chunks.ChunkData;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkData;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkDataImpl;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import org.jetbrains.annotations.Nullable;
 
@@ -14,11 +15,17 @@ import java.util.function.IntUnaryOperator;
 
 public class OcclusionChunkParser extends AbstractChunkParser<OccludingChunkData> {
     public OcclusionChunkParser(BlockInfoResolver blockInfoResolver, IntUnaryOperator hiddenBlockID) {
-        this(blockInfoResolver, true, hiddenBlockID);
+        this(blockInfoResolver, hiddenBlockID, VisibilityExemptionPolicy.DISABLED);
     }
 
-    protected OcclusionChunkParser(BlockInfoResolver blockInfoResolver, boolean mutatePackets, IntUnaryOperator hiddenBlockID) {
-        super(blockInfoResolver, mutatePackets, hiddenBlockID);
+    public OcclusionChunkParser(BlockInfoResolver blockInfoResolver, IntUnaryOperator hiddenBlockID,
+            VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        this(blockInfoResolver, true, hiddenBlockID, visibilityExemptionPolicy);
+    }
+
+    protected OcclusionChunkParser(BlockInfoResolver blockInfoResolver, boolean mutatePackets,
+            IntUnaryOperator hiddenBlockID, VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        super(blockInfoResolver, mutatePackets, hiddenBlockID, visibilityExemptionPolicy);
     }
 
     @Override

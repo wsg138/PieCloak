@@ -13,6 +13,7 @@ import com.github.retrooper.packetevents.protocol.world.chunk.impl.v_1_18.Chunk_
 import games.cubi.locatables.implementations.ImmutableBlockLocatable;
 import games.cubi.locatables.implementations.ImmutableBlockSpatialImpl;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
 import org.junit.jupiter.api.BeforeAll;
@@ -95,6 +96,31 @@ class ChunkParserTest {
         assertEquals(1, section.getBlockId(3, 2, 1));
         assertEquals(0, replacement.getTileEntities().length);
         assertFalse(view.getTrackedTileEntity(world, new ImmutableBlockSpatialImpl(3, 2, 1)).visible());
+    }
+
+    @Test
+    void mutatingParserLeavesExemptManagedTileRealAndVisible() {
+        UUID world = UUID.randomUUID();
+        Chunk_v1_18 section = airSection();
+        section.set(3, 2, 1, 99);
+        TileEntity tileEntity = new TileEntity((byte) (3 << 4 | 1), (short) 2, 0, null);
+        Column column = new Column(0, 0, true, new BaseChunk[]{section}, new TileEntity[]{tileEntity});
+        PacketEventsBlockView view = new PacketEventsBlockView(RESOLVER, true, STABLE_WORLD_EPOCH);
+        view.applyTileEntityCheckMode(true, 0, unused -> {});
+        VisibilityExemptionPolicy policy = (worldId, x, y, z) -> world.equals(worldId)
+                && x >= 3 && x < 4 && y >= 2 && y < 3 && z >= 1 && z < 2;
+
+        Column replacement = new BlockChunkParser(RESOLVER, ignored -> 1, policy)
+                .parse(view, world, column, 0);
+
+        assertNull(replacement);
+        assertEquals(99, section.getBlockId(3, 2, 1));
+        assertEquals(1, column.getTileEntities().length);
+        TrackedTileEntity<?> tracked = view.getTrackedTileEntity(
+                world, new ImmutableBlockSpatialImpl(3, 2, 1));
+        assertNotNull(tracked);
+        assertTrue(tracked.visible());
+        assertTrue(tracked.visibilityExempt());
     }
 
     @Test

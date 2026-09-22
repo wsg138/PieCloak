@@ -23,8 +23,6 @@ import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 
 final class AsyncVisibilityChecks {
-    private static final int EXEMPTION_RECHECK_TICKS = 20;
-
     private final ParticleSpawner particleSpawner;
     private final VisibilityExemptionPolicy visibilityExemptionPolicy;
 
@@ -183,10 +181,7 @@ final class AsyncVisibilityChecks {
     }
 
     private int effectiveRecheckTicks(int configuredRecheckTicks) {
-        if (configuredRecheckTicks >= 0 || !visibilityExemptionPolicy.isActive()) {
-            return configuredRecheckTicks;
-        }
-        return EXEMPTION_RECHECK_TICKS;
+        return visibilityExemptionPolicy.effectiveVisibleRecheckTicks(configuredRecheckTicks);
     }
 
     private RaycastUtil.Settings raycastSettings(
