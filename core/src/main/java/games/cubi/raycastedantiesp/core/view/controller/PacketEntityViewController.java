@@ -261,19 +261,32 @@ public abstract class PacketEntityViewController<P> {
         clearStalePassengerReferences(entityID, previousPassengers, passengers, playerData);
         if (vehicle == null) {
             playerData.nettyData().setUnresolvedPassengers(entityID, passengers);
-            if (bypassedVehicle) {
-                for (int passengerID : passengers) {
-                    NettyEntity<?> passenger = playerData.entityFromID(passengerID);
-                    if (passenger == null) {
-                        continue;
-                    }
-                    passenger.setVehicleID(entityID);
-                    forceVisibleBecauseAttached(passenger, playerData, currentTick, "bypassed vehicle passenger");
-                }
+            if (!bypassedVehicle) {
+                return false;
             }
-            return false;
+            updateKnownPassengerVehicleReferences(entityID, passengers, playerData);
+            IntArrayList visiblePassengers = collectClientVisiblePassengers(passengers, playerData);
+            int passengerCount = passengers == null ? 0 : passengers.length;
+            if (visiblePassengers.size() == passengerCount) {
+                return false;
+            }
+            sendEntityPassengerPacket(entityID, visiblePassengers, playerData);
+            return true;
         }
         return handleEntityPassengersNow(vehicle, passengers, playerData, currentTick);
+    }
+
+    private static void updateKnownPassengerVehicleReferences(
+            int vehicleID, int[] passengers, PlayerData playerData) {
+        if (passengers == null) {
+            return;
+        }
+        for (int passengerID : passengers) {
+            NettyEntity<?> passenger = playerData.entityFromID(passengerID);
+            if (passenger != null) {
+                passenger.setVehicleID(vehicleID);
+            }
+        }
     }
 
     //This (and leash handling) leaks some info to the client, as it will receive the passenger packet even if the passengers are auto-hidden once parsed, but as the packet doesn't include any location or type info, this shouldn't be too incriminating.
@@ -556,7 +569,6 @@ public abstract class PacketEntityViewController<P> {
         EntityView<?> view = self.viewFromEntityID(entity.entityID());
         if (view == null) {
             Logger.warning("Could not find owning view while forcing attached entity visible, id=" + entity.entityID() + " player=" + self.getPlayerUUID() + " reason=" + reason, 6, PacketEntityViewController.class);
-            // Note that this path can fire when a vehicle is bypassed, so its log level must be higher than default.
             return false;
         }
         boolean wasVisible = entity.visible();
@@ -648,7 +660,6 @@ public abstract class PacketEntityViewController<P> {
         }
         if (EntityBypassRegistry.isBypassed(unresolvedVehicleID)) {
             insertedEntity.setVehicleID(unresolvedVehicleID);
-            forceVisibleBecauseAttached(insertedEntity, playerData, insertedEntity.lastChecked(), "bypassed vehicle unresolved passenger");
             return;
         }
         NettyEntity<?> vehicle = playerData.entityFromID(unresolvedVehicleID);
@@ -673,14 +684,7 @@ public abstract class PacketEntityViewController<P> {
         playerData.nettyData().clearPendingPostSpawnTasksForEntity(entityID);
         int[] pendingPassengers = playerData.nettyData().getUnresolvedPassengers(entityID);
         if (!PrimitiveIntArrayList.isEmpty(pendingPassengers)) {
-            for (int passengerID : pendingPassengers) {
-                NettyEntity<?> passenger = playerData.entityFromID(passengerID);
-                if (passenger == null) {
-                    continue;
-                }
-                passenger.setVehicleID(entityID);
-                forceVisibleBecauseAttached(passenger, playerData, currentTick, "bypassed vehicle passenger");
-            }
+            updateKnownPassengerVehicleReferences(entityID, pendingPassengers, playerData);
         }
 
         int holderEntityID = playerData.nettyData().getUnresolvedHolderForLeashedEntity(entityID);
