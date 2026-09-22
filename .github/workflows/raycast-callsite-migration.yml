@@ -1,0 +1,76 @@
+name: Raycast call-site migration
+
+on:
+  push:
+    branches:
+      - hardening/entity-visibility-audit
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/entity-visibility-audit
+      - name: Apply exact call-site edits
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new))
+
+          engine = "core/src/main/java/games/cubi/raycastedantiesp/core/engine/AsyncEngine.java"
+          replace_once(
+              engine,
+              "        long modeToken = blockView.tileEntityCheckModeToken();\n        int checked = blockView.updateVisibilityForEachNeedingRecheck",
+              "        long modeToken = blockView.tileEntityCheckModeToken();\n        RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(\n                tileEntityConfig.getMaxOccludingCount(),\n                tileEntityConfig.getAlwaysShowRadius(),\n                tileEntityConfig.getRaycastRadius(),\n                debugParticles,\n                blockView,\n                particleSpawner);\n        int checked = blockView.updateVisibilityForEachNeedingRecheck"
+          )
+          replace_once(
+              engine,
+              "            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount(), tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);",
+              "            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, raycastSettings, 1);"
+          )
+
+          command = "platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/commands/RaycastedAntiESPCommand.java"
+          replace_once(
+              command,
+              "        Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> {\n            long startNanos = System.nanoTime();",
+              "        RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(\n                3, 0, clampedRadius, false, playerData.blockView(), null);\n        Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> {\n            long startNanos = System.nanoTime();"
+          )
+          replace_once(
+              command,
+              "RaycastUtil.raycast(origin, target, 3, 0, clampedRadius, false, playerData.blockView(), 1, null)",
+              "RaycastUtil.raycast(origin, target, raycastSettings)"
+          )
+          replace_once(
+              command,
+              "            Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), (ignored) -> {\n                int successfulRays = 0;",
+              "            RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(\n                    3, 0, 100, false, playerData.blockView(), null);\n            Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), (ignored) -> {\n                int successfulRays = 0;"
+          )
+          replace_once(
+              command,
+              "RaycastUtil.raycast(playerLocatable, locatable, 3, 0, 100, false, playerData.blockView(), 1, null)",
+              "RaycastUtil.raycast(playerLocatable, locatable, raycastSettings)"
+          )
+      - name: Commit exact call-site edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff -- core/src/main/java/games/cubi/raycastedantiesp/core/engine/AsyncEngine.java \
+            platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/commands/RaycastedAntiESPCommand.java
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add core/src/main/java/games/cubi/raycastedantiesp/core/engine/AsyncEngine.java \
+            platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/commands/RaycastedAntiESPCommand.java
+          git commit -m 'Migrate raycast call sites to settings API'
+          git push origin HEAD:hardening/entity-visibility-audit
