@@ -23,11 +23,27 @@ public class SourceCommand {
 
     @Executes("inspect")
     public void inspect(@StringArg(StringArgType.STRING) String viewer, int entityId, CommandSender sender) {
-        if (!sender.hasPermission("raycastedantiesp.command")) {
-            sender.sendRichMessage("<red>You do not have permission to inspect PieCloak visibility state.");
+        if (!canInspect(sender)) {
             return;
         }
         EntityVisibilityInspector.inspect(sender, viewer, entityId);
+    }
+
+    @Executes("inspectblock")
+    public void inspectBlock(@StringArg(StringArgType.STRING) String viewer,
+            int x, int y, int z, CommandSender sender) {
+        if (!canInspect(sender)) {
+            return;
+        }
+        BlockVisibilityInspector.inspect(sender, viewer, x, y, z);
+    }
+
+    private static boolean canInspect(CommandSender sender) {
+        if (sender.hasPermission("raycastedantiesp.command")) {
+            return true;
+        }
+        sender.sendRichMessage("<red>You do not have permission to inspect PieCloak visibility state.");
+        return false;
     }
 
     static void sendSourceLink(CommandSender sender) {
