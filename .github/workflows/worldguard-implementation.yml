@@ -18,6 +18,12 @@ jobs:
         with:
           ref: hardening/entity-visibility-audit
           submodules: recursive
+      - name: Generate LeafPile sources
+        shell: bash
+        run: |
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
       - name: Apply WorldGuard integration
         run: python .github/worldguard_impl.py
       - name: Compile and test foundation
