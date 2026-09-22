@@ -13,6 +13,7 @@ import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
+import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
@@ -204,17 +205,25 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         }
     }
 
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
     private static void writeBypassedVehiclePassengerState(
             int vehicleID, IntArrayList passengers, PlayerData playerData) {
-        Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
-        if (channel == null) {
-            return;
+        try {
+            Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
+            if (channel == null) {
+                return;
+            }
+            var user = PacketEvents.getAPI().getProtocolManager().getUser(channel);
+            if (user == null) {
+                return;
+            }
+            user.writePacketSilently(new WrapperPlayServerSetPassengers(vehicleID, passengers.toIntArray()));
+        } catch (RuntimeException exception) {
+            Logger.error("Failed to send filtered passenger state for bypassed vehicle id=" + vehicleID
+                    + " viewer=" + playerData.getPlayerUUID()
+                    + ". The original relationship packet will remain suppressed.",
+                    exception, 2, PaperPacketEventsEntityViewController.class);
         }
-        var user = PacketEvents.getAPI().getProtocolManager().getUser(channel);
-        if (user == null) {
-            return;
-        }
-        user.writePacketSilently(new WrapperPlayServerSetPassengers(vehicleID, passengers.toIntArray()));
     }
 
     @Override
