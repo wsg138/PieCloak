@@ -31,6 +31,10 @@ public class PlayerData {
     private final int joinTick;
     private volatile boolean hasBypassPermission;
     private volatile boolean connected;
+    // PacketEvents delivers bundle delimiters and their enclosed packets on the same viewer Netty thread.
+    // Both the entity and block controllers need this shared state so neither emits repair packets into
+    // an unrelated outer bundle.
+    private boolean packetsWithinBundle;
     private final ThreadSafeLocatable ownLocation;
 
     private final BlockView blockView;
@@ -144,6 +148,20 @@ public class PlayerData {
         return hasBypassPermission;
     }
 
+    /** Netty-thread state shared by packet controllers for bundle-safe repair emission. */
+    public boolean packetsWithinBundle() {
+        return packetsWithinBundle;
+    }
+
+    /**
+     * Toggles the protocol bundle state for a bundle delimiter packet and returns the new state.
+     * PacketEvents represents both the opening and closing delimiter with the same packet type.
+     */
+    public boolean togglePacketBundleState() {
+        packetsWithinBundle = !packetsWithinBundle;
+        return packetsWithinBundle;
+    }
+
     public int getJoinTick() {
         return joinTick;
     }
@@ -154,6 +172,7 @@ public class PlayerData {
 
     public void markDisconnected() {
         connected = false;
+        packetsWithinBundle = false;
         int current = acquireWorldEpoch();
         if ((current & 1) == 0) {
             WORLD_EPOCH.setRelease(this, current + 1);
