@@ -21,6 +21,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PacketEventsBlockViewControllerTest {
     @Test
+    void afterSendRepairsRequireSameStableWorldEpoch() {
+        assertTrue(PacketEventsBlockViewController.isCurrentCallbackWorldEpoch(2, 2));
+        assertFalse(PacketEventsBlockViewController.isCurrentCallbackWorldEpoch(2, 4));
+        assertFalse(PacketEventsBlockViewController.isCurrentCallbackWorldEpoch(2, 3));
+        assertFalse(PacketEventsBlockViewController.isCurrentCallbackWorldEpoch(2, 1));
+    }
+
+    @Test
     void bypassViewersDisableTileChecksWithoutChangingGlobalConfig() {
         assertFalse(PacketEventsBlockViewController.tileChecksEnabledForViewer(true, true));
         assertTrue(PacketEventsBlockViewController.tileChecksEnabledForViewer(true, false));

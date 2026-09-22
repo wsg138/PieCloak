@@ -141,7 +141,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
 
         handleBlockPackets(event, viewer, playerData, world, currentTick, tileChecksEnabled);
         scheduleVisibilityRepairsAfterSend(event, viewer, playerData, blockView,
-                viewerUUID, currentTick, requestedTileChecksEnabled, withinBundle, bundleDelimiter);
+                viewerUUID, currentTick, worldEpoch, requestedTileChecksEnabled, withinBundle, bundleDelimiter);
     }
 
     private void applyTileEntityCheckMode(
@@ -158,6 +158,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             BlockView blockView,
             UUID viewerUUID,
             int currentTick,
+            int expectedWorldEpoch,
             boolean requestedTileChecksEnabled,
             boolean withinBundle,
             boolean bundleDelimiter) {
@@ -172,6 +173,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             return;
         }
         event.getTasksAfterSend().add(() -> {
+            if (!isCurrentCallbackWorldEpoch(expectedWorldEpoch, playerData.acquireWorldEpoch())) {
+                return;
+            }
             if (modeChangeAfterDelimiter) {
                 applyTileEntityCheckMode(
                         blockView, requestedTileChecksEnabled, playerData, viewer, currentTick);
@@ -181,6 +185,10 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 processTileEntityTransitions(viewer, playerData, currentTick);
             }
         });
+    }
+
+    static boolean isCurrentCallbackWorldEpoch(int expectedWorldEpoch, int currentWorldEpoch) {
+        return PlayerData.isStableWorldEpoch(currentWorldEpoch) && expectedWorldEpoch == currentWorldEpoch;
     }
 
     static boolean tileChecksEnabledForViewer(boolean configuredEnabled, boolean hasBypassPermission) {
