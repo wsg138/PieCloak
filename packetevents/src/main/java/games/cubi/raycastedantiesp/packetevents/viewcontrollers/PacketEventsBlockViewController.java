@@ -124,20 +124,63 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         int currentTick = currentTickSupplier.getAsInt();
         int worldEpoch = playerData.acquireWorldEpoch();
 
-        boolean tileChecksEnabled = tileChecksEnabledForViewer(
+        boolean requestedTileChecksEnabled = tileChecksEnabledForViewer(
                 tileEntityConfig.enabled(), playerData.hasBypassPermission());
         BlockView blockView = playerData.blockView();
-        blockView.applyTileEntityCheckMode(tileChecksEnabled, currentTick,
-                tileEntity -> processModeRepairSafely(playerData, viewer, tileEntity,
-                        blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK));
+        boolean bundleDelimiter = event.getPacketType() == PacketType.Play.Server.BUNDLE;
+        boolean withinBundle = playerData.nettyData().packetsAreWithinBundle();
+        boolean deferModeChange = withinBundle || bundleDelimiter;
+        boolean tileChecksEnabled = deferModeChange
+                ? blockView.tileEntityChecksEnabled()
+                : requestedTileChecksEnabled;
+        if (!deferModeChange) {
+            applyTileEntityCheckMode(
+                    blockView, requestedTileChecksEnabled, playerData, viewer, currentTick);
+        }
         transitionRetries.discardStale(viewerUUID, worldEpoch, blockView.tileEntityCheckModeToken());
 
         handleBlockPackets(event, viewer, playerData, world, currentTick, tileChecksEnabled);
+        scheduleVisibilityRepairsAfterSend(event, viewer, playerData, blockView,
+                viewerUUID, currentTick, requestedTileChecksEnabled, withinBundle, bundleDelimiter);
+    }
 
-        processTransitionRetries(viewer, playerData, currentTick);
-        if (blockView.hasPendingTransitions()) {
-            processTileEntityTransitions(viewer, playerData, currentTick);
+    private void applyTileEntityCheckMode(
+            BlockView blockView, boolean enabled, PlayerData playerData, User viewer, int currentTick) {
+        blockView.applyTileEntityCheckMode(enabled, currentTick,
+                tileEntity -> processModeRepairSafely(playerData, viewer, tileEntity,
+                        blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK));
+    }
+
+    private void scheduleVisibilityRepairsAfterSend(
+            PacketSendEvent event,
+            User viewer,
+            PlayerData playerData,
+            BlockView blockView,
+            UUID viewerUUID,
+            int currentTick,
+            boolean requestedTileChecksEnabled,
+            boolean withinBundle,
+            boolean bundleDelimiter) {
+        if (withinBundle) {
+            return;
         }
+        boolean modeChangeAfterDelimiter = bundleDelimiter
+                && blockView.tileEntityChecksEnabled() != requestedTileChecksEnabled;
+        if (!modeChangeAfterDelimiter
+                && !blockView.hasPendingTransitions()
+                && !transitionRetries.hasPending(viewerUUID)) {
+            return;
+        }
+        event.getTasksAfterSend().add(() -> {
+            if (modeChangeAfterDelimiter) {
+                applyTileEntityCheckMode(
+                        blockView, requestedTileChecksEnabled, playerData, viewer, currentTick);
+            }
+            processTransitionRetries(viewer, playerData, currentTick);
+            if (blockView.hasPendingTransitions()) {
+                processTileEntityTransitions(viewer, playerData, currentTick);
+            }
+        });
     }
 
     static boolean tileChecksEnabledForViewer(boolean configuredEnabled, boolean hasBypassPermission) {

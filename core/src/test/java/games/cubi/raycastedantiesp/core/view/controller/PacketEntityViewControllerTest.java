@@ -26,6 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -93,6 +94,39 @@ class PacketEntityViewControllerTest {
             assertEquals(1, passenger.vehicleID(), "the passenger must remain attached to the self vehicle");
         }
         assertArrayEquals(new int[]{2, 3}, self.passengerIDs());
+    }
+
+    @Test
+    void nettyBundleStateDefersAndDrainsDirectVisibilityIds() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+
+        assertFalse(playerData.nettyData().packetsAreWithinBundle());
+        assertTrue(playerData.nettyData().togglePacketBundleState());
+        playerData.nettyData().deferDirectVisibilityEntity(7);
+        playerData.nettyData().deferDirectVisibilityEntity(7);
+        playerData.nettyData().deferDirectVisibilityEntity(8);
+        assertTrue(playerData.nettyData().hasDeferredDirectVisibilityEntities());
+
+        int[] deferred = playerData.nettyData().drainDeferredDirectVisibilityEntityIDs();
+        java.util.Arrays.sort(deferred);
+        assertArrayEquals(new int[]{7, 8}, deferred);
+        assertFalse(playerData.nettyData().hasDeferredDirectVisibilityEntities());
+        assertFalse(playerData.nettyData().togglePacketBundleState());
+    }
+
+    @Test
+    void worldTransitionClearsDeferredDirectVisibilityWithoutCorruptingBundleState() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        assertTrue(playerData.nettyData().togglePacketBundleState());
+        playerData.nettyData().deferDirectVisibilityEntity(7);
+
+        playerData.nettyData().clearPendingReconciliationState();
+
+        assertFalse(playerData.nettyData().hasDeferredDirectVisibilityEntities());
+        assertTrue(playerData.nettyData().packetsAreWithinBundle());
+        assertFalse(playerData.nettyData().togglePacketBundleState());
     }
 
     @Test

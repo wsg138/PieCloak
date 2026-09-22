@@ -19,6 +19,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BlockTransitionRetryQueueTest {
     @Test
+    void pendingPredicateTracksViewerQueueLifecycle() {
+        BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
+        UUID viewer = UUID.randomUUID();
+        TrackedTileEntity<?> tile = tileEntity();
+        assertFalse(queue.hasPending(viewer));
+        assertFalse(queue.enqueue(new BlockTransitionRetryQueue.RetryRequest(
+                viewer, SHOW, BLOCK, tile, 1, 2, 7L, 1, 0)));
+        assertTrue(queue.hasPending(viewer));
+        queue.clear(viewer);
+        assertFalse(queue.hasPending(viewer));
+    }
+
+    @Test
     void duplicateRepairKeepsEarliestIncompleteStage() {
         BlockTransitionRetryQueue queue = new BlockTransitionRetryQueue();
         UUID viewer = UUID.randomUUID();

@@ -67,6 +67,9 @@ public interface BlockView extends Clearable {
     void applyTileEntityCheckMode(boolean enabled, int currentTick,
                                   Consumer<TrackedTileEntity<?>> visibilityRepairConsumer);
 
+    /** Returns whether tile visibility checks are enabled in the current mode generation. */
+    boolean tileEntityChecksEnabled();
+
     /** Returns an opaque enabled-state/generation snapshot for rejecting results that cross a mode change. */
     long tileEntityCheckModeToken();
 

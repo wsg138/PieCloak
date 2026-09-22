@@ -117,8 +117,16 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         refreshVisibilityConfigs();
         int currentTick = CURRENT_TICK_SUPPLIER.getAsInt();
         processViewerPacket(event, viewer, playerData, currentTick);
-        schedulePendingTransitions(event, viewer, playerData, viewerUUID);
+        boolean withinBundle = updatePacketBundleState(event, playerData);
+        schedulePendingTransitions(event, viewer, playerData, viewerUUID, withinBundle);
         playerData.nettyData().evictPendingPostSpawnTasksIfRequired(currentTick);
+    }
+
+    private static boolean updatePacketBundleState(PacketSendEvent event, PlayerData playerData) {
+        if (event.getPacketType() == PacketType.Play.Server.BUNDLE) {
+            return playerData.nettyData().togglePacketBundleState();
+        }
+        return playerData.nettyData().packetsAreWithinBundle();
     }
 
     private PlayerData resolvePlayerData(PacketSendEvent event, UUID viewerUUID) {
@@ -165,17 +173,48 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             PacketSendEvent event,
             User viewer,
             PlayerData playerData,
-            UUID viewerUUID) {
-        if (!hasPendingTransitions(playerData, viewerUUID)) {
+            UUID viewerUUID,
+            boolean withinBundle) {
+        if (withinBundle || !hasPendingTransitions(playerData, viewerUUID)) {
             return;
         }
-        event.getTasksAfterSend().add(() -> processPendingEntityTransitions(playerData, viewer));
+        event.getTasksAfterSend().add(() -> {
+            processDeferredDirectVisibility(playerData);
+            processPendingEntityTransitions(playerData, viewer);
+        });
     }
 
     private boolean hasPendingTransitions(PlayerData playerData, UUID viewerUUID) {
-        return playerData.entityView().hasPendingTransitions()
+        return playerData.nettyData().hasDeferredDirectVisibilityEntities()
+                || playerData.entityView().hasPendingTransitions()
                 || playerData.playerView().hasPendingTransitions()
                 || transitionRetries.hasPending(viewerUUID);
+    }
+
+    private void processDeferredDirectVisibility(PlayerData playerData) {
+        int[] entityIDs = playerData.nettyData().drainDeferredDirectVisibilityEntityIDs();
+        if (entityIDs == null) {
+            return;
+        }
+        int worldEpoch = playerData.acquireWorldEpoch();
+        for (int entityID : entityIDs) {
+            EntityView<?> view = playerData.entityView().exists(entityID)
+                    ? playerData.entityView()
+                    : playerData.playerView().exists(entityID) ? playerData.playerView() : null;
+            if (view == null) {
+                continue;
+            }
+            NettyEntity<?> entity = (NettyEntity<?>) view.getEntity(entityID);
+            if (entity == null || entity.isSelfEntity()) {
+                continue;
+            }
+            processDirectEntityVisibilityNow(
+                    playerData,
+                    view,
+                    entity,
+                    worldEpoch,
+                    entity.visible() ? EntityViewTransition.Type.SHOW : EntityViewTransition.Type.HIDE);
+        }
     }
 
     private void processPendingEntityTransitions(PlayerData data, User viewer) {
@@ -419,6 +458,16 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     }
 
     private void processDirectEntityVisibility(
+            PlayerData playerData, EntityView<?> view, NettyEntity<?> entity,
+            int worldEpoch, EntityViewTransition.Type type) {
+        if (playerData.nettyData().packetsAreWithinBundle()) {
+            playerData.nettyData().deferDirectVisibilityEntity(entity.entityID());
+            return;
+        }
+        processDirectEntityVisibilityNow(playerData, view, entity, worldEpoch, type);
+    }
+
+    private void processDirectEntityVisibilityNow(
             PlayerData playerData, EntityView<?> view, NettyEntity<?> entity,
             int worldEpoch, EntityViewTransition.Type type) {
         Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
