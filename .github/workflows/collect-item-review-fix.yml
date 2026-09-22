@@ -1,0 +1,47 @@
+name: COLLECT_ITEM visibility review fix
+
+on:
+  push:
+    branches:
+      - hardening/entity-visibility-audit
+    paths:
+      - .github/workflows/collect-item-review-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/entity-visibility-audit
+          submodules: recursive
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - name: Apply COLLECT_ITEM fix
+        run: python .github/collect_item_review_fix.py
+      - name: Generate LeafPile sources
+        shell: bash
+        run: |
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+      - name: Run focused and integration tests
+        run: ./gradlew :core:test :packetevents:test :platform-paper:test :platform-paper:compileJava --no-daemon
+      - name: Commit reviewed fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packetevents
+          git commit -m 'Suppress hidden COLLECT_ITEM references'
+          git push origin HEAD:hardening/entity-visibility-audit
