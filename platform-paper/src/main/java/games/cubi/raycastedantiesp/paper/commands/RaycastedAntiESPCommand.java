@@ -221,11 +221,13 @@ public class RaycastedAntiESPCommand {
             targets[i] = new MutableLocatableImpl(origin.world(), origin.x(), origin.y(), origin.z()).add(direction);
         }
 
+        RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(
+                3, 0, clampedRadius, false, playerData.blockView(), null);
         Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> {
             long startNanos = System.nanoTime();
             int visible = 0;
             for (Locatable target : targets) {
-                if (RaycastUtil.raycast(origin, target, 3, 0, clampedRadius, false, playerData.blockView(), 1, null)) {
+                if (RaycastUtil.raycast(origin, target, raycastSettings)) {
                     visible++;
                 }
             }
@@ -300,11 +302,13 @@ public class RaycastedAntiESPCommand {
                 unitDirection.scalarMultiply(50);
                 locatables[i] = new MutableLocatableImpl(playerLocatable.world(), playerLocatable.x(), playerLocatable.y(), playerLocatable.z()).add(unitDirection);
             }
+            RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(
+                    3, 0, 100, false, playerData.blockView(), null);
             Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), (ignored) -> {
                 int successfulRays = 0;
                 long startTime = System.nanoTime();
                 for (Locatable locatable : locatables) {
-                    if (RaycastUtil.raycast(playerLocatable, locatable, 3, 0, 100, false, playerData.blockView(), 1, null)) successfulRays++;
+                    if (RaycastUtil.raycast(playerLocatable, locatable, raycastSettings)) successfulRays++;
                 }
                 long endTime = System.nanoTime();
                 long duration = endTime - startTime;

@@ -549,6 +549,13 @@ public abstract class AsyncEngine implements Engine {
 
     private void checkTileEntities(PlayerData player, Locatable playerLocation, TileEntityConfig tileEntityConfig, boolean debugParticles, BlockView blockView, int currentTick, int worldEpoch, TickTimingBatch timings) {
         long modeToken = blockView.tileEntityCheckModeToken();
+        RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(
+                tileEntityConfig.getMaxOccludingCount(),
+                tileEntityConfig.getAlwaysShowRadius(),
+                tileEntityConfig.getRaycastRadius(),
+                debugParticles,
+                blockView,
+                particleSpawner);
         int checked = blockView.updateVisibilityForEachNeedingRecheck(tileEntityConfig.getVisibleRecheckIntervalTicks(), currentTick, modeToken, worldEpoch, tileEntityLocation -> {
 
             if (playerLocation.distanceSquared(tileEntityLocation) > (double) tileEntityConfig.getRaycastRadius() * tileEntityConfig.getRaycastRadius()) {
@@ -556,7 +563,7 @@ public abstract class AsyncEngine implements Engine {
                 return BlockView.VisibilityResolver.HIDE;
             }
             timings.incrementTileRaycasts();
-            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount(), tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
+            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, raycastSettings, 1);
             return canSee ? BlockView.VisibilityResolver.SHOW : BlockView.VisibilityResolver.HIDE;
         });
         timings.addTileChecked(checked);
