@@ -1,0 +1,37 @@
+name: Inspect Codacy PR findings
+
+on:
+  push:
+    branches:
+      - hardening/entity-visibility-audit
+    paths:
+      - .github/workflows/codacy-pr13-inspect.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch public Codacy PR findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/PieCloak/pull-requests/13/issues?status=new&limit=100'
+          response="$(curl --fail --silent --show-error --location "$url")"
+          echo "$response" | jq -r '
+            .data[]
+            | select(.deltaType == "Added" or .deltaType == "New" or .status == "new")
+            | [
+                (.commitIssue.filePath // .filePath // ""),
+                ((.commitIssue.lineNumber // .lineNumber // 0) | tostring),
+                (.commitIssue.patternInfo.id // .patternInfo.id // ""),
+                (.commitIssue.patternInfo.level // .patternInfo.level // .level // ""),
+                (.commitIssue.patternInfo.category // .patternInfo.category // .category // ""),
+                (.commitIssue.message // .message // ""),
+                (.commitIssue.lineText // .lineText // "")
+              ]
+            | @tsv'
+          echo '--- raw field keys ---'
+          echo "$response" | jq -c '.data[] | {deltaType, status, commitIssue, patternInfo, filePath, lineNumber, message, lineText}'
