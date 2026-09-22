@@ -29,15 +29,6 @@ public class SourceCommand {
         EntityVisibilityInspector.inspect(sender, viewer, entityId);
     }
 
-    @Executes("inspectblock")
-    public void inspectBlock(@StringArg(StringArgType.STRING) String viewer,
-            int x, int y, int z, CommandSender sender) {
-        if (!canInspect(sender)) {
-            return;
-        }
-        BlockVisibilityInspector.inspect(sender, viewer, x, y, z);
-    }
-
     private static boolean canInspect(CommandSender sender) {
         if (sender.hasPermission("raycastedantiesp.command")) {
             return true;
