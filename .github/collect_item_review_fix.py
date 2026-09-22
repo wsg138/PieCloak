@@ -2,14 +2,6 @@ from pathlib import Path
 
 p = Path("packetevents/src/main/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewController.java")
 text = p.read_text()
-old = '''import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
-'''
-new = '''import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerCollectItem;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
-'''
-if old not in text:
-    raise RuntimeError("collect-item import marker missing")
-text = text.replace(old, new, 1)
 old = '''            case PacketType.Play.Server.ENTITY_ANIMATION -> {
 '''
 new = '''            case PacketType.Play.Server.COLLECT_ITEM -> {
