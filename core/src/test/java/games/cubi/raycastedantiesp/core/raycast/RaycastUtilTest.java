@@ -102,6 +102,18 @@ class RaycastUtilTest {
                 null));
     }
 
+    @Test
+    void blockTargetNeedsNoExtraOccluderCompensation() {
+        UUID world = UUID.randomUUID();
+        Locatable start = new ImmutableLocatableImpl(world, 0.5, 0.5, 0.5);
+        Spatial target = new ImmutableBlockSpatialImpl(4, 0, 0);
+
+        assertFalse(RaycastUtil.raycast(
+                start, target, 3, 0, 48, false, fullyOccludingBlockView(), 1, null));
+        assertTrue(RaycastUtil.raycast(
+                start, target, 4, 0, 48, false, fullyOccludingBlockView(), 1, null));
+    }
+
     private static BlockView emptyBlockView() {
         return blockView(false);
     }
