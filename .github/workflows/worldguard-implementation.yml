@@ -30,14 +30,11 @@ jobs:
           cd leafpile/templates
           javac --release 21 GenerateSources.java Preprocessor.java
           java GenerateSources . ..
-      - name: Apply WorldGuard integration
-        run: |
-          python .github/worldguard_impl.py
-          sed -i 's/com.sk89q.worldguard.protection.flags.FlagConflictException/com.sk89q.worldguard.protection.flags.registry.FlagConflictException/' platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/integrations/WorldGuardVisibilityExemption.java
-          sed -i 's/com.sk89q.worldguard.protection.flags.FlagRegistry/com.sk89q.worldguard.protection.flags.registry.FlagRegistry/' platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/integrations/WorldGuardVisibilityExemption.java
-      - name: Compile and test foundation
-        run: ./gradlew :core:test :platform-paper:compileJava --no-daemon
-      - name: Commit implementation
+      - name: Apply completion pass
+        run: python .github/worldguard_stage2.py
+      - name: Compile and test completed integration
+        run: ./gradlew :core:test :packetevents:test :platform-paper:compileJava --no-daemon
+      - name: Commit completion pass
         shell: bash
         run: |
           set -euo pipefail
@@ -46,5 +43,5 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add core packetevents platform-paper
-          git commit -m 'Add WorldGuard visibility exemption foundation'
+          git commit -m 'Complete WorldGuard visibility exemption handling'
           git push origin HEAD:hardening/entity-visibility-audit
