@@ -11,6 +11,7 @@ package games.cubi.raycastedantiesp.core.engine;
 import games.cubi.locatables.api.Locatable;
 import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.PlayerConfig;
+import games.cubi.raycastedantiesp.core.config.raycast.RaycastConfig;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.raycast.ParticleSpawner;
@@ -73,6 +74,7 @@ final class AsyncVisibilityChecks {
             int worldEpoch,
             TickTimingBatch timings) {
         EntityView<?> entityView = player.entityView();
+        RaycastUtil.Settings raycastSettings = raycastSettings(entityConfig, debugParticles, blockView);
         int checked = entityView.forEachNeedingRecheckEntity(
                 entityConfig.getVisibleRecheckIntervalTicks(), currentTick,
                 !(timings instanceof TickTimingBatchNoOp), worldEpoch, entity -> {
@@ -93,9 +95,7 @@ final class AsyncVisibilityChecks {
                     }
                     timings.incrementEntityRaycasts();
                     boolean canSee = RaycastUtil.raycast(
-                            playerLocation, entity, entityConfig.getMaxOccludingCount(),
-                            entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(),
-                            debugParticles, blockView, entity.getYOffset(), 1, particleSpawner);
+                            playerLocation, entity, raycastSettings, entity.getYOffset());
                     setEntityAndSupportVehicleVisibility(
                             entityView, entity, canSee, currentTick, worldEpoch);
                 });
@@ -125,6 +125,7 @@ final class AsyncVisibilityChecks {
             int worldEpoch,
             TickTimingBatch timings) {
         EntityView<?> playerView = player.playerView();
+        RaycastUtil.Settings raycastSettings = raycastSettings(playerConfig, debugParticles, blockView);
         int checked = playerView.forEachNeedingRecheckEntity(
                 playerConfig.getVisibleRecheckIntervalTicks(), currentTick,
                 !(timings instanceof TickTimingBatchNoOp), worldEpoch, otherPlayer -> {
@@ -139,12 +140,21 @@ final class AsyncVisibilityChecks {
                     }
                     timings.incrementPlayerRaycasts();
                     boolean canSee = RaycastUtil.raycast(
-                            playerLocation, otherPlayer, playerConfig.getMaxOccludingCount(),
-                            playerConfig.getAlwaysShowRadius(), playerConfig.getRaycastRadius(),
-                            debugParticles, blockView, 1.5f, 1, particleSpawner);
+                            playerLocation, otherPlayer, raycastSettings, 1.5f);
                     playerView.setVisibility(otherPlayer, canSee, currentTick, worldEpoch);
                 });
         timings.addPlayerChecked(checked);
+    }
+
+    private RaycastUtil.Settings raycastSettings(
+            RaycastConfig config, boolean debugParticles, BlockView blockView) {
+        return new RaycastUtil.Settings(
+                config.getMaxOccludingCount(),
+                config.getAlwaysShowRadius(),
+                config.getRaycastRadius(),
+                debugParticles,
+                blockView,
+                particleSpawner);
     }
 
     private static boolean attachedToViewerOrSelf(
