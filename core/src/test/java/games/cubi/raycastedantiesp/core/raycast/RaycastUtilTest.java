@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RaycastUtilTest {
@@ -38,11 +39,53 @@ class RaycastUtilTest {
         assertEquals(0.5, particles.positions.getFirst().z());
     }
 
+    @Test
+    void maxRaycastRadiusUsesActualTargetDistance() {
+        UUID world = UUID.randomUUID();
+        Locatable start = new ImmutableLocatableImpl(world, 0, 0, 0);
+
+        assertFalse(RaycastUtil.raycast(
+                start,
+                new ImmutableSpatialImpl(48.5, 0, 0),
+                1,
+                0,
+                48,
+                false,
+                emptyBlockView(),
+                1,
+                null));
+    }
+
+    @Test
+    void alwaysShowRadiusUsesActualTargetDistance() {
+        UUID world = UUID.randomUUID();
+        Locatable start = new ImmutableLocatableImpl(world, 0, 0, 0);
+
+        assertFalse(RaycastUtil.raycast(
+                start,
+                new ImmutableSpatialImpl(24.5, 0, 0),
+                1,
+                24,
+                48,
+                false,
+                fullyOccludingBlockView(),
+                1,
+                null));
+    }
+
     private static BlockView emptyBlockView() {
+        return blockView(false);
+    }
+
+    private static BlockView fullyOccludingBlockView() {
+        return blockView(true);
+    }
+
+    private static BlockView blockView(boolean occluding) {
         return (BlockView) Proxy.newProxyInstance(
                 BlockView.class.getClassLoader(),
                 new Class<?>[]{BlockView.class},
-                (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null
+                (proxy, method, args) -> method.getReturnType() == boolean.class && occluding
         );
     }
 
