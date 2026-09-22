@@ -93,6 +93,23 @@ class PacketEventsEntityViewControllerTest {
     }
 
     @Test
+    void collectItemSuppressesHiddenOrNotYetClientVisibleReferences() {
+        PacketEventsEntity entity = entity();
+        entity.setVisible(true);
+        entity.setClientVisible(true);
+        assertFalse(PacketEventsEntityViewController.shouldSuppressCollectItemReference(entity));
+
+        entity.setVisible(false);
+        assertTrue(PacketEventsEntityViewController.shouldSuppressCollectItemReference(entity));
+
+        entity.setVisible(true);
+        entity.setClientVisible(false);
+        assertTrue(PacketEventsEntityViewController.shouldSuppressCollectItemReference(entity));
+
+        assertFalse(PacketEventsEntityViewController.shouldSuppressCollectItemReference(null));
+    }
+
+    @Test
     void sharedEntityFlagsUpdateSneakingAndGlowingState() {
         PacketEventsEntity entity = entity();
 

@@ -297,6 +297,13 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                     event.setCancelled(true);
                 event.getTasksAfterSend().add(() -> replayTrackedEntityRelationships(viewer, playerData, entityID));
             }
+            case PacketType.Play.Server.COLLECT_ITEM -> {
+                WrapperPlayServerCollectItem packet = new WrapperPlayServerCollectItem(event);
+                if (shouldSuppressCollectItem(
+                        playerData, packet.getCollectedEntityId(), packet.getCollectorEntityId())) {
+                    event.setCancelled(true);
+                }
+            }
             case PacketType.Play.Server.ENTITY_ANIMATION -> {
                 WrapperPlayServerEntityAnimation packet = new WrapperPlayServerEntityAnimation(event);
                 if (!isBypassed(packet.getEntityId()) && handleEntityAnimation(packet.getEntityId(), playerData) == REQUIRE_EVENT_CANCELLATION)
@@ -592,6 +599,29 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     protected void processTrackedMetadata(PacketWrapper<?> packet, NettyEntity<?> entity) {
         WrapperPlayServerEntityMetadata metadataPacket = (WrapperPlayServerEntityMetadata) packet;
         applyTrackedMetadata(entity, metadataPacket.getEntityMetadata());
+    }
+
+    static boolean shouldSuppressCollectItem(
+            PlayerData playerData, int collectedEntityID, int collectorEntityID) {
+        return isHiddenCollectItemReference(playerData, collectedEntityID)
+                || isHiddenCollectItemReference(playerData, collectorEntityID);
+    }
+
+    private static boolean isHiddenCollectItemReference(PlayerData playerData, int entityID) {
+        if (playerData.nettyData().isSelfEntityID(entityID)) {
+            return false;
+        }
+        NettyEntity<?> entity = null;
+        if (playerData.entityView().exists(entityID)) {
+            entity = (NettyEntity<?>) playerData.entityView().getEntity(entityID);
+        } else if (playerData.playerView().exists(entityID)) {
+            entity = (NettyEntity<?>) playerData.playerView().getEntity(entityID);
+        }
+        return shouldSuppressCollectItemReference(entity);
+    }
+
+    static boolean shouldSuppressCollectItemReference(NettyEntity<?> entity) {
+        return entity != null && (!entity.visible() || !entity.clientVisible());
     }
 
     static void applyTrackedMetadata(NettyEntity<?> entity, List<EntityData<?>> metadata) {
