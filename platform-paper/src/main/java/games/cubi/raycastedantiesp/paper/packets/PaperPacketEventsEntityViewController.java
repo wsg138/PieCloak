@@ -99,15 +99,7 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         int[] previousPassengers = playerData.nettyData().getUnresolvedPassengers(entityID);
         playerData.nettyData().setUnresolvedPassengers(entityID, passengers);
         clearStaleBypassedPassengerReferences(entityID, previousPassengers, passengers, playerData);
-
-        if (passengers != null) {
-            for (int passengerID : passengers) {
-                NettyEntity<?> passenger = playerData.entityFromID(passengerID);
-                if (passenger != null) {
-                    passenger.setVehicleID(entityID);
-                }
-            }
-        }
+        updateKnownBypassedVehiclePassengers(entityID, passengers, playerData);
 
         IntArrayList visiblePassengers = collectClientVisiblePassengers(passengers, playerData);
         int passengerCount = passengers == null ? 0 : passengers.length;
@@ -117,6 +109,19 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
 
         writeBypassedVehiclePassengerState(entityID, visiblePassengers, playerData);
         return true;
+    }
+
+    private static void updateKnownBypassedVehiclePassengers(
+            int vehicleID, int[] passengers, PlayerData playerData) {
+        if (passengers == null) {
+            return;
+        }
+        for (int passengerID : passengers) {
+            NettyEntity<?> passenger = playerData.entityFromID(passengerID);
+            if (passenger != null) {
+                passenger.setVehicleID(vehicleID);
+            }
+        }
     }
 
     /**
@@ -147,32 +152,38 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
     @Override
     protected void handleBypassedEntitySpawn(int entityID, PlayerData playerData, int currentTick) {
         playerData.nettyData().clearPendingPostSpawnTasksForEntity(entityID);
+        reconcilePendingBypassedPassengers(entityID, playerData);
+        reconcileBypassedLeashHolder(entityID, playerData);
+        reconcileBypassedLeashedEntities(entityID, playerData);
+    }
 
+    private static void reconcilePendingBypassedPassengers(int entityID, PlayerData playerData) {
         int[] pendingPassengers = playerData.nettyData().getUnresolvedPassengers(entityID);
         if (!PrimitiveIntArrayList.isEmpty(pendingPassengers)) {
-            for (int passengerID : pendingPassengers) {
-                NettyEntity<?> passenger = playerData.entityFromID(passengerID);
-                if (passenger != null) {
-                    passenger.setVehicleID(entityID);
-                }
-            }
+            updateKnownBypassedVehiclePassengers(entityID, pendingPassengers, playerData);
         }
+    }
 
+    private static void reconcileBypassedLeashHolder(int entityID, PlayerData playerData) {
         int holderEntityID = playerData.nettyData().getUnresolvedHolderForLeashedEntity(entityID);
-        if (holderEntityID != NO_LEASHER) {
-            NettyEntity<?> holder = playerData.entityFromID(holderEntityID);
-            if (holder != null) {
-                holder.addLeashedEntity(entityID);
-            }
+        if (holderEntityID == NO_LEASHER) {
+            return;
         }
+        NettyEntity<?> holder = playerData.entityFromID(holderEntityID);
+        if (holder != null) {
+            holder.addLeashedEntity(entityID);
+        }
+    }
 
+    private static void reconcileBypassedLeashedEntities(int entityID, PlayerData playerData) {
         int[] pendingLeashedEntityIDs = playerData.nettyData().getUnresolvedLeashes(entityID);
-        if (!PrimitiveIntArrayList.isEmpty(pendingLeashedEntityIDs)) {
-            for (int leashedEntityID : pendingLeashedEntityIDs) {
-                NettyEntity<?> leashedEntity = playerData.entityFromID(leashedEntityID);
-                if (leashedEntity != null) {
-                    leashedEntity.setLeashingEntity(entityID);
-                }
+        if (PrimitiveIntArrayList.isEmpty(pendingLeashedEntityIDs)) {
+            return;
+        }
+        for (int leashedEntityID : pendingLeashedEntityIDs) {
+            NettyEntity<?> leashedEntity = playerData.entityFromID(leashedEntityID);
+            if (leashedEntity != null) {
+                leashedEntity.setLeashingEntity(entityID);
             }
         }
     }
