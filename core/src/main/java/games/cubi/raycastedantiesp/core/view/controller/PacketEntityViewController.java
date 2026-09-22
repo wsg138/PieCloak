@@ -18,11 +18,13 @@ import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.players.NettyData;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.utils.Packet;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_LEASHER;
@@ -52,6 +54,15 @@ public abstract class PacketEntityViewController<P> {
     protected PlayerConfig playerConfig = null;
     protected double hideOnSpawnEntityDistanceSquared = 0;
     protected double hideOnSpawnPlayerDistanceSquared = 0;
+    private final VisibilityExemptionPolicy visibilityExemptionPolicy;
+
+    protected PacketEntityViewController() {
+        this(VisibilityExemptionPolicy.DISABLED);
+    }
+
+    protected PacketEntityViewController(VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        this.visibilityExemptionPolicy = Objects.requireNonNull(visibilityExemptionPolicy, "visibilityExemptionPolicy");
+    }
 
     protected void handleWorldStatePacket(UUID player, String world, UUID worldUUID, int minWorldHeight, int currentTick) {
         PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player);
@@ -99,6 +110,9 @@ public abstract class PacketEntityViewController<P> {
     /** Applies a SHOW transition immediately on the Netty thread without publishing it to the engine SPSC queue. */
     protected abstract void processDirectEntityShow(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch);
 
+    /** Applies a HIDE transition immediately on the Netty thread without publishing it to the engine SPSC queue. */
+    protected abstract void processDirectEntityHide(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch);
+
     protected void handlePlayerDisconnect(UUID player) {
         if (player == null) {
             return;
@@ -122,6 +136,18 @@ public abstract class PacketEntityViewController<P> {
         }
 
         NettyEntity<?> entity = Logger.requireNonNull(processEntitySpawn(playerData, packet, world, currentTick), "processEntitySpawn returned null", 3, PacketEntityViewController.class);
+        boolean exempt = visibilityExemptionPolicy.isExempt(world, entity.x(), entity.y(), entity.z());
+        entity.setVisibilityExempt(exempt);
+        if (exempt) {
+            entity.setVisible(true);
+            entity.setClientVisible(true);
+            if (isPlayer) {
+                insertEntityToPlayerView(entity, playerData, world);
+            } else {
+                insertEntityToEntityView(entity, playerData, world);
+            }
+            return false;
+        }
         boolean relationshipSupportEntity = EntityBypassRegistry.isRelationshipSupportEntity(entity.entityID());
 
         if (!relationshipSupportEntity && ((!isPlayer && entityConfig.enabled()) || isPlayer && playerConfig.enabled())) {
@@ -169,29 +195,76 @@ public abstract class PacketEntityViewController<P> {
      */
     protected boolean handleRelativeMove(P packet, PlayerData playerData, int currentTick) {
         int entityID = processRelativeMovePacket(packet, playerData, currentTick);
-        return cancelIfEnabledAndHidden(entityID, playerData);
+        return reconcileVisibilityExemptionAfterMovement(entityID, playerData, currentTick);
     }
     /**
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.
      */
     protected boolean handleRelativeMoveAndRotation(P packet, PlayerData playerData, int currentTick) {
         int entityID = processRelativeMoveAndRotationPacket(packet, playerData, currentTick);
-        return cancelIfEnabledAndHidden(entityID, playerData);
+        return reconcileVisibilityExemptionAfterMovement(entityID, playerData, currentTick);
     }
     /**
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.
      */
     protected boolean handleTeleport(P packet, PlayerData playerData, int currentTick) {
         int entityID = processTeleportPacket(packet, playerData, currentTick);
-        return cancelIfEnabledAndHidden(entityID, playerData);
+        return reconcileVisibilityExemptionAfterMovement(entityID, playerData, currentTick);
     }
     /**
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.
      */
     protected boolean handlePositionSync(P packet, PlayerData playerData, int currentTick) {
         int entityID = processPositionSyncPacket(packet, playerData, currentTick);
+        return reconcileVisibilityExemptionAfterMovement(entityID, playerData, currentTick);
+    }
+
+    private boolean reconcileVisibilityExemptionAfterMovement(
+            int entityID, PlayerData playerData, int currentTick) {
+        NettyEntity<?> entity = playerData.entityFromID(entityID);
+        if (entity == null || entity.isSelfEntity()) {
+            return cancelIfEnabledAndHidden(entityID, playerData);
+        }
+        Locatable viewerLocation = playerData.ownLocation();
+        UUID world = viewerLocation == null ? null : viewerLocation.world();
+        boolean wasExempt = entity.visibilityExempt();
+        boolean exempt = world != null
+                && visibilityExemptionPolicy.isExempt(world, entity.x(), entity.y(), entity.z());
+        entity.setVisibilityExempt(exempt);
+
+        if (exempt) {
+            if (!entity.visible() || !entity.clientVisible()) {
+                applyDirectVisibility(playerData, entity, true, currentTick);
+            }
+            return false;
+        }
+        if (wasExempt) {
+            applyDirectVisibility(playerData, entity, false, currentTick);
+            // Fail closed at the boundary. The async engine evaluates normal visibility next tick.
+            return true;
+        }
         return cancelIfEnabledAndHidden(entityID, playerData);
     }
+
+    private boolean applyDirectVisibility(
+            PlayerData playerData, NettyEntity<?> entity, boolean visible, int currentTick) {
+        EntityView<?> view = playerData.viewFromEntityID(entity.entityID());
+        int worldEpoch = playerData.acquireWorldEpoch();
+        if (view == null || !PlayerData.isStableWorldEpoch(worldEpoch)) {
+            return false;
+        }
+        boolean recorded = view.recordDirectVisibility(entity, visible, currentTick, worldEpoch);
+        if (!recorded) {
+            return false;
+        }
+        if (visible) {
+            processDirectEntityShow(playerData, view, entity, worldEpoch);
+        } else {
+            processDirectEntityHide(playerData, view, entity, worldEpoch);
+        }
+        return true;
+    }
+
     /**
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.
      */

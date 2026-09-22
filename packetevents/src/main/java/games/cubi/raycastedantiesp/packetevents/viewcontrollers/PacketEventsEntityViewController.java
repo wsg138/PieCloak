@@ -33,6 +33,7 @@ import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
@@ -79,6 +80,13 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     }
 
     protected PacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+        this(currentTickSupplier, targetFilter, VisibilityExemptionPolicy.DISABLED);
+    }
+
+    protected PacketEventsEntityViewController(
+            IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter,
+            VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        super(visibilityExemptionPolicy);
         this.CURRENT_TICK_SUPPLIER = currentTickSupplier;
         this.targetFilter = targetFilter == null ? PacketEventsTargetFilter.DISABLED : targetFilter;
         COMMON = PacketEventsCommonViewController.get(currentTickSupplier);
@@ -402,13 +410,30 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     @Override
     protected void processDirectEntityShow(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
+        processDirectEntityVisibility(playerData, view, entity, worldEpoch, EntityViewTransition.Type.SHOW);
+    }
+
+    @Override
+    protected void processDirectEntityHide(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
+        processDirectEntityVisibility(playerData, view, entity, worldEpoch, EntityViewTransition.Type.HIDE);
+    }
+
+    private void processDirectEntityVisibility(
+            PlayerData playerData, EntityView<?> view, NettyEntity<?> entity,
+            int worldEpoch, EntityViewTransition.Type type) {
         Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
+        if (channel == null) {
+            return;
+        }
         User viewer = PacketEvents.getAPI().getProtocolManager().getUser(channel);
+        if (viewer == null) {
+            return;
+        }
         beginEntityTransition(
                 playerData,
                 viewer,
                 cast(view),
-                EntityViewTransition.Type.SHOW,
+                type,
                 entity,
                 worldEpoch,
                 CURRENT_TICK_SUPPLIER.getAsInt()

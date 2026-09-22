@@ -18,6 +18,7 @@ import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.players.WorldEpochGuard;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
@@ -33,19 +34,19 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
 
     public static PaperPacketEventsEntityViewController create(
             IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter,
-            Runnable markUnsafeCleanup) {
+            VisibilityExemptionPolicy visibilityExemptionPolicy, Runnable markUnsafeCleanup) {
         Objects.requireNonNull(markUnsafeCleanup, "markUnsafeCleanup");
         return EntityControllerOwnership.construct(
                 () -> new PaperPacketEventsEntityViewController(
-                        currentTickSupplier, targetFilter, markUnsafeCleanup),
+                        currentTickSupplier, targetFilter, visibilityExemptionPolicy, markUnsafeCleanup),
                 markUnsafeCleanup
         );
     }
 
     private PaperPacketEventsEntityViewController(
             IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter,
-            Runnable markUnsafeCleanup) {
-        super(currentTickSupplier, targetFilter);
+            VisibilityExemptionPolicy visibilityExemptionPolicy, Runnable markUnsafeCleanup) {
+        super(currentTickSupplier, targetFilter, visibilityExemptionPolicy);
         PacketListenerCommon listener = asAbstract(PacketListenerPriority.HIGHEST);
         registration = ListenerRegistration.register(
                 listener,

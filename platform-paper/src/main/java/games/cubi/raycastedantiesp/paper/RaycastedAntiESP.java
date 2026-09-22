@@ -17,6 +17,7 @@ import games.cubi.raycastedantiesp.core.config.raycast.EntityTypeExclusions;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.lifecycle.LifecycleScope;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
@@ -29,6 +30,7 @@ import games.cubi.raycastedantiesp.paper.commands.RaycastedAntiESPCommandBrigadi
 import games.cubi.raycastedantiesp.paper.commands.SourceCommandBrigadier;
 import games.cubi.raycastedantiesp.paper.config.PaperEntityTypeExclusionResolver;
 import games.cubi.raycastedantiesp.paper.engine.PaperAsyncEngine;
+import games.cubi.raycastedantiesp.paper.integrations.WorldGuardVisibilityExemption;
 import games.cubi.raycastedantiesp.paper.packets.PacketEventsPaperBlockInfoResolver;
 import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsBlockViewController;
 import games.cubi.raycastedantiesp.paper.packets.PaperPacketEventsCommonViewController;
@@ -63,6 +65,8 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     private static IntSupplier currentTickSupplier;
     private static LifecycleScope activeLifecycle;
     private static volatile boolean reenableBlocked;
+    private static VisibilityExemptionPolicy visibilityExemptionPolicy = VisibilityExemptionPolicy.DISABLED;
+    private static WorldGuardVisibilityExemption worldGuardVisibilityExemption;
 
     private boolean commandsRegistered;
 
@@ -86,6 +90,9 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
     public void onLoad() {
         instance = this;
         Core.initialize(loggerAdapter);
+        worldGuardVisibilityExemption = initialiseWorldGuardVisibilityExemption();
+        visibilityExemptionPolicy = worldGuardVisibilityExemption == null
+                ? VisibilityExemptionPolicy.DISABLED : worldGuardVisibilityExemption;
         initialiseConfigIfNeeded();
         Plugin packetEvents = Bukkit.getPluginManager().getPlugin("packetevents");
         if (packetEvents == null) {
@@ -101,6 +108,9 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
         Core.initialize(loggerAdapter);
         finishPriorShutdownOrThrow();
         initialiseConfigIfNeeded();
+        if (worldGuardVisibilityExemption != null) {
+            worldGuardVisibilityExemption.enable(this);
+        }
 
         LifecycleScope startup = new LifecycleScope();
         AtomicBoolean engineDrained = new AtomicBoolean(true);
@@ -129,7 +139,7 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             Ticker ticker = createTicker();
             try {
                 currentTickSupplier = ticker;
-                engine = new PaperAsyncEngine(this, config, currentTickSupplier);
+                engine = new PaperAsyncEngine(this, config, currentTickSupplier, visibilityExemptionPolicy);
                 PaperAsyncEngine engineForShutdown = engine;
                 startup.onClose(() -> {
                     engineDrained.set(false);
@@ -153,7 +163,8 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
 
             packetEventsController = ownCritical(startup, teardownSafe,
                     PaperPacketEventsEntityViewController.create(
-                            currentTickSupplier, targetFilter, () -> teardownSafe.set(false)));
+                            currentTickSupplier, targetFilter, visibilityExemptionPolicy,
+                            () -> teardownSafe.set(false)));
             ownCritical(startup, teardownSafe,
                     new PaperPacketEventsBlockViewController(blockInfoResolver, trackAllBlocks, currentTickSupplier));
             ownCritical(startup, teardownSafe, EventListener.initialise(this, currentTickSupplier));
@@ -253,6 +264,13 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
             }
         });
         return resource;
+    }
+
+    private WorldGuardVisibilityExemption initialiseWorldGuardVisibilityExemption() {
+        if (Bukkit.getPluginManager().getPlugin("WorldGuard") == null) {
+            return null;
+        }
+        return WorldGuardVisibilityExemption.register();
     }
 
     private void initialiseConfigIfNeeded() {

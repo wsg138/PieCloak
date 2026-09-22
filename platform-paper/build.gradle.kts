@@ -22,6 +22,7 @@ repositories {
     maven { url = uri("https://repo.codemc.io/repository/maven-snapshots/") }
     maven { url = uri("https://eldonexus.de/repository/maven-public/") }
     maven("https://repo.fancyinnovations.com/releases")
+    maven { url = uri("https://maven.enginehub.org/repo/") }
 }
 
 val minecraftVersionProvider = providers.gradleProperty("minecraftVersion")
@@ -36,6 +37,7 @@ dependencies {
 
     compileOnly("de.oliver:FancyHolograms:2.9.1")
     compileOnly("de.oliver:FancyNpcs:2.9.2")
+    compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.16")
 
     compileOnly("net.strokkur.commands:annotations-paper:2.1.2")
     annotationProcessor("net.strokkur.commands:processor-paper:2.1.2")

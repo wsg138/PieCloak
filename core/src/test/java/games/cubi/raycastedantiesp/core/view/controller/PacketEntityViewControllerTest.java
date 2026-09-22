@@ -308,6 +308,11 @@ class PacketEntityViewControllerTest {
         }
 
         @Override
+        protected void processDirectEntityHide(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
+            entity.setClientVisible(false);
+        }
+
+        @Override
         protected void sendEntityPassengerPacket(int vehicle, IntArrayList passengers, PlayerData playerData) {
             replacementPassengerPackets.add(passengers.toIntArray());
         }

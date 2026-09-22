@@ -21,6 +21,10 @@ public interface TrackedEntity<PacketReplayData> extends MutableFloatingSpatial 
 
     boolean sneaking();
 
+    /** Whether a target-location exemption currently overrides normal hiding for this entity. */
+    boolean visibilityExempt();
+    TrackedEntity<?> setVisibilityExempt(boolean visibilityExempt);
+
     int lastChecked();
     TrackedEntity<?> setLastChecked(int lastChecked);
 
