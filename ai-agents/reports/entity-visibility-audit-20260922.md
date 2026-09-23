@@ -47,6 +47,8 @@ Upstream issue #94 is a real Java-client side channel: the packet can reference 
 
 PieCloak now suppresses `COLLECT_ITEM` when either managed reference is logically hidden or not yet client-visible, including SHOW-transition races. Self and unmanaged/bypassed references remain valid.
 
+The continuation review did not broaden this into blanket suppression for completely unknown, non-bypassed IDs. The current null-reference behavior is explicit in regression coverage, and no packet-order reproduction established that an otherwise unmanaged unknown ID should be treated as a hidden managed target.
+
 ### 8. Benchmark command sender binding was incorrect — fixed during runtime validation
 
 The initial runtime benchmark appeared to hang, but JVM evidence showed the raycaster was not stuck. The command method's direct `Player` binding was the defect.
@@ -86,6 +88,16 @@ The join path snapshots `raycastedantiesp.bypass` into `PlayerData`. The packet-
 A simple live permission poll is still not a safe fix because packet interception is skipped while bypassed, so entities which spawn during that interval may never enter the viewer's managed view. Revoking bypass in-place could therefore leave incomplete authoritative state.
 
 A correct live grant/revoke feature needs continuous shadow tracking while bypassed or an explicit full client/view resynchronization contract. Until then, live bypass permission changes should be treated as reconnect-required.
+
+### 12. PieCloak's target-filter fork accidentally bypassed modern player spawns — fixed
+
+A continuation review found a pre-existing fork regression in `shouldBypassSpawn`. PieCloak's target filter intentionally returns `false` for players because configured entity-type filtering applies only to non-player entities; player visibility has its own `checks.player` policy. The forked spawn classifier nevertheless required `!isPlayer && managedByPieCloak` for the managed path.
+
+On modern protocol versions where players arrive through `SPAWN_ENTITY`, a player therefore fell through to `EntityBypassRegistry.addEntity(...)`. Once that happened, normal movement/metadata/visibility packet handling for that player ID was bypassed. In practical terms this could disable player anti-ESP independently of the ordinary entity filter.
+
+This defect is present on the reviewed `main` base and was not introduced by PR #13. Current upstream keeps players managed independently of normal entity exclusions. The branch now restores that separation: player spawns always enter the managed player path, while non-player entities are managed only when selected by PieCloak's entity target filter and not excluded upstream.
+
+A regression test locks the classification contract for players, configured non-player targets, upstream-excluded targets, and unconfigured non-player entities.
 
 ## Item frame / armor stand conclusion
 
@@ -134,7 +146,7 @@ Observed stages:
 
 That exact-head run also completed `/raesp benchmark 48 1000` in 15.728 ms total, config reload, client disconnect, clean plugin shutdown and graceful Paper shutdown. These Pi timing numbers are staging measurements, not production-capacity guarantees.
 
-Later changes are confined to packet-reference hardening/report reconciliation and do not alter WorldGuard query/transition logic. The final candidate still receives a separate exact-head Paper/PacketEvents smoke.
+Later changes alter packet-reference handling and player spawn classification but do not alter WorldGuard query/transition logic. The final candidate still receives a separate exact-head Paper/PacketEvents smoke.
 
 ## Additional runtime cleanup
 
@@ -162,8 +174,8 @@ Continue selective provenance-based ports rather than merging upstream `main` wh
 
 ## Validation status
 
-Successive product heads before the final viewer-bypass adjustment passed repository Build/tests/staging-JAR inspection, PMD/Semgrep/Trivy, external Codacy, CodeRabbit, isolated Paper runtime smoke, and the real WorldGuard fixture above.
+Successive product heads before the player-spawn classification repair passed repository Build/tests/staging-JAR inspection, PMD/Semgrep/Trivy, external Codacy, CodeRabbit, isolated Paper runtime smoke, and the real WorldGuard fixture above.
 
-The latest product-code head before this report reconciliation is `f51554d50a825240a68cc406913f3c5c4c8bd363`; it preserves the connected viewer's bypass semantics for the new entity-reference packet filters and adds a dependency-free regression test. This report commit intentionally freezes the documented candidate after that code change.
+The latest product-code head before this report reconciliation is `775f0b83b6a7efafcd30c7c8e515418fb24e4dfb`. It restores managed modern player spawns and adds a dependency-free classification regression test. This report commit intentionally freezes the documented candidate after that code change.
 
-Temporary staging workflows/scripts are test infrastructure only and must be removed after evidence capture. The final commit produced by this report reconciliation must pass the normal exact-head checks and one exact-head Paper 1.21.11 + PacketEvents runtime smoke before handoff.
+Temporary staging workflows/scripts are test infrastructure only and must be removed after evidence capture. The final report-reconciled head must pass the normal exact-head Build/static/external checks, the ordinary Paper 1.21.11 + PacketEvents runtime smoke, and a targeted two-client player-visibility runtime probe before final handoff.
