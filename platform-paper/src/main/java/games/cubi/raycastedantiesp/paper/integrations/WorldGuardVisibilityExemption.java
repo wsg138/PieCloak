@@ -84,7 +84,6 @@ public final class WorldGuardVisibilityExemption implements PaperVisibilityExemp
             HandlerList.unregisterAll(this);
         }
         worlds.clear();
-        regionContainer = null;
     }
 
     @EventHandler
