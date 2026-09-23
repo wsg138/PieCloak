@@ -124,14 +124,14 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         if (entityID < 0) {
             return false;
         }
-        boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
+        boolean targetBypassed = EntityBypassRegistry.isBypassed(entityID);
         boolean self = playerData.nettyData().isSelfEntityID(entityID);
         NettyEntity<?> entity = self ? null : playerData.entityFromID(entityID);
         boolean tracked = self || entity != null;
         boolean visible = self || entity != null && entity.visible();
         boolean clientVisible = self || entity != null && entity.clientVisible();
         return EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
-                bypassed, self, tracked, visible, clientVisible);
+                playerData.hasBypassPermission(), targetBypassed, self, tracked, visible, clientVisible);
     }
 
     @Override

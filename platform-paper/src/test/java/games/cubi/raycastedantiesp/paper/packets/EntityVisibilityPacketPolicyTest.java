@@ -10,21 +10,27 @@ class EntityVisibilityPacketPolicyTest {
     @Test
     void hiddenOrUnknownManagedEntityReferenceIsSuppressed() {
         assertTrue(EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
-                false, false, true, false, false));
+                false, false, false, true, false, false));
         assertTrue(EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
-                false, false, false, false, false));
+                false, false, false, false, false, false));
         assertTrue(EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
-                false, false, true, true, false));
+                false, false, false, true, true, false));
     }
 
     @Test
-    void visibleSelfOrBypassedEntityReferenceIsAllowed() {
+    void visibleSelfOrTargetBypassedEntityReferenceIsAllowed() {
         assertFalse(EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
-                false, false, true, true, true));
+                false, false, false, true, true, true));
         assertFalse(EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
-                false, true, true, true, true));
+                false, false, true, true, true, true));
         assertFalse(EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
-                true, false, false, false, false));
+                false, true, false, false, false, false));
+    }
+
+    @Test
+    void viewerBypassAllowsUntrackedEntityReference() {
+        assertFalse(EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
+                true, false, false, false, false, false));
     }
 
     @Test

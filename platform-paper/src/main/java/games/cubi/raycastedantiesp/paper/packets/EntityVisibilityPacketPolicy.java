@@ -13,8 +13,9 @@ final class EntityVisibilityPacketPolicy {
     }
 
     static boolean shouldSuppressClientEntityReference(
-            boolean bypassed, boolean self, boolean tracked, boolean visible, boolean clientVisible) {
-        return !bypassed && !self && (!tracked || !visible || !clientVisible);
+            boolean viewerBypassed, boolean targetBypassed, boolean self,
+            boolean tracked, boolean visible, boolean clientVisible) {
+        return !viewerBypassed && !targetBypassed && !self && (!tracked || !visible || !clientVisible);
     }
 
     static boolean shouldSuppressUnresolvedReference(boolean bypassed, boolean tracked) {
