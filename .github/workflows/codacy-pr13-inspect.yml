@@ -78,6 +78,9 @@ jobs:
               "        return packetBundleOpen;\n"
               "    }\n")
           replace_once(netty_data,
+              "        packetsAreWithinBundle = false;\n",
+              "        packetBundleOpen = false;\n")
+          replace_once(netty_data,
               "        if (!hasDeferredDirectVisibilityEntities()) {\n"
               "            return null;\n"
               "        }\n",
