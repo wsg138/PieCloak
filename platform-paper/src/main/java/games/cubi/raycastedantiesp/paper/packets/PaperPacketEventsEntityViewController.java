@@ -31,6 +31,8 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.IntSupplier;
 
+import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_LEASHER;
+
 public final class PaperPacketEventsEntityViewController extends PacketEventsEntityViewController implements AutoCloseable {
     private final ListenerRegistration<PacketListenerCommon> registration;
 
@@ -90,24 +92,77 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         }
         int entityID = new WrapperPlayServerEntitySoundEffect(event).getEntityId();
         boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
-        boolean hidden = !bypassed && cancelIfEnabledAndHidden(entityID, playerData);
-        if (shouldSuppressEntitySound(bypassed, hidden)) {
+        boolean tracked = playerData.nettyData().isSelfEntityID(entityID) || playerData.entityFromID(entityID) != null;
+        boolean hidden = tracked && !bypassed && cancelIfEnabledAndHidden(entityID, playerData);
+        if (shouldSuppressEntitySound(bypassed, tracked, hidden)) {
             event.setCancelled(true);
         }
     }
 
-    static boolean shouldSuppressEntitySound(boolean bypassed, boolean hidden) {
-        return !bypassed && hidden;
+    static boolean shouldSuppressEntitySound(boolean bypassed, boolean tracked, boolean hidden) {
+        return !bypassed && (!tracked || hidden);
+    }
+
+    @Override
+    protected boolean handleEntityPassengers(
+            int vehicleID, int[] passengers, PlayerData playerData, int currentTick) {
+        boolean unresolvedVehicle = hasUnresolvedClientReference(vehicleID, playerData);
+        boolean unresolvedPassenger = hasUnresolvedPassengerReference(passengers, playerData);
+        boolean cancelled = super.handleEntityPassengers(vehicleID, passengers, playerData, currentTick);
+        if (unresolvedVehicle) {
+            return true;
+        }
+        if (unresolvedPassenger && !cancelled) {
+            sendEntityPassengerPacket(
+                    vehicleID,
+                    collectClientVisiblePassengers(passengers, playerData),
+                    playerData
+            );
+            return true;
+        }
+        return cancelled;
+    }
+
+    @Override
+    protected boolean handleLeashEntity(
+            int leashedEntityID, int holderEntityID, PlayerData playerData, int currentTick) {
+        boolean unresolvedReference = hasUnresolvedClientReference(leashedEntityID, playerData)
+                || holderEntityID != NO_LEASHER && hasUnresolvedClientReference(holderEntityID, playerData);
+        boolean cancelled = super.handleLeashEntity(leashedEntityID, holderEntityID, playerData, currentTick);
+        return cancelled || unresolvedReference;
+    }
+
+    private static boolean hasUnresolvedPassengerReference(int[] passengers, PlayerData playerData) {
+        if (passengers == null) {
+            return false;
+        }
+        for (int passengerID : passengers) {
+            if (hasUnresolvedClientReference(passengerID, playerData)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasUnresolvedClientReference(int entityID, PlayerData playerData) {
+        boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
+        boolean tracked = playerData.nettyData().isSelfEntityID(entityID) || playerData.entityFromID(entityID) != null;
+        return shouldSuppressUnresolvedReference(bypassed, tracked);
+    }
+
+    static boolean shouldSuppressUnresolvedReference(boolean bypassed, boolean tracked) {
+        return !bypassed && !tracked;
     }
 
     @Override
     protected void sendEntityPassengerPacket(
             int vehicleID, IntArrayList passengers, PlayerData playerData) {
+        IntArrayList clientVisiblePassengers = collectClientVisiblePassengers(passengers.toIntArray(), playerData);
         if (!EntityBypassRegistry.isBypassed(vehicleID)) {
-            super.sendEntityPassengerPacket(vehicleID, passengers, playerData);
+            super.sendEntityPassengerPacket(vehicleID, clientVisiblePassengers, playerData);
             return;
         }
-        writeBypassedVehiclePassengerState(vehicleID, passengers, playerData);
+        writeBypassedVehiclePassengerState(vehicleID, clientVisiblePassengers, playerData);
     }
 
     @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
