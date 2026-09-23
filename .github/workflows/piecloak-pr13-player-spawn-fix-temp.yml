@@ -1,0 +1,93 @@
+name: PieCloak PR13 Player Spawn Repair
+
+on:
+  push:
+    branches:
+      - hardening/entity-visibility-audit
+    paths:
+      - .github/workflows/piecloak-pr13-player-spawn-fix-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact PR branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: hardening/entity-visibility-audit
+          fetch-depth: 0
+
+      - name: Repair player spawn classification and add regression coverage
+        shell: python
+        run: |
+          from pathlib import Path
+
+          controller = Path('packetevents/src/main/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewController.java')
+          text = controller.read_text(encoding='utf-8')
+          old = '''        boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
+          boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
+          if (!isPlayer && managedByPieCloak && !excludedByUpstream) {
+              return false;
+          }
+          EntityBypassRegistry.addEntity(entityID);
+          return true;
+      }
+
+      static boolean isBypassed(int entityID) {'''
+          new = '''        boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
+          boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
+          if (shouldManageSpawnTarget(isPlayer, managedByPieCloak, excludedByUpstream)) {
+              return false;
+          }
+          EntityBypassRegistry.addEntity(entityID);
+          return true;
+      }
+
+      static boolean shouldManageSpawnTarget(boolean isPlayer, boolean managedByPieCloak, boolean excludedByUpstream) {
+          return isPlayer || managedByPieCloak && !excludedByUpstream;
+      }
+
+      static boolean isBypassed(int entityID) {'''
+          if old not in text:
+              raise SystemExit('controller target block did not match exact expected text')
+          controller.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test = Path('packetevents/src/test/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewControllerTest.java')
+          text = test.read_text(encoding='utf-8')
+          anchor = '''    @Test
+      void minecartSupportClassificationExcludesPlayersAndNonMinecarts() {
+          assertTrue(PacketEventsEntityViewController.shouldTrackRelationshipSupport(false, true));
+          assertFalse(PacketEventsEntityViewController.shouldTrackRelationshipSupport(true, true));
+          assertFalse(PacketEventsEntityViewController.shouldTrackRelationshipSupport(false, false));
+      }
+'''
+          addition = anchor + '''
+      @Test
+      void playerSpawnsRemainManagedOutsideEntityTargetFiltering() {
+          assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, false));
+          assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, true));
+          assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, false));
+          assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, true));
+          assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, false, false));
+      }
+'''
+          if anchor not in text:
+              raise SystemExit('test anchor did not match exact expected text')
+          test.write_text(text.replace(anchor, addition, 1), encoding='utf-8')
+
+      - name: Remove temporary workflow and commit repair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm .github/workflows/piecloak-pr13-player-spawn-fix-temp.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packetevents/src/main/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewController.java \
+                  packetevents/src/test/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewControllerTest.java \
+                  .github/workflows/piecloak-pr13-player-spawn-fix-temp.yml
+          git diff --cached --check
+          git commit -m 'Fix player spawn management in target-filter fork'
+          git push origin HEAD:hardening/entity-visibility-audit
