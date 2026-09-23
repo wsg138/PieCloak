@@ -9,7 +9,7 @@ Upstream reference reviewed: `Cubicake/RaycastedAntiESP` through `1fcec23a57cad6
 
 `RaycastUtil.raycast(...)` subtracted the one-block ray step from the real target distance before comparing the result with `always-show-radius` and `raycast-radius`.
 
-With a one-block step this allowed a target slightly beyond a configured 48-block maximum (for example 48.5 blocks away) to pass the radius gate. It also enlarged the always-show radius by the same mechanism.
+With a one-block step this allowed a target slightly beyond a configured 48-block maximum, for example 48.5 blocks away, to pass the radius gate. It also enlarged the always-show radius by the same mechanism.
 
 The hardening branch now performs both radius decisions against the real start-to-target distance. Regression tests cover both boundaries.
 
@@ -45,13 +45,13 @@ Managed entities with the Minecraft glowing metadata flag are force-shown before
 
 This refers to the entity metadata glowing flag, not the `glow_item_frame` entity type by itself.
 
-### 5. Configured positional-sound protection is not currently enforced — configuration made fail-honest
+### 5. Configured coordinate-based sound protection is not currently enforced — configuration made fail-honest
 
-PieCloak exposes a `checks.sound-effects` policy with occlusion/radius fields, but no active packet controller consumes that policy. PacketEvents' clientbound positional sound packet contains explicit effect coordinates.
+PieCloak exposes a `checks.sound-effects` policy with occlusion/radius fields, but no active controller implements that coordinate-based policy. PacketEvents' ordinary clientbound sound packet contains effect coordinates but no reliable managed-entity identity.
 
-As a result, a hidden entity or block entity can still have activity inferred through positional sounds when the server emits an ordinary coordinate-based sound packet. This is an information side channel rather than a direct entity-spawn leak.
+As a result, hidden entity or block-entity activity can still sometimes be inferred through ordinary positional sounds. This is an information side channel rather than a direct entity-spawn leak.
 
-The bundled configuration now sets `checks.sound-effects.enabled: false` instead of implying protection that is not actually implemented. A dedicated packet-semantic implementation and tests are still needed before this protection can truthfully be enabled.
+The bundled configuration now sets `checks.sound-effects.enabled: false` instead of implying protection that is not actually implemented. Entity-bound sound packets are handled separately by the packet-reference hardening described below.
 
 ### 6. Visibility repair packets could be emitted inside an unrelated protocol bundle — fixed
 
@@ -71,12 +71,7 @@ The moving-entity exemption boundary path was reviewed alongside this change: if
 
 Upstream issue #94 is an accepted, reproducible Java-client side channel: when a hidden collector picks up an item, the clientbound `COLLECT_ITEM` packet can reference a collector entity that is absent from the viewer's client. On Java this can produce a misleading item-pickup animation toward the local viewer and reveals activity associated with the hidden target.
 
-PieCloak now suppresses `COLLECT_ITEM` for managed references when either the collected entity or collector is:
-
-- logically hidden by PieCloak; or
-- not currently client-visible, including a SHOW transition which has not completed yet.
-
-This deliberately checks both engine/logical visibility and client visibility. Unknown/unmanaged references are not guessed hidden, and the viewer's own entity remains valid as a collector.
+PieCloak now suppresses `COLLECT_ITEM` for managed references when either the collected entity or collector is logically hidden or is not currently client-visible, including a SHOW transition which has not completed yet.
 
 ### 8. Benchmark command sender binding was incorrect — fixed during runtime validation
 
@@ -84,12 +79,7 @@ The first isolated runtime probes appeared to show even tiny raycast benchmarks 
 
 The benchmark command now accepts `CommandSender`, explicitly requires a `Player`, and casts only after the runtime type check. A command-binding regression test covers this signature.
 
-After the fix, the isolated Pi staging host completed:
-
-- 10 rays within 48 blocks in 0.539 ms total (53,935 ns/ray) without WorldGuard; and
-- 1,000 rays within 48 blocks in 24.901 ms total (24,901 ns/ray) during the real WorldGuard integration probe.
-
-Those numbers are environment-specific measurements on a Raspberry Pi staging host, not production capacity guarantees.
+After the fix, isolated staging runs completed both small and 1,000-ray player-backed benchmarks. Those measurements are environment-specific staging observations rather than production-capacity guarantees.
 
 ### 9. WorldGuard platform access happened before WorldGuard was enabled — fixed during live integration validation
 
@@ -102,7 +92,27 @@ The integration now deliberately separates the two lifecycle requirements:
 
 A subsequent real integration run with Paper 1.21.11, WorldEdit 7.4.2, WorldGuard 7.0.17, PacketEvents 2.12.0, and the synthetic protocol-774 Java client booted cleanly and passed the complete exemption transition fixture.
 
-### 10. Bypass permission is cached for the connected session — unresolved by design in this pass
+### 10. Entity-reference packet side channels — hardened after protocol review
+
+The post-WorldGuard protocol pass found several clientbound packets which could reveal a hidden or not-yet-spawned entity through an ID reference even when its normal visibility packets were suppressed.
+
+The branch now hardens those references as follows:
+
+- `ENTITY_SOUND_EFFECT` is suppressed when its entity is a managed hidden/not-yet-client-visible target. Explicitly bypassed entities and the viewer's own entity remain valid.
+- `DAMAGE_EVENT` checks the damaged entity plus the optional cause and direct-source entity references. PacketEvents 2.12 exposes the optional source IDs in their wire-encoded form, so the policy normalizes them with `packetValue - 1` before resolving visibility.
+- `SET_PASSENGERS` no longer forwards an unresolved vehicle or unknown passenger ID merely because relationship state arrived before spawn. Core unresolved relationship bookkeeping is preserved, filtered replacement passenger state contains only client-valid passengers, and the normal post-spawn relationship replay remains authoritative.
+- `ATTACH_ENTITY` similarly withholds unresolved leash endpoints while preserving the deferred relationship state needed for post-spawn reconstruction.
+
+The review also established two important non-fixes rather than adding unsafe blanket filters:
+
+- ordinary `PARTICLE` packets in the current PacketEvents protocol expose particle data and coordinates, not an entity ID. PieCloak cannot reliably attribute every coordinate particle to a hidden managed entity without false positives;
+- server `VEHICLE_MOVE` does not identify an arbitrary remote entity. It synchronizes the vehicle controlled by the receiving player, and PieCloak's viewer-attachment invariant already forces that vehicle client-visible.
+
+Coordinate-only sounds remain the known unimplemented sound-policy surface described above. They should not be conflated with the now-filtered entity-bound sound packet.
+
+Regression coverage exercises the entity-reference policy, optional damage-source ID normalization, hidden/not-client-visible decisions, and unresolved relationship decisions.
+
+### 11. Bypass permission is cached for the connected session — unresolved by design in this pass
 
 The Paper join handler snapshots `raycastedantiesp.bypass` into `PlayerData`, and no safe live permission-change refresh path was found.
 
@@ -114,11 +124,9 @@ A correct live grant/revoke feature therefore needs either continuous shadow tra
 
 The configured entity names match PacketEvents' registry names, and the bundled exclusions do not exclude item frames, glow item frames, or armor stands. The live server configuration was also confirmed by the operator to include them. A normal non-glowing, non-attached, non-plugin-bypassed instance of one of these types should enter the managed entity view.
 
-Once managed, the normal state machine starts distant spawns hidden and repeatedly rechecks hidden entities. After the radius-boundary fix, the configured maximum radius is strict, and the exact voxel traversal removes the old sampler's deliberate diagonal/corner misses. Therefore a remaining report of ordinary frames/stands visible much farther away requires checking exceptional state (glowing, attachment, explicit plugin bypass), packet-order behavior, or reproducing the report against the hardened build.
+Once managed, the normal state machine starts distant spawns hidden and repeatedly rechecks hidden entities. After the radius-boundary fix, the configured maximum radius is strict, and the exact voxel traversal removes the old sampler's deliberate diagonal/corner misses. Therefore a remaining report of ordinary frames/stands visible much farther away requires checking exceptional state such as glowing, attachment, explicit plugin bypass, packet ordering, or reproducing the report against the hardened build.
 
 FancyHolograms and FancyNPCs intentionally register their own entity IDs in the bypass registry. This can explain plugin-owned armor stands or hologram internals, but it does not explain ordinary vanilla item frames at a normal base.
-
-The bypassed-vehicle exploit is a genuine separate entity visibility flaw, but it does not explain ordinary wall-mounted item frames.
 
 ## Block-entity audit conclusion
 
@@ -152,18 +160,13 @@ The integration is designed around the target's location, not the viewer's regio
 - initial chunk/block parsing preserves exempt managed block entities as their real state instead of hiding them first and repairing them afterward;
 - an absent-WorldGuard classloading regression test covers the optional dependency boundary.
 
-Targets intentionally remain tracked inside the region. Completely dropping them from tracking would make moving entities and live flag changes unsafe because PieCloak would lose the authoritative state needed when a target exits the exempt region. The implemented design avoids raycast work while exempt while preserving enough state for safe boundary transitions.
+Targets intentionally remain tracked inside the region. Completely dropping them from tracking would make moving entities and live flag changes unsafe because PieCloak would lose the authoritative state needed when a target exits the exempt region.
 
 ### Real WorldGuard transition proof
 
-A disposable loopback-only Paper 1.21.11 staging run used WorldEdit 7.4.2 and WorldGuard 7.0.17 with a real op player creating a region through WorldEdit/WorldGuard commands:
+The complete real WorldGuard transition fixture was run against PieCloak SHA `8b2197a0169664dad1b78e886b59867652292627`. A disposable loopback-only Paper 1.21.11 server used WorldEdit 7.4.2 and WorldGuard 7.0.17 with a real op player creating a region through WorldEdit/WorldGuard commands.
 
-- `//pos1 25,-64,-4`
-- `//pos2 35,20,4`
-- `/rg define piecloak_probe`
-- `/rg flag piecloak_probe piecloak-skip allow`
-
-The fixture placed a near visible villager, a wall, a flagged villager and campfire behind the wall, and equivalent unflagged targets outside the region. The exact observed stages were:
+The exact observed stages were:
 
 1. initial `ALLOW`: entities `3 (2 visible / 1 hidden)`, block entities `2 (1 visible / 1 hidden)`;
 2. normally hidden villager moved into region: entities `3 (3 visible / 0 hidden)`;
@@ -171,9 +174,9 @@ The fixture placed a near visible villager, a wall, a flagged villager and campf
 4. flag changed to `DENY`: entities `3 (1 visible / 2 hidden)`, block entities `2 (0 visible / 2 hidden)`;
 5. `ALLOW` restored: entities `3 (2 visible / 1 hidden)`, block entities `2 (1 visible / 1 hidden)`.
 
-The same run completed the player-backed 1,000-ray benchmark, config reload, client disconnect, and graceful Paper shutdown.
+The same exact-head run completed `/raesp benchmark 48 1000` in 15.728 ms total, completed config reload, disconnected the synthetic client, disabled PieCloak/WorldGuard/WorldEdit cleanly, and shut Paper down gracefully.
 
-This establishes the integration behavior on the isolated staging fixture. Production-load profiling can still be useful before deployment, but WorldGuard correctness is no longer an untested pre-merge assumption.
+Later product commits were limited to the packet-reference hardening described above and did not alter WorldGuard query/transition logic. The final handoff therefore retains the full WorldGuard fixture as integration evidence and separately requires a final exact-head Paper/PacketEvents smoke after this report-only reconciliation.
 
 ## Additional cleanup from runtime review
 
@@ -189,9 +192,11 @@ An untracked/missing occlusion section currently answers “not occluding.” Hi
 
 ### Remaining packet side channels
 
-`COLLECT_ITEM` is now covered, but packet coverage remains part of the anti-information-leak surface. Continue reviewing packets that reference entity IDs or reveal entity-associated location/activity without going through the managed visibility gate, especially entity sounds, coordinate-based sounds, damage/particle events, pre-spawn passenger/leash relationships, and vehicle-specific synchronization.
+The concrete entity-ID surfaces reviewed in this pass are now covered: `COLLECT_ITEM`, entity-bound sound, `DAMAGE_EVENT`, and pre-spawn passenger/leash references. `VEHICLE_MOVE` was reviewed and does not provide an arbitrary remote-entity reference.
 
-Do not suppress these blindly: each packet needs its protocol semantics and client behavior established first, particularly where an unknown/unmanaged entity ID may legitimately pass through PieCloak.
+The remaining known information surface is primarily coordinate-only activity, especially ordinary positional sounds. Particle packets are likewise coordinate/data based and cannot be generically attributed to a managed entity from the packet alone. Do not suppress these blindly; any future policy needs protocol- and source-specific attribution so unrelated world effects are not hidden or broken.
+
+Continue reviewing newly introduced or version-changed packet families when they expose entity IDs or reliably attributable target activity outside the managed visibility gate.
 
 ## Diagnostics design
 
@@ -238,20 +243,21 @@ High-value selective results from this review:
 1. strict radius semantics — ported and regression-tested;
 2. issue #88 bundle-boundary transition handling — selectively ported and extended across PieCloak's direct/retry/block repair paths;
 3. issue #94 `COLLECT_ITEM` hidden-reference handling — selectively implemented using PieCloak's logical and client visibility state;
-4. allocation/performance improvements — evaluate against the exact traversal without weakening its correctness contract;
-5. large upstream raycast/chunk-parser rewrites — do not import blindly because PieCloak's target filtering and reliability behavior diverge.
+4. entity-reference packet hardening — implemented from current protocol semantics rather than blind packet cancellation;
+5. allocation/performance improvements — evaluate against the exact traversal without weakening its correctness contract;
+6. large upstream raycast/chunk-parser rewrites — do not import blindly because PieCloak's target filtering and reliability behavior diverge.
 
 ## Validation status
 
-The hardening work has passed:
+The product-code head `e9b143fd5f352bd20828f7b55a11a21c013f2567` passed before this report-only reconciliation:
 
-- normal repository Build, tests, staging-JAR inspection and artifact generation on successive exact heads;
-- PMD, Semgrep CE, Trivy and external Codacy quality gates;
-- targeted core/PacketEvents/Paper regression suites for radius, exact traversal, relationship ordering, bundle boundaries, block retries, world-epoch fencing, WorldGuard policy and `COLLECT_ITEM`;
-- isolated Paper 1.21.11 + PacketEvents runtime smoke with a synthetic protocol-774 Java player;
-- real WorldGuard 7.0.17 + WorldEdit 7.4.2 integration with five exact exemption/flag-transition states;
-- player-backed raycast benchmarks on the isolated ARM64 Pi staging host.
+- repository Build, tests, staging-JAR inspection and artifact generation;
+- Static analysis including PMD, Semgrep CE and Trivy;
+- external Codacy with 0 issues/annotations;
+- GitHub Semgrep OSS and Trivy code scanning with no new alerts in the PR changes;
+- CodeRabbit status;
+- targeted regression suites for radius, exact traversal, relationship ordering, bundle boundaries, block retries, world-epoch fencing, WorldGuard policy, `COLLECT_ITEM`, entity-reference visibility policy, damage-source ID normalization, and unresolved relationship decisions.
 
-The runtime process itself found and caused fixes for two defects which ordinary unit/CI coverage did not expose: benchmark command sender binding and WorldGuard platform access before WorldGuard enable. That is why the live integration gate was retained instead of treating green unit tests as sufficient.
+Earlier runtime validation also passed isolated Paper 1.21.11 + PacketEvents synthetic-client smoke tests and the full real WorldGuard fixture described above. The runtime process itself found and caused fixes for two defects which ordinary unit/CI coverage did not expose: benchmark command sender binding and WorldGuard platform access before WorldGuard enable.
 
-Temporary staging workflows/scripts are test infrastructure only and are removed before final handoff. The final merge candidate must still be judged by the normal checks on its exact cleaned PR head and, because build metadata embeds the commit SHA, one final exact-head smoke of the produced JAR.
+Temporary staging workflows/scripts are test infrastructure only and must be removed after evidence capture. Because this report update changes the PR commit SHA while leaving product code unchanged, the final merge candidate must still pass the normal exact-head checks and one final exact-head Paper/PacketEvents smoke of the produced code before handoff.
