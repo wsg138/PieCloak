@@ -104,10 +104,17 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
             return;
         }
         WrapperPlayServerDamageEvent packet = new WrapperPlayServerDamageEvent(event);
+        if (shouldSuppressClientEntityReference(packet.getEntityId(), playerData)) {
+            event.setCancelled(true);
+            return;
+        }
+        boolean sourcePositionPresent = packet.getSourcePosition() != null;
+        if (!EntityVisibilityPacketPolicy.damageSourceUsesEntityReferences(sourcePositionPresent)) {
+            return;
+        }
         int causeEntityID = EntityVisibilityPacketPolicy.decodeDamageSourceEntityID(packet.getSourceCauseId());
         int directEntityID = EntityVisibilityPacketPolicy.decodeDamageSourceEntityID(packet.getSourceDirectId());
-        if (shouldSuppressClientEntityReference(packet.getEntityId(), playerData)
-                || shouldSuppressClientEntityReference(causeEntityID, playerData)
+        if (shouldSuppressClientEntityReference(causeEntityID, playerData)
                 || shouldSuppressClientEntityReference(directEntityID, playerData)) {
             event.setCancelled(true);
         }
