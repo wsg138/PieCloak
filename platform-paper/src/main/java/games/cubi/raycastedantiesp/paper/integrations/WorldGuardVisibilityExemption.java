@@ -14,6 +14,7 @@ import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Map;
@@ -28,14 +29,13 @@ public final class WorldGuardVisibilityExemption implements PaperVisibilityExemp
     private static final int MAX_QUERY_FAILURE_DIAGNOSTICS = 5;
 
     private final StateFlag flag;
-    private final RegionContainer regionContainer;
     private final Map<UUID, com.sk89q.worldedit.world.World> worlds = new ConcurrentHashMap<>();
     private final AtomicInteger queryFailures = new AtomicInteger();
     private final AtomicBoolean enabled = new AtomicBoolean();
+    private volatile RegionContainer regionContainer;
 
     private WorldGuardVisibilityExemption(StateFlag flag) {
         this.flag = flag;
-        this.regionContainer = WorldGuard.getInstance().getPlatform().getRegionContainer();
     }
 
     /** Registers the custom flag during plugin load, before WorldGuard locks its registry. */
@@ -73,6 +73,7 @@ public final class WorldGuardVisibilityExemption implements PaperVisibilityExemp
         } catch (RuntimeException | Error throwable) {
             enabled.set(false);
             worlds.clear();
+            regionContainer = null;
             HandlerList.unregisterAll(this);
             throw throwable;
         }
@@ -84,6 +85,7 @@ public final class WorldGuardVisibilityExemption implements PaperVisibilityExemp
             HandlerList.unregisterAll(this);
         }
         worlds.clear();
+        regionContainer = null;
     }
 
     @EventHandler
@@ -102,24 +104,60 @@ public final class WorldGuardVisibilityExemption implements PaperVisibilityExemp
 
     @Override
     public boolean isExempt(UUID worldId, double x, double y, double z) {
+        if (!enabled.get()) {
+            return false;
+        }
         com.sk89q.worldedit.world.World world = worlds.get(worldId);
         if (world == null) {
             return false;
         }
+        RegionContainer container = resolveRegionContainer();
+        if (container == null) {
+            return false;
+        }
         try {
-            var query = regionContainer.createQuery();
+            var query = container.createQuery();
             var location = new com.sk89q.worldedit.util.Location(world, x, y, z);
             return query.testState(location, null, flag);
         } catch (RuntimeException exception) {
-            int failure = queryFailures.incrementAndGet();
-            if (failure < MAX_QUERY_FAILURE_DIAGNOSTICS) {
-                Logger.error("WorldGuard piecloak-skip query failed; falling back to normal PieCloak visibility policy.",
-                        exception, 2, WorldGuardVisibilityExemption.class);
-            } else if (failure == MAX_QUERY_FAILURE_DIAGNOSTICS) {
-                Logger.error("WorldGuard piecloak-skip query failed; falling back to normal PieCloak visibility policy. Further query failures suppressed.",
-                        exception, 2, WorldGuardVisibilityExemption.class);
-            }
+            logQueryFailure(exception);
             return false;
+        }
+    }
+
+    /**
+     * PieCloak loads at STARTUP so it can register custom flags during onLoad, while WorldGuard's
+     * platform is not available until WorldGuard has enabled later in server startup. Resolve the
+     * region container lazily on the first real visibility query instead of touching the platform
+     * during flag registration or PieCloak enable.
+     */
+    private RegionContainer resolveRegionContainer() {
+        RegionContainer current = regionContainer;
+        if (current != null) {
+            return current;
+        }
+        Plugin worldGuardPlugin = Bukkit.getPluginManager().getPlugin("WorldGuard");
+        if (worldGuardPlugin == null || !worldGuardPlugin.isEnabled()) {
+            return null;
+        }
+        try {
+            current = WorldGuard.getInstance().getPlatform().getRegionContainer();
+            regionContainer = current;
+            return current;
+        } catch (RuntimeException exception) {
+            logQueryFailure(exception);
+            return null;
+        }
+    }
+
+    private void logQueryFailure(RuntimeException exception) {
+        int failure = queryFailures.incrementAndGet();
+        if (failure < MAX_QUERY_FAILURE_DIAGNOSTICS) {
+            Logger.error("WorldGuard piecloak-skip query failed; falling back to normal PieCloak visibility policy.",
+                    exception, 2, WorldGuardVisibilityExemption.class);
+        } else if (failure == MAX_QUERY_FAILURE_DIAGNOSTICS) {
+            Logger.error("WorldGuard piecloak-skip query failed; falling back to normal PieCloak visibility policy. Further query failures suppressed.",
+                    exception, 2, WorldGuardVisibilityExemption.class);
         }
     }
 }
