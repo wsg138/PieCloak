@@ -104,8 +104,8 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
             return;
         }
         WrapperPlayServerDamageEvent packet = new WrapperPlayServerDamageEvent(event);
-        int causeEntityID = decodeDamageSourceEntityID(packet.getSourceCauseId());
-        int directEntityID = decodeDamageSourceEntityID(packet.getSourceDirectId());
+        int causeEntityID = EntityVisibilityPacketPolicy.decodeDamageSourceEntityID(packet.getSourceCauseId());
+        int directEntityID = EntityVisibilityPacketPolicy.decodeDamageSourceEntityID(packet.getSourceDirectId());
         if (shouldSuppressClientEntityReference(packet.getEntityId(), playerData)
                 || shouldSuppressClientEntityReference(causeEntityID, playerData)
                 || shouldSuppressClientEntityReference(directEntityID, playerData)) {
@@ -123,16 +123,8 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         boolean tracked = self || entity != null;
         boolean visible = self || entity != null && entity.visible();
         boolean clientVisible = self || entity != null && entity.clientVisible();
-        return shouldSuppressClientEntityReference(bypassed, self, tracked, visible, clientVisible);
-    }
-
-    static boolean shouldSuppressClientEntityReference(
-            boolean bypassed, boolean self, boolean tracked, boolean visible, boolean clientVisible) {
-        return !bypassed && !self && (!tracked || !visible || !clientVisible);
-    }
-
-    static int decodeDamageSourceEntityID(int packetValue) {
-        return packetValue - 1;
+        return EntityVisibilityPacketPolicy.shouldSuppressClientEntityReference(
+                bypassed, self, tracked, visible, clientVisible);
     }
 
     @Override
@@ -179,11 +171,7 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
     private static boolean hasUnresolvedClientReference(int entityID, PlayerData playerData) {
         boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
         boolean tracked = playerData.nettyData().isSelfEntityID(entityID) || playerData.entityFromID(entityID) != null;
-        return shouldSuppressUnresolvedReference(bypassed, tracked);
-    }
-
-    static boolean shouldSuppressUnresolvedReference(boolean bypassed, boolean tracked) {
-        return !bypassed && !tracked;
+        return EntityVisibilityPacketPolicy.shouldSuppressUnresolvedReference(bypassed, tracked);
     }
 
     @Override
