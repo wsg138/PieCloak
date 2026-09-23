@@ -193,28 +193,41 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     private void processDeferredDirectVisibility(PlayerData playerData) {
         int[] entityIDs = playerData.nettyData().drainDeferredDirectVisibilityEntityIDs();
-        if (entityIDs == null) {
+        if (entityIDs.length == 0) {
             return;
         }
         int worldEpoch = playerData.acquireWorldEpoch();
         for (int entityID : entityIDs) {
-            EntityView<?> view = playerData.entityView().exists(entityID)
-                    ? playerData.entityView()
-                    : playerData.playerView().exists(entityID) ? playerData.playerView() : null;
-            if (view == null) {
-                continue;
-            }
-            NettyEntity<?> entity = (NettyEntity<?>) view.getEntity(entityID);
-            if (entity == null || entity.isSelfEntity()) {
-                continue;
-            }
-            processDirectEntityVisibilityNow(
-                    playerData,
-                    view,
-                    entity,
-                    worldEpoch,
-                    entity.visible() ? EntityViewTransition.Type.SHOW : EntityViewTransition.Type.HIDE);
+            processDeferredDirectVisibilityEntity(playerData, entityID, worldEpoch);
         }
+    }
+
+    private void processDeferredDirectVisibilityEntity(
+            PlayerData playerData, int entityID, int worldEpoch) {
+        EntityView<?> view = deferredDirectVisibilityView(playerData, entityID);
+        if (view == null) {
+            return;
+        }
+        NettyEntity<?> entity = (NettyEntity<?>) view.getEntity(entityID);
+        if (entity == null || entity.isSelfEntity()) {
+            return;
+        }
+        processDirectEntityVisibilityNow(
+                playerData,
+                view,
+                entity,
+                worldEpoch,
+                entity.visible() ? EntityViewTransition.Type.SHOW : EntityViewTransition.Type.HIDE);
+    }
+
+    private EntityView<?> deferredDirectVisibilityView(PlayerData playerData, int entityID) {
+        if (playerData.entityView().exists(entityID)) {
+            return playerData.entityView();
+        }
+        if (playerData.playerView().exists(entityID)) {
+            return playerData.playerView();
+        }
+        return null;
     }
 
     private void processPendingEntityTransitions(PlayerData data, User viewer) {

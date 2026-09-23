@@ -233,20 +233,30 @@ public abstract class PacketEntityViewController<P> {
         entity.setVisibilityExempt(exempt);
 
         if (exempt) {
-            if (!entity.visible() || !entity.clientVisible()) {
-                applyDirectVisibility(playerData, entity, true, currentTick);
-                // Direct SHOW is built from the already-updated tracked position. Forwarding the
-                // movement packet as well would apply relative movement twice on the client.
-                return true;
-            }
+            return reconcileExemptMovement(playerData, entity, currentTick);
+        }
+        return reconcileNonExemptMovement(entityID, playerData, entity, wasExempt, currentTick);
+    }
+
+    private boolean reconcileExemptMovement(
+            PlayerData playerData, NettyEntity<?> entity, int currentTick) {
+        if (entity.visible() && entity.clientVisible()) {
             return false;
         }
-        if (wasExempt) {
-            applyDirectVisibility(playerData, entity, false, currentTick);
-            // Fail closed at the boundary. The async engine evaluates normal visibility next tick.
-            return true;
+        applyDirectVisibility(playerData, entity, true, currentTick);
+        // Direct SHOW is built from the already-updated tracked position. Forwarding the
+        // movement packet as well would apply relative movement twice on the client.
+        return true;
+    }
+
+    private boolean reconcileNonExemptMovement(int entityID, PlayerData playerData,
+            NettyEntity<?> entity, boolean wasExempt, int currentTick) {
+        if (!wasExempt) {
+            return cancelIfEnabledAndHidden(entityID, playerData);
         }
-        return cancelIfEnabledAndHidden(entityID, playerData);
+        applyDirectVisibility(playerData, entity, false, currentTick);
+        // Fail closed at the boundary. The async engine evaluates normal visibility next tick.
+        return true;
     }
 
     private boolean applyDirectVisibility(

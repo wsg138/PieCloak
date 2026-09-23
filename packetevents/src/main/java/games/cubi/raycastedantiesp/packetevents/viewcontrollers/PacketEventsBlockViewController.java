@@ -140,8 +140,11 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         transitionRetries.discardStale(viewerUUID, worldEpoch, blockView.tileEntityCheckModeToken());
 
         handleBlockPackets(event, viewer, playerData, world, currentTick, tileChecksEnabled);
-        scheduleVisibilityRepairsAfterSend(event, viewer, playerData, blockView,
-                viewerUUID, currentTick, worldEpoch, requestedTileChecksEnabled, withinBundle, bundleDelimiter);
+        DeferredBlockRepair repair = new DeferredBlockRepair(
+                viewer, playerData, blockView, viewerUUID, currentTick, worldEpoch,
+                requestedTileChecksEnabled,
+                bundleDelimiter && blockView.tileEntityChecksEnabled() != requestedTileChecksEnabled);
+        scheduleVisibilityRepairsAfterSend(event, repair, withinBundle);
     }
 
     private void applyTileEntityCheckMode(
@@ -152,7 +155,35 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     }
 
     private void scheduleVisibilityRepairsAfterSend(
-            PacketSendEvent event,
+            PacketSendEvent event, DeferredBlockRepair repair, boolean withinBundle) {
+        if (withinBundle || !hasVisibilityRepairs(repair)) {
+            return;
+        }
+        event.getTasksAfterSend().add(() -> processVisibilityRepairsAfterSend(repair));
+    }
+
+    private boolean hasVisibilityRepairs(DeferredBlockRepair repair) {
+        return repair.modeChangeAfterSend()
+                || repair.blockView().hasPendingTransitions()
+                || transitionRetries.hasPending(repair.viewerUUID());
+    }
+
+    private void processVisibilityRepairsAfterSend(DeferredBlockRepair repair) {
+        if (!isCurrentCallbackWorldEpoch(
+                repair.expectedWorldEpoch(), repair.playerData().acquireWorldEpoch())) {
+            return;
+        }
+        if (repair.modeChangeAfterSend()) {
+            applyTileEntityCheckMode(repair.blockView(), repair.requestedTileChecksEnabled(),
+                    repair.playerData(), repair.viewer(), repair.currentTick());
+        }
+        processTransitionRetries(repair.viewer(), repair.playerData(), repair.currentTick());
+        if (repair.blockView().hasPendingTransitions()) {
+            processTileEntityTransitions(repair.viewer(), repair.playerData(), repair.currentTick());
+        }
+    }
+
+    private record DeferredBlockRepair(
             User viewer,
             PlayerData playerData,
             BlockView blockView,
@@ -160,31 +191,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             int currentTick,
             int expectedWorldEpoch,
             boolean requestedTileChecksEnabled,
-            boolean withinBundle,
-            boolean bundleDelimiter) {
-        if (withinBundle) {
-            return;
-        }
-        boolean modeChangeAfterDelimiter = bundleDelimiter
-                && blockView.tileEntityChecksEnabled() != requestedTileChecksEnabled;
-        if (!modeChangeAfterDelimiter
-                && !blockView.hasPendingTransitions()
-                && !transitionRetries.hasPending(viewerUUID)) {
-            return;
-        }
-        event.getTasksAfterSend().add(() -> {
-            if (!isCurrentCallbackWorldEpoch(expectedWorldEpoch, playerData.acquireWorldEpoch())) {
-                return;
-            }
-            if (modeChangeAfterDelimiter) {
-                applyTileEntityCheckMode(
-                        blockView, requestedTileChecksEnabled, playerData, viewer, currentTick);
-            }
-            processTransitionRetries(viewer, playerData, currentTick);
-            if (blockView.hasPendingTransitions()) {
-                processTileEntityTransitions(viewer, playerData, currentTick);
-            }
-        });
+            boolean modeChangeAfterSend) {
     }
 
     static boolean isCurrentCallbackWorldEpoch(int expectedWorldEpoch, int currentWorldEpoch) {

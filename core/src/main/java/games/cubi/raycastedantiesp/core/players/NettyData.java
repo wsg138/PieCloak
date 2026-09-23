@@ -30,20 +30,21 @@ import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_VEHICLE;
  */
 public class NettyData implements Clearable {
     private static final int DEFAULT_MAP_SIZE = 16;
+    private static final int[] EMPTY_ENTITY_IDS = new int[0];
 
     // Outbound bundle state is packet-thread-only. Visibility repair packets must not be injected
     // between an unrelated bundle's opening and closing delimiters.
-    private boolean packetsAreWithinBundle;
+    private boolean packetBundleOpen;
     private IntOpenHashSet deferredDirectVisibilityEntityIDs;
 
     public boolean packetsAreWithinBundle() {
-        return packetsAreWithinBundle;
+        return packetBundleOpen;
     }
 
     /** Toggles on each clientbound bundle delimiter and returns the state after the delimiter. */
     public boolean togglePacketBundleState() {
-        packetsAreWithinBundle = !packetsAreWithinBundle;
-        return packetsAreWithinBundle;
+        packetBundleOpen = !packetBundleOpen;
+        return packetBundleOpen;
     }
 
     public void deferDirectVisibilityEntity(int entityID) {
@@ -59,7 +60,7 @@ public class NettyData implements Clearable {
 
     public int[] drainDeferredDirectVisibilityEntityIDs() {
         if (!hasDeferredDirectVisibilityEntities()) {
-            return null;
+            return EMPTY_ENTITY_IDS;
         }
         int[] entityIDs = deferredDirectVisibilityEntityIDs.toIntArray();
         deferredDirectVisibilityEntityIDs.clear();
@@ -429,6 +430,6 @@ public class NettyData implements Clearable {
         }
         currentWorldMinHeight = Integer.MIN_VALUE;
         currentWorldName = null;
-        packetsAreWithinBundle = false;
+        packetBundleOpen = false;
     }
 }

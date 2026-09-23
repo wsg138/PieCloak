@@ -112,12 +112,11 @@ public final class WorldGuardVisibilityExemption implements PaperVisibilityExemp
             return query.testState(location, null, flag);
         } catch (RuntimeException exception) {
             int failure = queryFailures.incrementAndGet();
-            if (failure <= MAX_QUERY_FAILURE_DIAGNOSTICS) {
-                String suffix = failure == MAX_QUERY_FAILURE_DIAGNOSTICS
-                        ? " (further WorldGuard query failures suppressed)" : "";
-                Logger.error("WorldGuard '" + FLAG_NAME + "' query failed for world=" + worldId
-                                + " position=" + x + "," + y + "," + z
-                                + ". Falling back to normal PieCloak visibility policy." + suffix,
+            if (failure < MAX_QUERY_FAILURE_DIAGNOSTICS) {
+                Logger.error("WorldGuard piecloak-skip query failed; falling back to normal PieCloak visibility policy.",
+                        exception, 2, WorldGuardVisibilityExemption.class);
+            } else if (failure == MAX_QUERY_FAILURE_DIAGNOSTICS) {
+                Logger.error("WorldGuard piecloak-skip query failed; falling back to normal PieCloak visibility policy. Further query failures suppressed.",
                         exception, 2, WorldGuardVisibilityExemption.class);
             }
             return false;
