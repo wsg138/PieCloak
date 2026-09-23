@@ -65,21 +65,25 @@ The protocol pass found additional packets which could expose a hidden or not-ye
 
 The branch now applies these rules:
 
-- `ENTITY_SOUND_EFFECT`: suppress when the referenced managed entity is hidden or not yet client-visible; bypassed/self references remain valid.
-- `DAMAGE_EVENT`: always enforce visibility for the damaged target. When the packet has **no explicit source position**, vanilla resolves the optional cause/direct entity IDs, so PieCloak normalizes PacketEvents 2.12's wire values with `packetValue - 1` and checks those references too. When an explicit source position is present, vanilla uses that position and ignores cause/direct entity IDs, so PieCloak does not incorrectly suppress the event based on client-irrelevant IDs.
+- `ENTITY_SOUND_EFFECT`: suppress when the referenced managed entity is hidden or not yet client-visible; target-bypassed/self references remain valid, and a viewer whose connected session has `raycastedantiesp.bypass` is not filtered.
+- `DAMAGE_EVENT`: always enforce visibility for the damaged target. When the packet has **no explicit source position**, vanilla resolves the optional cause/direct entity IDs, so PieCloak normalizes PacketEvents 2.12's wire values with `packetValue - 1` and checks those references too. When an explicit source position is present, vanilla uses that position and ignores cause/direct entity IDs, so PieCloak does not incorrectly suppress the event based on client-irrelevant IDs. Viewer bypass likewise leaves these references untouched.
 - `SET_PASSENGERS`: withhold unresolved vehicle/passenger IDs from the client while preserving core unresolved state; filtered replacement packets contain only client-valid passengers and post-spawn replay restores the authoritative relationship.
 - `ATTACH_ENTITY`: withhold unresolved leash endpoints while preserving the deferred relationship state needed for post-spawn reconstruction.
+
+A final review caught a viewer-bypass regression in the new entity-reference policy: while viewer bypass is active, normal spawn tracking is deliberately skipped, so an entity which spawned during that interval could be untracked. The side-channel helper initially interpreted that untracked ID as hidden and could cancel a legitimate entity-bound sound or damage event for the bypassed viewer. The policy now takes viewer bypass into account before suppressing a reference.
 
 The review also established two non-fixes:
 
 - ordinary `PARTICLE` packets expose particle data plus coordinates, not a managed entity ID, so blanket entity-based suppression would be guesswork;
 - server `VEHICLE_MOVE` synchronizes the receiving player's controlled vehicle and does not expose an arbitrary remote entity ID. PieCloak already force-shows a vehicle when required by the viewer's own attachment state.
 
-Regression coverage includes hidden/not-client-visible entity-reference decisions, damage-source offset decoding, explicit-position damage semantics, and unresolved relationship decisions.
+Regression coverage includes hidden/not-client-visible entity-reference decisions, viewer-bypass handling for an untracked reference, damage-source offset decoding, explicit-position damage semantics, and unresolved relationship decisions.
 
 ### 11. Bypass permission is cached for the connected session — unresolved by design in this pass
 
-The join path snapshots `raycastedantiesp.bypass` into `PlayerData`. A simple live permission poll is not a safe fix because packet interception is skipped while bypassed, so entities which spawn during that interval may never enter the viewer's managed view. Revoking bypass in-place could therefore leave incomplete authoritative state.
+The join path snapshots `raycastedantiesp.bypass` into `PlayerData`. The packet-reference hardening respects that cached viewer-bypass state, including entities which are intentionally not tracked while bypass is active.
+
+A simple live permission poll is still not a safe fix because packet interception is skipped while bypassed, so entities which spawn during that interval may never enter the viewer's managed view. Revoking bypass in-place could therefore leave incomplete authoritative state.
 
 A correct live grant/revoke feature needs continuous shadow tracking while bypassed or an explicit full client/view resynchronization contract. Until then, live bypass permission changes should be treated as reconnect-required.
 
@@ -158,8 +162,8 @@ Continue selective provenance-based ports rather than merging upstream `main` wh
 
 ## Validation status
 
-Successive product heads before the final semantic adjustment passed repository Build/tests/staging-JAR inspection, PMD/Semgrep/Trivy, external Codacy, CodeRabbit, isolated Paper runtime smoke, and the real WorldGuard fixture above.
+Successive product heads before the final viewer-bypass adjustment passed repository Build/tests/staging-JAR inspection, PMD/Semgrep/Trivy, external Codacy, CodeRabbit, isolated Paper runtime smoke, and the real WorldGuard fixture above.
 
-The last code-only head before this report reconciliation is `f49bd37b752ce289832487a6db98f121349280b8`; it adds the explicit-source-position `DAMAGE_EVENT` semantic correction and its regression test. This report commit intentionally freezes the documented candidate after that code change.
+The latest product-code head before this report reconciliation is `f51554d50a825240a68cc406913f3c5c4c8bd363`; it preserves the connected viewer's bypass semantics for the new entity-reference packet filters and adds a dependency-free regression test. This report commit intentionally freezes the documented candidate after that code change.
 
 Temporary staging workflows/scripts are test infrastructure only and must be removed after evidence capture. The final commit produced by this report reconciliation must pass the normal exact-head checks and one exact-head Paper 1.21.11 + PacketEvents runtime smoke before handoff.
