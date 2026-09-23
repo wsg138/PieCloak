@@ -12,6 +12,8 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
+import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntitySoundEffect;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
@@ -71,6 +73,7 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         if (playerData == null) {
             return;
         }
+        suppressHiddenEntitySound(event, playerData);
         int worldEpoch = playerData.acquireWorldEpoch();
         for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
             afterSendTasks.set(index, WorldEpochGuard.fence(
@@ -79,6 +82,22 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
                     afterSendTasks.get(index)
             ));
         }
+    }
+
+    private void suppressHiddenEntitySound(PacketSendEvent event, PlayerData playerData) {
+        if (event.getPacketType() != PacketType.Play.Server.ENTITY_SOUND_EFFECT) {
+            return;
+        }
+        int entityID = new WrapperPlayServerEntitySoundEffect(event).getEntityId();
+        boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
+        boolean hidden = !bypassed && cancelIfEnabledAndHidden(entityID, playerData);
+        if (shouldSuppressEntitySound(bypassed, hidden)) {
+            event.setCancelled(true);
+        }
+    }
+
+    static boolean shouldSuppressEntitySound(boolean bypassed, boolean hidden) {
+        return !bypassed && hidden;
     }
 
     @Override
