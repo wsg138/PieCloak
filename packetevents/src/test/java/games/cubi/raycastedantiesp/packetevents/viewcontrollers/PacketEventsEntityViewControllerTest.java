@@ -51,6 +51,15 @@ class PacketEventsEntityViewControllerTest {
     }
 
     @Test
+    void playerSpawnsRemainManagedOutsideEntityTargetFiltering() {
+        assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, false));
+        assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, true));
+        assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, false));
+        assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, true));
+        assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, false, false));
+    }
+
+    @Test
     void retainingSeenEntitySuppressesHideWithoutDestroying() {
         assertEquals(NONE, PacketEventsEntityViewController.resolveClientTransitionAction(
                 EntityViewTransition.Type.HIDE, true, true));

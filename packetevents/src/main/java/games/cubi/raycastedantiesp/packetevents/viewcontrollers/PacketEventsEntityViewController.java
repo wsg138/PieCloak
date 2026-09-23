@@ -444,11 +444,15 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         }
         boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
         boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
-        if (!isPlayer && managedByPieCloak && !excludedByUpstream) {
+        if (shouldManageSpawnTarget(isPlayer, managedByPieCloak, excludedByUpstream)) {
             return false;
         }
         EntityBypassRegistry.addEntity(entityID);
         return true;
+    }
+
+    static boolean shouldManageSpawnTarget(boolean isPlayer, boolean managedByPieCloak, boolean excludedByUpstream) {
+        return isPlayer || managedByPieCloak && !excludedByUpstream;
     }
 
     static boolean isBypassed(int entityID) {
