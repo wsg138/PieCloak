@@ -24,4 +24,8 @@ final class EntityVisibilityPacketPolicy {
     static int decodeDamageSourceEntityID(int packetValue) {
         return packetValue - 1;
     }
+
+    static boolean damageSourceUsesEntityReferences(boolean sourcePositionPresent) {
+        return !sourcePositionPresent;
+    }
 }
