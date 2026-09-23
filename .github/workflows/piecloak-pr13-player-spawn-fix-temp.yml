@@ -21,62 +21,53 @@ jobs:
           fetch-depth: 0
 
       - name: Repair player spawn classification and add regression coverage
-        shell: python
+        shell: bash
         run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
           from pathlib import Path
 
           controller = Path('packetevents/src/main/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewController.java')
           text = controller.read_text(encoding='utf-8')
-          old = '''        boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
-          boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
-          if (!isPlayer && managedByPieCloak && !excludedByUpstream) {
-              return false;
-          }
-          EntityBypassRegistry.addEntity(entityID);
-          return true;
-      }
+          old_condition = 'if (!isPlayer && managedByPieCloak && !excludedByUpstream) {'
+          new_condition = 'if (shouldManageSpawnTarget(isPlayer, managedByPieCloak, excludedByUpstream)) {'
+          if text.count(old_condition) != 1:
+              raise SystemExit(f'expected one player-management condition, found {text.count(old_condition)}')
+          text = text.replace(old_condition, new_condition, 1)
 
-      static boolean isBypassed(int entityID) {'''
-          new = '''        boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
-          boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
-          if (shouldManageSpawnTarget(isPlayer, managedByPieCloak, excludedByUpstream)) {
-              return false;
-          }
-          EntityBypassRegistry.addEntity(entityID);
-          return true;
-      }
-
-      static boolean shouldManageSpawnTarget(boolean isPlayer, boolean managedByPieCloak, boolean excludedByUpstream) {
-          return isPlayer || managedByPieCloak && !excludedByUpstream;
-      }
-
-      static boolean isBypassed(int entityID) {'''
-          if old not in text:
-              raise SystemExit('controller target block did not match exact expected text')
-          controller.write_text(text.replace(old, new, 1), encoding='utf-8')
+          anchor = '    static boolean isBypassed(int entityID) {'
+          helper = (
+              '    static boolean shouldManageSpawnTarget(boolean isPlayer, boolean managedByPieCloak, boolean excludedByUpstream) {\n'
+              '        return isPlayer || managedByPieCloak && !excludedByUpstream;\n'
+              '    }\n\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'expected one bypass helper anchor, found {text.count(anchor)}')
+          text = text.replace(anchor, helper + anchor, 1)
+          controller.write_text(text, encoding='utf-8')
 
           test = Path('packetevents/src/test/java/games/cubi/raycastedantiesp/packetevents/viewcontrollers/PacketEventsEntityViewControllerTest.java')
           text = test.read_text(encoding='utf-8')
-          anchor = '''    @Test
-      void minecartSupportClassificationExcludesPlayersAndNonMinecarts() {
-          assertTrue(PacketEventsEntityViewController.shouldTrackRelationshipSupport(false, true));
-          assertFalse(PacketEventsEntityViewController.shouldTrackRelationshipSupport(true, true));
-          assertFalse(PacketEventsEntityViewController.shouldTrackRelationshipSupport(false, false));
-      }
-'''
-          addition = anchor + '''
-      @Test
-      void playerSpawnsRemainManagedOutsideEntityTargetFiltering() {
-          assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, false));
-          assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, true));
-          assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, false));
-          assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, true));
-          assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, false, false));
-      }
-'''
-          if anchor not in text:
-              raise SystemExit('test anchor did not match exact expected text')
-          test.write_text(text.replace(anchor, addition, 1), encoding='utf-8')
+          test_anchor = '''    @Test
+              void retainingSeenEntitySuppressesHideWithoutDestroying() {'''
+          new_test = '''    @Test
+              void playerSpawnsRemainManagedOutsideEntityTargetFiltering() {
+                  assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, false));
+                  assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, true));
+                  assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, false));
+                  assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, true));
+                  assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, false, false));
+              }
+
+          '''
+          # YAML strips the common block indentation; normalize the deliberately indented Java snippet.
+          test_anchor = test_anchor.replace('            ', '')
+          new_test = new_test.replace('            ', '')
+          if text.count(test_anchor) != 1:
+              raise SystemExit(f'expected one test insertion anchor, found {text.count(test_anchor)}')
+          text = text.replace(test_anchor, new_test + test_anchor, 1)
+          test.write_text(text, encoding='utf-8')
+          PY
 
       - name: Remove temporary workflow and commit repair
         shell: bash
