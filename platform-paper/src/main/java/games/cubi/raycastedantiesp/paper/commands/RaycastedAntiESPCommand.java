@@ -200,7 +200,11 @@ public class RaycastedAntiESPCommand {
     }
 
     @Executes("benchmark")
-    void benchmarkCommand(int radius, int samples, Player player) {
+    void benchmarkCommand(int radius, int samples, CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendRichMessage("<red>This command must be run by a player.");
+            return;
+        }
         int clampedRadius = Math.max(1, Math.min(radius, 512));
         int clampedSamples = Math.max(1, Math.min(samples, 100_000));
         PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
