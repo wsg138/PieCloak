@@ -7,13 +7,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PaperPacketEventsEntityViewControllerTest {
     @Test
-    void hiddenManagedEntitySoundIsSuppressed() {
-        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, true));
+    void hiddenOrUnknownManagedEntitySoundIsSuppressed() {
+        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, true, true));
+        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, false, false));
     }
 
     @Test
     void visibleOrBypassedEntitySoundIsAllowed() {
-        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, false));
-        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(true, true));
+        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, true, false));
+        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(true, false, true));
+    }
+
+    @Test
+    void unresolvedRelationshipReferenceIsSuppressed() {
+        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressUnresolvedReference(false, false));
+    }
+
+    @Test
+    void trackedOrBypassedRelationshipReferenceIsAllowed() {
+        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressUnresolvedReference(false, true));
+        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressUnresolvedReference(true, false));
     }
 }
