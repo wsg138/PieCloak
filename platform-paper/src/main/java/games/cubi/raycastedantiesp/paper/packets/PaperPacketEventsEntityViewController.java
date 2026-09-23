@@ -13,6 +13,7 @@ import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDamageEvent;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntitySoundEffect;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
 import games.cubi.logs.Logger;
@@ -21,6 +22,7 @@ import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.players.WorldEpochGuard;
 import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
+import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsEntityViewController;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
@@ -76,6 +78,7 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
             return;
         }
         suppressHiddenEntitySound(event, playerData);
+        suppressHiddenDamageEvent(event, playerData);
         int worldEpoch = playerData.acquireWorldEpoch();
         for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
             afterSendTasks.set(index, WorldEpochGuard.fence(
@@ -91,16 +94,45 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
             return;
         }
         int entityID = new WrapperPlayServerEntitySoundEffect(event).getEntityId();
-        boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
-        boolean tracked = playerData.nettyData().isSelfEntityID(entityID) || playerData.entityFromID(entityID) != null;
-        boolean hidden = tracked && !bypassed && cancelIfEnabledAndHidden(entityID, playerData);
-        if (shouldSuppressEntitySound(bypassed, tracked, hidden)) {
+        if (shouldSuppressClientEntityReference(entityID, playerData)) {
             event.setCancelled(true);
         }
     }
 
-    static boolean shouldSuppressEntitySound(boolean bypassed, boolean tracked, boolean hidden) {
-        return !bypassed && (!tracked || hidden);
+    private void suppressHiddenDamageEvent(PacketSendEvent event, PlayerData playerData) {
+        if (event.getPacketType() != PacketType.Play.Server.DAMAGE_EVENT) {
+            return;
+        }
+        WrapperPlayServerDamageEvent packet = new WrapperPlayServerDamageEvent(event);
+        int causeEntityID = decodeDamageSourceEntityID(packet.getSourceCauseId());
+        int directEntityID = decodeDamageSourceEntityID(packet.getSourceDirectId());
+        if (shouldSuppressClientEntityReference(packet.getEntityId(), playerData)
+                || shouldSuppressClientEntityReference(causeEntityID, playerData)
+                || shouldSuppressClientEntityReference(directEntityID, playerData)) {
+            event.setCancelled(true);
+        }
+    }
+
+    private static boolean shouldSuppressClientEntityReference(int entityID, PlayerData playerData) {
+        if (entityID < 0) {
+            return false;
+        }
+        boolean bypassed = EntityBypassRegistry.isBypassed(entityID);
+        boolean self = playerData.nettyData().isSelfEntityID(entityID);
+        NettyEntity<?> entity = self ? null : playerData.entityFromID(entityID);
+        boolean tracked = self || entity != null;
+        boolean visible = self || entity != null && entity.visible();
+        boolean clientVisible = self || entity != null && entity.clientVisible();
+        return shouldSuppressClientEntityReference(bypassed, self, tracked, visible, clientVisible);
+    }
+
+    static boolean shouldSuppressClientEntityReference(
+            boolean bypassed, boolean self, boolean tracked, boolean visible, boolean clientVisible) {
+        return !bypassed && !self && (!tracked || !visible || !clientVisible);
+    }
+
+    static int decodeDamageSourceEntityID(int packetValue) {
+        return packetValue - 1;
     }
 
     @Override
