@@ -2,20 +2,35 @@ package games.cubi.raycastedantiesp.paper.packets;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PaperPacketEventsEntityViewControllerTest {
     @Test
-    void hiddenOrUnknownManagedEntitySoundIsSuppressed() {
-        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, true, true));
-        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, false, false));
+    void hiddenOrUnknownManagedEntityReferenceIsSuppressed() {
+        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressClientEntityReference(
+                false, false, true, false, false));
+        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressClientEntityReference(
+                false, false, false, false, false));
+        assertTrue(PaperPacketEventsEntityViewController.shouldSuppressClientEntityReference(
+                false, false, true, true, false));
     }
 
     @Test
-    void visibleOrBypassedEntitySoundIsAllowed() {
-        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(false, true, false));
-        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressEntitySound(true, false, true));
+    void visibleSelfOrBypassedEntityReferenceIsAllowed() {
+        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressClientEntityReference(
+                false, false, true, true, true));
+        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressClientEntityReference(
+                false, true, true, true, true));
+        assertFalse(PaperPacketEventsEntityViewController.shouldSuppressClientEntityReference(
+                true, false, false, false, false));
+    }
+
+    @Test
+    void damageSourcePacketIdsUseVanillaOffsetEncoding() {
+        assertEquals(-1, PaperPacketEventsEntityViewController.decodeDamageSourceEntityID(0));
+        assertEquals(5, PaperPacketEventsEntityViewController.decodeDamageSourceEntityID(6));
     }
 
     @Test
