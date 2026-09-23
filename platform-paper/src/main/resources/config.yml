@@ -83,7 +83,6 @@ checks:
             - minecraft:area_effect_cloud
             - minecraft:lingering_potion
             - minecraft:splash_potion
-            - minecraft:potion
             - minecraft:lightning_bolt
             - minecraft:ender_dragon
             - minecraft:wither
