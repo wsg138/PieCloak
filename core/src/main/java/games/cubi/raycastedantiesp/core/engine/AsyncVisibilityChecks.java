@@ -11,8 +11,10 @@ package games.cubi.raycastedantiesp.core.engine;
 import games.cubi.locatables.api.Locatable;
 import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.config.raycast.PlayerConfig;
+import games.cubi.raycastedantiesp.core.config.raycast.RaycastConfig;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.raycast.ParticleSpawner;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
@@ -22,9 +24,15 @@ import games.cubi.raycastedantiesp.core.view.EntityView;
 
 final class AsyncVisibilityChecks {
     private final ParticleSpawner particleSpawner;
+    private final VisibilityExemptionPolicy visibilityExemptionPolicy;
 
     AsyncVisibilityChecks(ParticleSpawner particleSpawner) {
+        this(particleSpawner, VisibilityExemptionPolicy.DISABLED);
+    }
+
+    AsyncVisibilityChecks(ParticleSpawner particleSpawner, VisibilityExemptionPolicy visibilityExemptionPolicy) {
         this.particleSpawner = particleSpawner;
+        this.visibilityExemptionPolicy = visibilityExemptionPolicy;
     }
 
     void processEntitySection(
@@ -73,9 +81,24 @@ final class AsyncVisibilityChecks {
             int worldEpoch,
             TickTimingBatch timings) {
         EntityView<?> entityView = player.entityView();
+        RaycastUtil.Settings raycastSettings = raycastSettings(entityConfig, debugParticles, blockView);
+        int configuredRecheckTicks = entityConfig.getVisibleRecheckIntervalTicks();
         int checked = entityView.forEachNeedingRecheckEntity(
-                entityConfig.getVisibleRecheckIntervalTicks(), currentTick,
+                effectiveRecheckTicks(configuredRecheckTicks), currentTick,
                 !(timings instanceof TickTimingBatchNoOp), worldEpoch, entity -> {
+                    boolean wasExempt = entity.visibilityExempt();
+                    boolean exempt = visibilityExemptionPolicy.isExempt(
+                            playerLocation.world(), entity.x(), entity.y(), entity.z());
+                    entity.setVisibilityExempt(exempt);
+                    if (exempt) {
+                        setEntityAndSupportVehicleVisibility(
+                                entityView, entity, true, currentTick, worldEpoch);
+                        return;
+                    }
+                    if (!wasExempt && entity.visible() && configuredRecheckTicks < 0) {
+                        entity.setLastChecked(currentTick);
+                        return;
+                    }
                     if (EntityBypassRegistry.isRelationshipSupportEntity(entity.entityID())) {
                         if (PrimitiveIntArrayList.isEmpty(entity.passengerIDs())) {
                             entityView.setVisibility(entity, true, currentTick, worldEpoch);
@@ -87,15 +110,13 @@ final class AsyncVisibilityChecks {
                                 entityView, entity, true, currentTick, worldEpoch);
                         return;
                     }
-                    if (attachedToAlwaysVisibleEntityOrSelf(
+                    if (attachedToViewerOrSelf(
                             player, entityView, entity, currentTick, worldEpoch)) {
                         return;
                     }
                     timings.incrementEntityRaycasts();
                     boolean canSee = RaycastUtil.raycast(
-                            playerLocation, entity, entityConfig.getMaxOccludingCount(),
-                            entityConfig.getAlwaysShowRadius(), entityConfig.getRaycastRadius(),
-                            debugParticles, blockView, entity.getYOffset(), 1, particleSpawner);
+                            playerLocation, entity, raycastSettings, entity.getYOffset());
                     setEntityAndSupportVehicleVisibility(
                             entityView, entity, canSee, currentTick, worldEpoch);
                 });
@@ -125,42 +146,77 @@ final class AsyncVisibilityChecks {
             int worldEpoch,
             TickTimingBatch timings) {
         EntityView<?> playerView = player.playerView();
+        RaycastUtil.Settings raycastSettings = raycastSettings(playerConfig, debugParticles, blockView);
+        int configuredRecheckTicks = playerConfig.getVisibleRecheckIntervalTicks();
         int checked = playerView.forEachNeedingRecheckEntity(
-                playerConfig.getVisibleRecheckIntervalTicks(), currentTick,
+                effectiveRecheckTicks(configuredRecheckTicks), currentTick,
                 !(timings instanceof TickTimingBatchNoOp), worldEpoch, otherPlayer -> {
+                    boolean wasExempt = otherPlayer.visibilityExempt();
+                    boolean exempt = visibilityExemptionPolicy.isExempt(
+                            playerLocation.world(), otherPlayer.x(), otherPlayer.y(), otherPlayer.z());
+                    otherPlayer.setVisibilityExempt(exempt);
+                    if (exempt) {
+                        playerView.setVisibility(otherPlayer, true, currentTick, worldEpoch);
+                        return;
+                    }
+                    if (!wasExempt && otherPlayer.visible() && configuredRecheckTicks < 0) {
+                        otherPlayer.setLastChecked(currentTick);
+                        return;
+                    }
                     if (otherPlayer.glowing()
                             || (playerConfig.onlyCheckSneaking() && !otherPlayer.sneaking())) {
                         playerView.setVisibility(otherPlayer, true, currentTick, worldEpoch);
                         return;
                     }
-                    if (attachedToAlwaysVisibleEntityOrSelf(
+                    if (attachedToViewerOrSelf(
                             player, playerView, otherPlayer, currentTick, worldEpoch)) {
                         return;
                     }
                     timings.incrementPlayerRaycasts();
                     boolean canSee = RaycastUtil.raycast(
-                            playerLocation, otherPlayer, playerConfig.getMaxOccludingCount(),
-                            playerConfig.getAlwaysShowRadius(), playerConfig.getRaycastRadius(),
-                            debugParticles, blockView, 1.5f, 1, particleSpawner);
+                            playerLocation, otherPlayer, raycastSettings, 1.5f);
                     playerView.setVisibility(otherPlayer, canSee, currentTick, worldEpoch);
                 });
         timings.addPlayerChecked(checked);
     }
 
-    private static boolean attachedToAlwaysVisibleEntityOrSelf(
+    private int effectiveRecheckTicks(int configuredRecheckTicks) {
+        return visibilityExemptionPolicy.effectiveVisibleRecheckTicks(configuredRecheckTicks);
+    }
+
+    private RaycastUtil.Settings raycastSettings(
+            RaycastConfig config, boolean debugParticles, BlockView blockView) {
+        return new RaycastUtil.Settings(
+                config.getMaxOccludingCount(),
+                config.getAlwaysShowRadius(),
+                config.getRaycastRadius(),
+                debugParticles,
+                blockView,
+                particleSpawner);
+    }
+
+    private static boolean attachedToViewerOrSelf(
             PlayerData player,
             EntityView<?> view,
             NettyEntity<?> entity,
             int currentTick,
             int worldEpoch) {
         int selfEntityID = player.nettyData().getSelfEntityID();
-        if (!player.nettyData().isSelfEntityID(entity.leashingEntity())
-                && !player.nettyData().isSelfEntityID(entity.vehicleID())
-                && !EntityBypassRegistry.isBypassed(entity.vehicleID())
-                && !PrimitiveIntArrayList.contains(entity.passengerIDs(), selfEntityID)) {
+        if (!attachmentRequiresVisibility(
+                entity.leashingEntity(), entity.vehicleID(), entity.passengerIDs(), selfEntityID)) {
             return false;
         }
         view.setVisibility(entity, true, currentTick, worldEpoch);
         return true;
+    }
+
+    static boolean attachmentRequiresVisibility(
+            int leashingEntityID,
+            int vehicleID,
+            int[] passengerIDs,
+            int selfEntityID) {
+        return leashingEntityID == selfEntityID
+                || vehicleID == selfEntityID
+                || PrimitiveIntArrayList.contains(passengerIDs, selfEntityID);
     }
 }

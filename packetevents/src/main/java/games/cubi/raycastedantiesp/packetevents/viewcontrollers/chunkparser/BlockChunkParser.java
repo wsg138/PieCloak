@@ -7,6 +7,7 @@ import com.github.retrooper.packetevents.protocol.world.chunk.palette.Palette;
 import games.cubi.raycastedantiesp.core.chunks.BlockChunkData;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.chunks.ChunkData;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,11 +16,17 @@ import java.util.function.IntUnaryOperator;
 
 public class BlockChunkParser extends AbstractChunkParser<BlockChunkData> {
     public BlockChunkParser(BlockInfoResolver blockInfoResolver, IntUnaryOperator hiddenBlockID) {
-        this(blockInfoResolver, true, hiddenBlockID);
+        this(blockInfoResolver, hiddenBlockID, VisibilityExemptionPolicy.DISABLED);
     }
 
-    protected BlockChunkParser(BlockInfoResolver blockInfoResolver, boolean mutatePackets, IntUnaryOperator hiddenBlockID) {
-        super(blockInfoResolver, mutatePackets, hiddenBlockID);
+    public BlockChunkParser(BlockInfoResolver blockInfoResolver, IntUnaryOperator hiddenBlockID,
+            VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        this(blockInfoResolver, true, hiddenBlockID, visibilityExemptionPolicy);
+    }
+
+    protected BlockChunkParser(BlockInfoResolver blockInfoResolver, boolean mutatePackets,
+            IntUnaryOperator hiddenBlockID, VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        super(blockInfoResolver, mutatePackets, hiddenBlockID, visibilityExemptionPolicy);
     }
 
     @Override

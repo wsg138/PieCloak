@@ -40,6 +40,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     private static final byte FLAG_SNEAKING = 1;
     private static final byte FLAG_GLOWING = 1 << 1;
     private volatile byte trackedFlags; private static final VarHandle TRACKED_FLAGS = VarHandler.get(NettyEntity.class, "trackedFlags", byte.class);
+    private volatile boolean visibilityExemptState;
 
     // Packet-thread-only replay and client state.
     private float yaw;
@@ -130,6 +131,17 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     @Override
     public boolean sneaking() {
         return (((byte) TRACKED_FLAGS.getOpaque(this)) & FLAG_SNEAKING) != 0;
+    }
+
+    @Override
+    public boolean visibilityExempt() {
+        return visibilityExemptState;
+    }
+
+    @Override
+    public TrackedEntity<?> setVisibilityExempt(boolean visibilityExempt) {
+        this.visibilityExemptState = visibilityExempt;
+        return this;
     }
 
     public boolean setGlowing(boolean glowing) {

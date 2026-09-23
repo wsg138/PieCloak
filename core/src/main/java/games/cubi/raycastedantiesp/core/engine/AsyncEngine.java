@@ -19,6 +19,7 @@ import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
 import games.cubi.raycastedantiesp.core.logging.CubiLog;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.raycast.ParticleSpawner;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
 import games.cubi.raycastedantiesp.core.view.BlockView;
@@ -51,12 +52,21 @@ public abstract class AsyncEngine implements Engine {
     private final AtomicBoolean shutdownRequested = new AtomicBoolean();
     private final Object shutdownMonitor = new Object();
     private final AsyncRunner asyncRunner;
+    private final VisibilityExemptionPolicy visibilityExemptionPolicy;
     private final TimingStatsSelector timingStatsSelector = new TimingStatsSelector();
 
-    public AsyncEngine(ConfigManager config, ParticleSpawner particleSpawner, IntSupplier currentTickSupplier, AsyncRunner asyncRunner) {
+    public AsyncEngine(ConfigManager config, ParticleSpawner particleSpawner,
+            IntSupplier currentTickSupplier, AsyncRunner asyncRunner) {
+        this(config, particleSpawner, currentTickSupplier, asyncRunner, VisibilityExemptionPolicy.DISABLED);
+    }
+
+    public AsyncEngine(ConfigManager config, ParticleSpawner particleSpawner,
+            IntSupplier currentTickSupplier, AsyncRunner asyncRunner,
+            VisibilityExemptionPolicy visibilityExemptionPolicy) {
         this.config = config;
         this.particleSpawner = particleSpawner;
-        this.visibilityChecks = new AsyncVisibilityChecks(particleSpawner);
+        this.visibilityExemptionPolicy = visibilityExemptionPolicy;
+        this.visibilityChecks = new AsyncVisibilityChecks(particleSpawner, visibilityExemptionPolicy);
         this.currentTickSupplier = currentTickSupplier;
         this.asyncRunner = asyncRunner;
     }
@@ -549,14 +559,38 @@ public abstract class AsyncEngine implements Engine {
 
     private void checkTileEntities(PlayerData player, Locatable playerLocation, TileEntityConfig tileEntityConfig, boolean debugParticles, BlockView blockView, int currentTick, int worldEpoch, TickTimingBatch timings) {
         long modeToken = blockView.tileEntityCheckModeToken();
-        int checked = blockView.updateVisibilityForEachNeedingRecheck(tileEntityConfig.getVisibleRecheckIntervalTicks(), currentTick, modeToken, worldEpoch, tileEntityLocation -> {
+        RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(
+                tileEntityConfig.getMaxOccludingCount(),
+                tileEntityConfig.getAlwaysShowRadius(),
+                tileEntityConfig.getRaycastRadius(),
+                debugParticles,
+                blockView,
+                particleSpawner);
+        int configuredRecheckTicks = tileEntityConfig.getVisibleRecheckIntervalTicks();
+        int recheckTicks = visibilityExemptionPolicy.effectiveVisibleRecheckTicks(configuredRecheckTicks);
+        int checked = blockView.updateVisibilityForEachNeedingRecheck(
+                recheckTicks, currentTick, modeToken, worldEpoch, tileEntityLocation -> {
+            boolean wasExempt = tileEntityLocation.visibilityExempt();
+            boolean exempt = visibilityExemptionPolicy.isExempt(
+                    playerLocation.world(),
+                    tileEntityLocation.blockX() + 0.5,
+                    tileEntityLocation.blockY() + 0.5,
+                    tileEntityLocation.blockZ() + 0.5);
+            tileEntityLocation.setVisibilityExempt(exempt);
+            if (exempt) {
+                return BlockView.VisibilityResolver.SHOW;
+            }
+            if (!wasExempt && tileEntityLocation.visible() && configuredRecheckTicks < 0) {
+                tileEntityLocation.setLastChecked(currentTick);
+                return BlockView.VisibilityResolver.SKIPPED;
+            }
 
             if (playerLocation.distanceSquared(tileEntityLocation) > (double) tileEntityConfig.getRaycastRadius() * tileEntityConfig.getRaycastRadius()) {
                 timings.incrementTileRadiusSkipped();
                 return BlockView.VisibilityResolver.HIDE;
             }
             timings.incrementTileRaycasts();
-            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, tileEntityConfig.getMaxOccludingCount() + 1, tileEntityConfig.getAlwaysShowRadius(), tileEntityConfig.getRaycastRadius(), debugParticles, blockView, 1, particleSpawner);
+            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, raycastSettings, 1);
             return canSee ? BlockView.VisibilityResolver.SHOW : BlockView.VisibilityResolver.HIDE;
         });
         timings.addTileChecked(checked);

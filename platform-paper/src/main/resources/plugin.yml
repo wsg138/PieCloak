@@ -21,4 +21,5 @@ depend:
 softdepend:
     - FancyNpcs
     - FancyHolograms
+    - WorldGuard
 folia-supported: true

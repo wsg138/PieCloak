@@ -2,49 +2,198 @@ package games.cubi.raycastedantiesp.core.raycast;
 
 import games.cubi.locatables.api.BlockSpatial;
 import games.cubi.locatables.api.Locatable;
-import games.cubi.locatables.api.MutableFloatingSpatial;
 import games.cubi.locatables.api.Spatial;
-import games.cubi.locatables.implementations.MutableSpatialImpl;
+import games.cubi.locatables.implementations.ImmutableSpatialImpl;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 
-public class RaycastUtil {
+public final class RaycastUtil {
+    private static final double AXIS_TIE_EPSILON = 1.0E-12;
 
-    //True: Has line-of-sight
-    //This is deliberately a ray-stepping algorithm rather than DDA as it is much faster (2x in benchmarking)
-    //Missing blocks is acceptable, as it will be assumed the player can see past those corners.
-    //While this uses objects, JHM and in-game profiling have both shown that all objects used here are consistently scalarised by the JVM.
-    public static boolean raycast(Locatable start, Spatial end, int maxOccluding, int alwaysShowRadius, int maxRaycastRadius, boolean debug, BlockView snap, int stepSize, ParticleSpawner particleSpawner) {
-        return raycast(start, end, maxOccluding, alwaysShowRadius, maxRaycastRadius, debug, snap, 0f, stepSize, particleSpawner);
+    private RaycastUtil() {
     }
 
-    public static boolean raycast(Locatable start, Spatial end, int maxOccluding, int alwaysShowRadius, int maxRaycastRadius, boolean debug, BlockView snap, float yOffsetEnd, int stepSize, ParticleSpawner particleSpawner) {
-        double endOffset = end instanceof BlockSpatial ? 0.5 : 0.0;
-        MutableFloatingSpatial clonedEnd = new MutableSpatialImpl(end.x() + endOffset, end.y() + endOffset + yOffsetEnd, end.z() + endOffset);
-        //Equivalent to end.cloneAndIfBlockThenCentre(); but not used since the JVM was not reliably scalarising that method (probably due to the polymorphic overriding?). This causes 0 object allocations.
-        double total = start.distance(clonedEnd) - stepSize; //benchmarking shows that calling distance() is faster than distanceSquared() then checking distanceSquared < stepSize*stepSize every time despite the latter replacing a square root with multiplication
-        if (total <= alwaysShowRadius) return true;
-        if (total > maxRaycastRadius) return false;
-        if (debug && particleSpawner == null) {
-            Logger.errorAndReturn(new RuntimeException("raycast called with debug enabled but no ParticleSpawner supplied"), 2, RaycastUtil.class);
+    /**
+     * Immutable policy and debug context reused across rays which share the same visibility rules.
+     */
+    public record Settings(
+            int maxOccluding,
+            int alwaysShowRadius,
+            int maxRaycastRadius,
+            boolean debug,
+            BlockView blockView,
+            ParticleSpawner particleSpawner) {
+    }
+
+    // True: has line-of-sight.
+    // Traverse every voxel whose interior the centre ray enters. The start and target voxels are
+    // intentionally excluded so the viewer's own block and the target block cannot occlude themselves.
+    public static boolean raycast(Locatable start, Spatial end, Settings settings) {
+        return raycast(start, end, settings, 0f);
+    }
+
+    public static boolean raycast(Locatable start, Spatial end, Settings settings, float yOffsetEnd) {
+        RayGeometry geometry = RayGeometry.between(start, end, yOffsetEnd);
+        if (geometry.distance() <= settings.alwaysShowRadius()) {
+            return true;
+        }
+        if (geometry.distance() > settings.maxRaycastRadius()) {
+            return false;
+        }
+        validateDebugContext(settings);
+        return new VoxelTraversal(start, geometry, settings).hasLineOfSight();
+    }
+
+    private static void validateDebugContext(Settings settings) {
+        if (settings.debug() && settings.particleSpawner() == null) {
+            Logger.errorAndReturn(new RuntimeException(
+                    "raycast called with debug enabled but no ParticleSpawner supplied"),
+                    2, RaycastUtil.class);
+        }
+    }
+
+    private static int floorBlock(double coordinate) {
+        return (int) Math.floor(coordinate);
+    }
+
+    private static double axisDelta(double delta) {
+        return delta == 0.0 ? Double.POSITIVE_INFINITY : Math.abs(1.0 / delta);
+    }
+
+    private static double firstBoundaryT(double start, double delta, int block, int step) {
+        if (step > 0) {
+            return (block + 1.0 - start) / delta;
+        }
+        if (step < 0) {
+            return (start - block) / -delta;
+        }
+        return Double.POSITIVE_INFINITY;
+    }
+
+    private static void spawnVoxelParticle(Locatable start, ParticleSpawner particleSpawner,
+            int x, int y, int z, ParticleSpawner.Colour colour) {
+        particleSpawner.spawnParticleAt(start.world(),
+                new ImmutableSpatialImpl(x + 0.5, y + 0.5, z + 0.5), colour);
+    }
+
+    private record RayGeometry(
+            double endX,
+            double endY,
+            double endZ,
+            double deltaX,
+            double deltaY,
+            double deltaZ,
+            double distance) {
+        private static RayGeometry between(Locatable start, Spatial end, float yOffsetEnd) {
+            double endOffset = end instanceof BlockSpatial ? 0.5 : 0.0;
+            double endX = end.x() + endOffset;
+            double endY = end.y() + endOffset + yOffsetEnd;
+            double endZ = end.z() + endOffset;
+            double deltaX = endX - start.x();
+            double deltaY = endY - start.y();
+            double deltaZ = endZ - start.z();
+            double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+            return new RayGeometry(endX, endY, endZ, deltaX, deltaY, deltaZ, distance);
+        }
+    }
+
+    private static final class VoxelTraversal {
+        private final Locatable start;
+        private final BlockView blockView;
+        private final ParticleSpawner particleSpawner;
+        private final boolean debug;
+        private final int maxOccluding;
+        private final int targetX;
+        private final int targetY;
+        private final int targetZ;
+        private final int stepX;
+        private final int stepY;
+        private final int stepZ;
+        private final double tDeltaX;
+        private final double tDeltaY;
+        private final double tDeltaZ;
+        private int x;
+        private int y;
+        private int z;
+        private double tMaxX;
+        private double tMaxY;
+        private double tMaxZ;
+        private int occludingCount;
+
+        private VoxelTraversal(Locatable start, RayGeometry geometry, Settings settings) {
+            this.start = start;
+            blockView = settings.blockView();
+            particleSpawner = settings.particleSpawner();
+            debug = settings.debug();
+            maxOccluding = settings.maxOccluding();
+            x = floorBlock(start.x());
+            y = floorBlock(start.y());
+            z = floorBlock(start.z());
+            targetX = floorBlock(geometry.endX());
+            targetY = floorBlock(geometry.endY());
+            targetZ = floorBlock(geometry.endZ());
+            stepX = Integer.compare(targetX, x);
+            stepY = Integer.compare(targetY, y);
+            stepZ = Integer.compare(targetZ, z);
+            tDeltaX = axisDelta(geometry.deltaX());
+            tDeltaY = axisDelta(geometry.deltaY());
+            tDeltaZ = axisDelta(geometry.deltaZ());
+            tMaxX = firstBoundaryT(start.x(), geometry.deltaX(), x, stepX);
+            tMaxY = firstBoundaryT(start.y(), geometry.deltaY(), y, stepY);
+            tMaxZ = firstBoundaryT(start.z(), geometry.deltaZ(), z, stepZ);
         }
 
-        Spatial dir = clonedEnd.subtract(start).normalise().scalarMultiply(stepSize);
-
-        MutableFloatingSpatial current = new MutableSpatialImpl(start.x(),start.y(),start.z());
-
-        for (double traveled = 0; traveled < total; traveled += stepSize) { //benchmarking shows that for loop is marginally faster than while loop initially (after running for a while they are equal
-            current.add(dir);
-
-            if (snap.isBlockOccluding(current.blockX(), current.blockY(), current.blockZ())) {
-                maxOccluding--;
-                if (debug) particleSpawner.spawnParticleAt(start.world(), current, ParticleSpawner.Colour.RED);
-                if (maxOccluding < 1) return false;
-                continue;
+        private boolean hasLineOfSight() {
+            while (!atTarget()) {
+                advanceToNextVoxel();
+                if (atTarget()) {
+                    return true;
+                }
+                if (currentVoxelBlocksLineOfSight()) {
+                    return false;
+                }
             }
-
-            if (debug) particleSpawner.spawnParticleAt(start.world(), current, ParticleSpawner.Colour.GREEN);
+            return true;
         }
-        return true;
+
+        private void advanceToNextVoxel() {
+            double nextBoundary = Math.min(tMaxX, Math.min(tMaxY, tMaxZ));
+            if (tMaxX <= nextBoundary + AXIS_TIE_EPSILON) {
+                x += stepX;
+                tMaxX += tDeltaX;
+            }
+            if (tMaxY <= nextBoundary + AXIS_TIE_EPSILON) {
+                y += stepY;
+                tMaxY += tDeltaY;
+            }
+            if (tMaxZ <= nextBoundary + AXIS_TIE_EPSILON) {
+                z += stepZ;
+                tMaxZ += tDeltaZ;
+            }
+        }
+
+        private boolean currentVoxelBlocksLineOfSight() {
+            boolean occluding = blockView.isBlockOccluding(x, y, z);
+            spawnDebugParticle(occluding);
+            if (!occluding) {
+                return false;
+            }
+            occludingCount++;
+            return occludingCount >= maxOccluding;
+        }
+
+        private boolean atTarget() {
+            return x == targetX && y == targetY && z == targetZ;
+        }
+
+        private void spawnDebugParticle(boolean occluding) {
+            if (!debug) {
+                return;
+            }
+            ParticleSpawner.Colour colour = occluding
+                    ? ParticleSpawner.Colour.RED
+                    : ParticleSpawner.Colour.GREEN;
+            spawnVoxelParticle(start, particleSpawner, x, y, z, colour);
+        }
     }
 }

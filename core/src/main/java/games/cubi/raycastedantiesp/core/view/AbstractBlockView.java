@@ -219,6 +219,11 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     @Override
+    public boolean tileEntityChecksEnabled() {
+        return modeEnabled(tileEntityCheckModeTokenAcquire());
+    }
+
+    @Override
     public long tileEntityCheckModeToken() {
         return tileEntityCheckModeTokenAcquire();
     }

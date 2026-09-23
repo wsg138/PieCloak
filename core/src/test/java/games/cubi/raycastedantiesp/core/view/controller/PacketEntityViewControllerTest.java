@@ -1,7 +1,9 @@
 package games.cubi.raycastedantiesp.core.view.controller;
 
+import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.raycastedantiesp.core.utils.Clearable;
@@ -11,21 +13,37 @@ import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PacketEntityViewControllerTest {
-    private static final TestController CONTROLLER = new TestController();
+    private static final HarnessVisibilityPolicy VISIBILITY_POLICY = new HarnessVisibilityPolicy();
+    private static final HarnessController CONTROLLER = new HarnessController(VISIBILITY_POLICY);
+    private static final Map<Class<?>, Object> PRIMITIVE_DEFAULTS = Map.of(
+            boolean.class, false,
+            byte.class, (byte) 0,
+            short.class, (short) 0,
+            int.class, 0,
+            long.class, 0L,
+            float.class, 0F,
+            double.class, 0D,
+            char.class, (char) 0
+    );
     private final List<UUID> registeredPlayers = new ArrayList<>();
 
     @BeforeAll
@@ -37,48 +55,40 @@ class PacketEntityViewControllerTest {
         );
     }
 
+    @BeforeEach
+    void clearControllerState() {
+        CONTROLLER.directlyShownEntityIDs.clear();
+        CONTROLLER.directlyHiddenEntityIDs.clear();
+        CONTROLLER.replacementPassengerPackets.clear();
+        CONTROLLER.movementEntityID = -1;
+        VISIBILITY_POLICY.disable();
+    }
+
     @AfterEach
     void unregisterPlayers() {
         for (UUID player : registeredPlayers) {
             PlayerRegistry.getInstance().unregisterPlayer(player);
         }
         registeredPlayers.clear();
+        EntityBypassRegistry.reset();
     }
 
     @Test
     void directlyShownSelfVehiclePassengersRemainMountedInReplacementPacket() {
-        CONTROLLER.directlyShownEntityIDs.clear();
-        CONTROLLER.replacementPassengerPackets.clear();
-        UUID playerUUID = UUID.randomUUID();
-        registeredPlayers.add(playerUUID);
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
-                playerUUID,
-                0,
-                1,
-                TestEntity::createSelf
-        );
         UUID world = UUID.randomUUID();
-        playerData.beginWorldTransition();
-        playerData.completeWorldTransition(world);
+        PlayerData playerData = registerPlayer(world);
 
-        TestEntity firstPassenger = new TestEntity(playerData, 2, UUID.randomUUID(), false);
-        TestEntity secondPassenger = new TestEntity(playerData, 3, UUID.randomUUID(), false);
-        @SuppressWarnings("unchecked")
-        EntityView<NettyEntity<?>> entityView = (EntityView<NettyEntity<?>>) (EntityView<?>) playerData.entityView();
-        for (TestEntity passenger : List.of(firstPassenger, secondPassenger)) {
-            passenger.setVisible(false);
-            passenger.setClientVisible(false);
-            entityView.insertEntity(world, passenger);
-        }
+        HarnessEntity firstPassenger = insertPassenger(playerData, world, 2, false, false);
+        HarnessEntity secondPassenger = insertPassenger(playerData, world, 3, false, false);
 
-        TestEntity self = (TestEntity) playerData.nettyData().getSelfEntity();
+        HarnessEntity self = (HarnessEntity) playerData.nettyData().getSelfEntity();
         boolean cancelled = CONTROLLER.handleEntityPassengersNow(self, new int[]{2, 3}, playerData, 17);
 
         assertTrue(cancelled, "the original passenger packet must be suppressed");
         assertEquals(List.of(2, 3), CONTROLLER.directlyShownEntityIDs);
         assertEquals(1, CONTROLLER.replacementPassengerPackets.size());
         assertArrayEquals(new int[]{2, 3}, CONTROLLER.replacementPassengerPackets.get(0));
-        for (TestEntity passenger : List.of(firstPassenger, secondPassenger)) {
+        for (HarnessEntity passenger : List.of(firstPassenger, secondPassenger)) {
             assertTrue(passenger.visible(), "direct SHOW must make the passenger engine-visible");
             assertTrue(passenger.clientVisible(), "direct SHOW must make the passenger client-visible");
             assertEquals(1, passenger.vehicleID(), "the passenger must remain attached to the self vehicle");
@@ -86,113 +96,324 @@ class PacketEntityViewControllerTest {
         assertArrayEquals(new int[]{2, 3}, self.passengerIDs());
     }
 
+    @Test
+    void nettyBundleStateDefersAndDrainsDirectVisibilityIds() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+
+        assertFalse(playerData.nettyData().packetsAreWithinBundle());
+        assertTrue(playerData.nettyData().togglePacketBundleState());
+        playerData.nettyData().deferDirectVisibilityEntity(7);
+        playerData.nettyData().deferDirectVisibilityEntity(7);
+        playerData.nettyData().deferDirectVisibilityEntity(8);
+        assertTrue(playerData.nettyData().hasDeferredDirectVisibilityEntities());
+
+        int[] deferred = playerData.nettyData().drainDeferredDirectVisibilityEntityIDs();
+        java.util.Arrays.sort(deferred);
+        assertArrayEquals(new int[]{7, 8}, deferred);
+        assertFalse(playerData.nettyData().hasDeferredDirectVisibilityEntities());
+        assertFalse(playerData.nettyData().togglePacketBundleState());
+    }
+
+    @Test
+    void worldTransitionClearsDeferredDirectVisibilityWithoutCorruptingBundleState() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        assertTrue(playerData.nettyData().togglePacketBundleState());
+        playerData.nettyData().deferDirectVisibilityEntity(7);
+
+        playerData.nettyData().clearPendingReconciliationState();
+
+        assertFalse(playerData.nettyData().hasDeferredDirectVisibilityEntities());
+        assertTrue(playerData.nettyData().packetsAreWithinBundle());
+        assertFalse(playerData.nettyData().togglePacketBundleState());
+    }
+
+    @Test
+    void hiddenEntityEnteringExemptRegionSuppressesMovementAfterDirectShow() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        playerData.updateOwnLocation(world, 0, 64, 0);
+        HarnessEntity entity = insertPassenger(playerData, world, 2, false, false);
+        entity.setPosition(10, 64, 0);
+        VISIBILITY_POLICY.exemptAtOrAboveX(10);
+        CONTROLLER.movementEntityID = 2;
+
+        boolean cancelled = CONTROLLER.handleRelativeMove(null, playerData, 20);
+
+        assertTrue(cancelled, "the triggering relative move must not be applied after a direct spawn at the new position");
+        assertTrue(entity.visibilityExempt());
+        assertTrue(entity.visible());
+        assertTrue(entity.clientVisible());
+        assertEquals(List.of(2), CONTROLLER.directlyShownEntityIDs);
+    }
+
+    @Test
+    void visibleEntityEnteringExemptRegionCanKeepItsMovementPacket() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        playerData.updateOwnLocation(world, 0, 64, 0);
+        HarnessEntity entity = insertPassenger(playerData, world, 2, true, true);
+        entity.setPosition(10, 64, 0);
+        VISIBILITY_POLICY.exemptAtOrAboveX(10);
+        CONTROLLER.movementEntityID = 2;
+
+        boolean cancelled = CONTROLLER.handleRelativeMove(null, playerData, 20);
+
+        assertFalse(cancelled);
+        assertTrue(entity.visibilityExempt());
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    @Test
+    void entityLeavingExemptRegionIsHiddenBeforeMovementIsForwarded() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        playerData.updateOwnLocation(world, 0, 64, 0);
+        HarnessEntity entity = insertPassenger(playerData, world, 2, true, true);
+        entity.setVisibilityExempt(true);
+        entity.setPosition(0, 64, 0);
+        VISIBILITY_POLICY.exemptAtOrAboveX(10);
+        CONTROLLER.movementEntityID = 2;
+
+        boolean cancelled = CONTROLLER.handleRelativeMove(null, playerData, 20);
+
+        assertTrue(cancelled);
+        assertFalse(entity.visibilityExempt());
+        assertFalse(entity.visible());
+        assertFalse(entity.clientVisible());
+        assertEquals(List.of(2), CONTROLLER.directlyHiddenEntityIDs);
+    }
+
+    @Test
+    void bypassedVehicleFiltersHiddenManagedPassengerWithoutReveal() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        HarnessEntity passenger = insertPassenger(playerData, world, 2, false, false);
+        EntityBypassRegistry.addEntity(20);
+
+        boolean cancelled = CONTROLLER.handleEntityPassengers(20, new int[]{2}, playerData, 17);
+
+        assertTrue(cancelled, "the original relationship packet must not expose the hidden passenger");
+        assertFalse(passenger.visible());
+        assertFalse(passenger.clientVisible());
+        assertEquals(20, passenger.vehicleID());
+        assertArrayEquals(new int[]{2}, playerData.nettyData().getUnresolvedPassengers(20));
+        assertEquals(1, CONTROLLER.replacementPassengerPackets.size());
+        assertArrayEquals(new int[0], CONTROLLER.replacementPassengerPackets.get(0));
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    @Test
+    void passengerResolvedAfterBypassedRelationshipDoesNotReveal() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        EntityBypassRegistry.addEntity(20);
+
+        assertTrue(CONTROLLER.handleEntityPassengers(20, new int[]{2}, playerData, 17));
+        HarnessEntity passenger = insertPassenger(playerData, world, 2, false, false);
+        CONTROLLER.reconcileUnresolvedPassengers(passenger, playerData);
+
+        assertFalse(passenger.visible());
+        assertFalse(passenger.clientVisible());
+        assertEquals(20, passenger.vehicleID());
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    @Test
+    void vehicleIdentifiedAsBypassedAfterRelationshipDoesNotRevealPassenger() {
+        UUID world = UUID.randomUUID();
+        PlayerData playerData = registerPlayer(world);
+        HarnessEntity passenger = insertPassenger(playerData, world, 2, false, false);
+
+        CONTROLLER.handleEntityPassengers(20, new int[]{2}, playerData, 17);
+        EntityBypassRegistry.addEntity(20);
+        CONTROLLER.handleBypassedEntitySpawn(20, playerData, 18);
+
+        assertFalse(passenger.visible());
+        assertFalse(passenger.clientVisible());
+        assertEquals(20, passenger.vehicleID());
+        assertTrue(CONTROLLER.directlyShownEntityIDs.isEmpty());
+    }
+
+    private PlayerData registerPlayer(UUID world) {
+        UUID playerUUID = UUID.randomUUID();
+        registeredPlayers.add(playerUUID);
+        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+                playerUUID,
+                0,
+                1,
+                HarnessEntity::createSelf
+        );
+        playerData.beginWorldTransition();
+        playerData.completeWorldTransition(world);
+        return playerData;
+    }
+
+    private static HarnessEntity insertPassenger(
+            PlayerData playerData, UUID world, int entityID, boolean visible, boolean clientVisible) {
+        HarnessEntity passenger = new HarnessEntity(playerData, entityID, UUID.randomUUID(), visible);
+        passenger.setClientVisible(clientVisible);
+        @SuppressWarnings("unchecked")
+        EntityView<NettyEntity<?>> entityView =
+                (EntityView<NettyEntity<?>>) (EntityView<?>) playerData.entityView();
+        entityView.insertEntity(world, passenger);
+        return passenger;
+    }
+
     private static EntityView<?> entityView(boolean playerView) {
-        Map<Integer, TrackedEntity<?>> entitiesByID = new HashMap<>();
-        Map<UUID, TrackedEntity<?>> entitiesByUUID = new HashMap<>();
         return (EntityView<?>) Proxy.newProxyInstance(
-                PacketEntityViewControllerTest.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class[]{EntityView.class},
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "insertEntity" -> {
-                        TrackedEntity<?> entity = (TrackedEntity<?>) args[1];
-                        entitiesByID.put(entity.entityID(), entity);
-                        entitiesByUUID.put(entity.entityUUID(), entity);
-                        yield null;
-                    }
-                    case "removeEntity" -> {
-                        int entityID = (Integer) args[0];
-                        TrackedEntity<?> removed = entitiesByID.remove(entityID);
-                        if (removed != null) {
-                            entitiesByUUID.remove(removed.entityUUID());
-                        }
-                        yield null;
-                    }
-                    case "getEntity" -> args[0] instanceof Integer
-                            ? entitiesByID.get(args[0])
-                            : entitiesByUUID.get(args[0]);
-                    case "exists" -> args[0] instanceof Integer
-                            ? entitiesByID.containsKey(args[0])
-                            : entitiesByUUID.containsKey(args[0]);
-                    case "size" -> entitiesByID.size();
-                    case "getKnownEntities" -> List.copyOf(entitiesByUUID.keySet());
-                    case "getKnownEntityIDs" -> entitiesByID.keySet().stream().mapToInt(Integer::intValue).toArray();
-                    case "getEntityID" -> {
-                        TrackedEntity<?> entity = entitiesByUUID.get(args[0]);
-                        yield entity == null ? -1 : entity.entityID();
-                    }
-                    case "getPosition" -> entitiesByUUID.get(args[0]);
-                    case "isVisible" -> {
-                        TrackedEntity<?> entity = args[0] instanceof Integer
-                                ? entitiesByID.get(args[0])
-                                : entitiesByUUID.get(args[0]);
-                        yield entity == null || entity.visible();
-                    }
-                    case "recordDirectVisibility", "setVisibility" -> {
-                        NettyEntity<?> entity = (NettyEntity<?>) args[0];
-                        boolean current = entitiesByUUID.get(entity.entityUUID()) == entity && !entity.isSelfEntity();
-                        if (current) {
-                            entity.setVisible((Boolean) args[1]);
-                            entity.setLastChecked((Integer) args[2]);
-                        }
-                        yield method.getName().equals("recordDirectVisibility") ? current : null;
-                    }
-                    case "forEachNeedingRecheck", "forEachNeedingRecheckEntity" -> 0;
-                    case "hasPendingTransitions" -> false;
-                    case "flushPendingTransitions", "drainTransitions", "clear" -> null;
-                    case "isPlayerView" -> playerView;
-                    case "getStringDataForDebugging" -> "test";
-                    case "toString" -> "TestEntityView";
-                    default -> defaultValue(method.getReturnType());
-                }
+                new EntityViewHarness(playerView)
         );
     }
 
     private static BlockView emptyBlockView() {
         return (BlockView) Proxy.newProxyInstance(
-                PacketEntityViewControllerTest.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class[]{BlockView.class},
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "toString" -> "TestBlockView";
-                    default -> defaultValue(method.getReturnType());
-                }
+                (proxy, method, args) -> "toString".equals(method.getName())
+                        ? "TestBlockView"
+                        : defaultValue(method.getReturnType())
         );
     }
 
     private static Object defaultValue(Class<?> returnType) {
-        if (!returnType.isPrimitive()) {
-            return null;
-        }
-        if (returnType == boolean.class) {
-            return false;
-        }
-        if (returnType == long.class) {
-            return 0L;
-        }
-        if (returnType == float.class) {
-            return 0F;
-        }
-        if (returnType == double.class) {
-            return 0D;
-        }
-        if (returnType == byte.class) {
-            return (byte) 0;
-        }
-        if (returnType == short.class) {
-            return (short) 0;
-        }
-        if (returnType == char.class) {
-            return (char) 0;
-        }
-        return 0;
+        return returnType.isPrimitive() ? PRIMITIVE_DEFAULTS.get(returnType) : null;
     }
 
-    private static final class TestController extends PacketEntityViewController<Void> {
+    @FunctionalInterface
+    private interface MethodHandler {
+        Object invoke(Object[] args);
+    }
+
+    private static final class EntityViewHarness implements InvocationHandler {
+        private final Map<Integer, TrackedEntity<?>> entitiesByID = new ConcurrentHashMap<>();
+        private final Map<UUID, TrackedEntity<?>> entitiesByUUID = new ConcurrentHashMap<>();
+        private final Map<String, MethodHandler> handlers = new ConcurrentHashMap<>();
+
+        private EntityViewHarness(boolean playerView) {
+            handlers.put("insertEntity", this::insertEntity);
+            handlers.put("removeEntity", this::removeEntity);
+            handlers.put("getEntity", this::getEntity);
+            handlers.put("exists", this::exists);
+            handlers.put("size", ignored -> entitiesByID.size());
+            handlers.put("getKnownEntities", ignored -> List.copyOf(entitiesByUUID.keySet()));
+            handlers.put("getKnownEntityIDs", ignored -> entitiesByID.keySet().stream().mapToInt(Integer::intValue).toArray());
+            handlers.put("getEntityID", this::getEntityID);
+            handlers.put("getPosition", args -> entitiesByUUID.get(args[0]));
+            handlers.put("isVisible", this::isVisible);
+            handlers.put("recordDirectVisibility", this::recordDirectVisibility);
+            handlers.put("setVisibility", this::setVisibility);
+            handlers.put("forEachNeedingRecheck", ignored -> 0);
+            handlers.put("forEachNeedingRecheckEntity", ignored -> 0);
+            handlers.put("hasPendingTransitions", ignored -> false);
+            handlers.put("flushPendingTransitions", ignored -> null);
+            handlers.put("drainTransitions", ignored -> null);
+            handlers.put("clear", ignored -> null);
+            handlers.put("isPlayerView", ignored -> playerView);
+            handlers.put("getStringDataForDebugging", ignored -> "test");
+            handlers.put("toString", ignored -> "TestEntityView");
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) {
+            MethodHandler handler = handlers.get(method.getName());
+            return handler == null ? defaultValue(method.getReturnType()) : handler.invoke(args);
+        }
+
+        private Object insertEntity(Object[] args) {
+            TrackedEntity<?> entity = (TrackedEntity<?>) args[1];
+            entitiesByID.put(entity.entityID(), entity);
+            entitiesByUUID.put(entity.entityUUID(), entity);
+            return null;
+        }
+
+        private Object removeEntity(Object[] args) {
+            TrackedEntity<?> removed = entitiesByID.remove((Integer) args[0]);
+            if (removed != null) {
+                entitiesByUUID.remove(removed.entityUUID());
+            }
+            return null;
+        }
+
+        private Object getEntity(Object[] args) {
+            Object key = args[0];
+            return key instanceof Integer ? entitiesByID.get(key) : entitiesByUUID.get(key);
+        }
+
+        private Object exists(Object[] args) {
+            Object key = args[0];
+            return key instanceof Integer ? entitiesByID.containsKey(key) : entitiesByUUID.containsKey(key);
+        }
+
+        private Object getEntityID(Object[] args) {
+            TrackedEntity<?> entity = entitiesByUUID.get(args[0]);
+            return entity == null ? -1 : entity.entityID();
+        }
+
+        private Object isVisible(Object[] args) {
+            TrackedEntity<?> entity = trackedEntity(args[0]);
+            return entity == null || entity.visible();
+        }
+
+        private Object recordDirectVisibility(Object[] args) {
+            return updateVisibility(args);
+        }
+
+        private Object setVisibility(Object[] args) {
+            updateVisibility(args);
+            return null;
+        }
+
+        private boolean updateVisibility(Object[] args) {
+            NettyEntity<?> entity = (NettyEntity<?>) args[0];
+            boolean current = entitiesByUUID.get(entity.entityUUID()) == entity && !entity.isSelfEntity();
+            if (current) {
+                entity.setVisible((Boolean) args[1]);
+                entity.setLastChecked((Integer) args[2]);
+            }
+            return current;
+        }
+
+        private TrackedEntity<?> trackedEntity(Object key) {
+            return key instanceof Integer ? entitiesByID.get(key) : entitiesByUUID.get(key);
+        }
+    }
+
+    private static final class HarnessVisibilityPolicy implements VisibilityExemptionPolicy {
+        private volatile boolean enabled;
+        private volatile double minimumX;
+
+        private void exemptAtOrAboveX(double x) {
+            minimumX = x;
+            enabled = true;
+        }
+
+        private void disable() {
+            enabled = false;
+        }
+
+        @Override
+        public boolean isExempt(UUID world, double x, double y, double z) {
+            return enabled && x >= minimumX;
+        }
+    }
+
+    private static final class HarnessController extends PacketEntityViewController<Void> {
         private final List<Integer> directlyShownEntityIDs = new ArrayList<>();
+        private final List<Integer> directlyHiddenEntityIDs = new ArrayList<>();
         private final List<int[]> replacementPassengerPackets = new ArrayList<>();
+        private int movementEntityID = -1;
+
+        private HarnessController(VisibilityExemptionPolicy visibilityExemptionPolicy) {
+            super(visibilityExemptionPolicy);
+        }
 
         @Override
         protected NettyEntity<?> createSelfEntity(PlayerData ownData, int entityID, UUID playerUUID) {
-            return TestEntity.createSelf(ownData, entityID, playerUUID);
+            return HarnessEntity.createSelf(ownData, entityID, playerUUID);
         }
 
         @Override
@@ -207,13 +428,19 @@ class PacketEntityViewControllerTest {
         }
 
         @Override
+        protected void processDirectEntityHide(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
+            directlyHiddenEntityIDs.add(entity.entityID());
+            entity.setClientVisible(false);
+        }
+
+        @Override
         protected void sendEntityPassengerPacket(int vehicle, IntArrayList passengers, PlayerData playerData) {
             replacementPassengerPackets.add(passengers.toIntArray());
         }
 
         @Override
         protected int processRelativeMovePacket(Void packet, PlayerData playerData, int currentTick) {
-            return -1;
+            return movementEntityID;
         }
 
         @Override
@@ -259,17 +486,17 @@ class PacketEntityViewControllerTest {
         protected void insertEntityToEntityView(NettyEntity<?> entity, PlayerData playerData, UUID world) {}
     }
 
-    private static final class TestEntity extends NettyEntity<Clearable> {
-        private TestEntity(PlayerData owningPlayer, int entityID, UUID entityUUID) {
+    private static final class HarnessEntity extends NettyEntity<Clearable> {
+        private HarnessEntity(PlayerData owningPlayer, int entityID, UUID entityUUID) {
             super(owningPlayer, entityID, entityUUID);
         }
 
-        private TestEntity(PlayerData owningPlayer, int entityID, UUID entityUUID, boolean visible) {
+        private HarnessEntity(PlayerData owningPlayer, int entityID, UUID entityUUID, boolean visible) {
             super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible);
         }
 
-        private static TestEntity createSelf(PlayerData owningPlayer, int entityID, UUID playerUUID) {
-            return new TestEntity(owningPlayer, entityID, playerUUID);
+        private static HarnessEntity createSelf(PlayerData owningPlayer, int entityID, UUID playerUUID) {
+            return new HarnessEntity(owningPlayer, entityID, playerUUID);
         }
     }
 }

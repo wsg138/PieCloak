@@ -83,7 +83,6 @@ checks:
             - minecraft:area_effect_cloud
             - minecraft:lingering_potion
             - minecraft:splash_potion
-            - minecraft:potion
             - minecraft:lightning_bolt
             - minecraft:ender_dragon
             - minecraft:wither
@@ -100,8 +99,11 @@ checks:
         raycast-radius: 48
         hide-on-spawn-distance: 0
         visible-recheck-interval-ticks: 20
+    # Upstream disabled this check by default because the current packet controllers do not
+    # implement the configured positional-sound occlusion policy yet. Keep the configuration
+    # present for compatibility, but do not imply protection which is not actually enforced.
     sound-effects:
-        enabled: true
+        enabled: false
         max-occluding-count: 3
         always-play-radius: 8
         raycast-radius: 48

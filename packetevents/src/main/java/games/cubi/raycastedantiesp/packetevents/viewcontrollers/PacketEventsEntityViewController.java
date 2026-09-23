@@ -33,6 +33,7 @@ import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
+import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
@@ -79,6 +80,13 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     }
 
     protected PacketEventsEntityViewController(IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter) {
+        this(currentTickSupplier, targetFilter, VisibilityExemptionPolicy.DISABLED);
+    }
+
+    protected PacketEventsEntityViewController(
+            IntSupplier currentTickSupplier, PacketEventsTargetFilter targetFilter,
+            VisibilityExemptionPolicy visibilityExemptionPolicy) {
+        super(visibilityExemptionPolicy);
         this.CURRENT_TICK_SUPPLIER = currentTickSupplier;
         this.targetFilter = targetFilter == null ? PacketEventsTargetFilter.DISABLED : targetFilter;
         COMMON = PacketEventsCommonViewController.get(currentTickSupplier);
@@ -109,8 +117,16 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         refreshVisibilityConfigs();
         int currentTick = CURRENT_TICK_SUPPLIER.getAsInt();
         processViewerPacket(event, viewer, playerData, currentTick);
-        schedulePendingTransitions(event, viewer, playerData, viewerUUID);
+        boolean withinBundle = updatePacketBundleState(event, playerData);
+        schedulePendingTransitions(event, viewer, playerData, viewerUUID, withinBundle);
         playerData.nettyData().evictPendingPostSpawnTasksIfRequired(currentTick);
+    }
+
+    private static boolean updatePacketBundleState(PacketSendEvent event, PlayerData playerData) {
+        if (event.getPacketType() == PacketType.Play.Server.BUNDLE) {
+            return playerData.nettyData().togglePacketBundleState();
+        }
+        return playerData.nettyData().packetsAreWithinBundle();
     }
 
     private PlayerData resolvePlayerData(PacketSendEvent event, UUID viewerUUID) {
@@ -157,17 +173,61 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             PacketSendEvent event,
             User viewer,
             PlayerData playerData,
-            UUID viewerUUID) {
-        if (!hasPendingTransitions(playerData, viewerUUID)) {
+            UUID viewerUUID,
+            boolean withinBundle) {
+        if (withinBundle || !hasPendingTransitions(playerData, viewerUUID)) {
             return;
         }
-        event.getTasksAfterSend().add(() -> processPendingEntityTransitions(playerData, viewer));
+        event.getTasksAfterSend().add(() -> {
+            processDeferredDirectVisibility(playerData);
+            processPendingEntityTransitions(playerData, viewer);
+        });
     }
 
     private boolean hasPendingTransitions(PlayerData playerData, UUID viewerUUID) {
-        return playerData.entityView().hasPendingTransitions()
+        return playerData.nettyData().hasDeferredDirectVisibilityEntities()
+                || playerData.entityView().hasPendingTransitions()
                 || playerData.playerView().hasPendingTransitions()
                 || transitionRetries.hasPending(viewerUUID);
+    }
+
+    private void processDeferredDirectVisibility(PlayerData playerData) {
+        int[] entityIDs = playerData.nettyData().drainDeferredDirectVisibilityEntityIDs();
+        if (entityIDs.length == 0) {
+            return;
+        }
+        int worldEpoch = playerData.acquireWorldEpoch();
+        for (int entityID : entityIDs) {
+            processDeferredDirectVisibilityEntity(playerData, entityID, worldEpoch);
+        }
+    }
+
+    private void processDeferredDirectVisibilityEntity(
+            PlayerData playerData, int entityID, int worldEpoch) {
+        EntityView<?> view = deferredDirectVisibilityView(playerData, entityID);
+        if (view == null) {
+            return;
+        }
+        NettyEntity<?> entity = (NettyEntity<?>) view.getEntity(entityID);
+        if (entity == null || entity.isSelfEntity()) {
+            return;
+        }
+        processDirectEntityVisibilityNow(
+                playerData,
+                view,
+                entity,
+                worldEpoch,
+                entity.visible() ? EntityViewTransition.Type.SHOW : EntityViewTransition.Type.HIDE);
+    }
+
+    private EntityView<?> deferredDirectVisibilityView(PlayerData playerData, int entityID) {
+        if (playerData.entityView().exists(entityID)) {
+            return playerData.entityView();
+        }
+        if (playerData.playerView().exists(entityID)) {
+            return playerData.playerView();
+        }
+        return null;
     }
 
     private void processPendingEntityTransitions(PlayerData data, User viewer) {
@@ -249,6 +309,13 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 if (handleEntitySpawn(packet, entityID, isPlayer, playerData, world, currentTick) == REQUIRE_EVENT_CANCELLATION)
                     event.setCancelled(true);
                 event.getTasksAfterSend().add(() -> replayTrackedEntityRelationships(viewer, playerData, entityID));
+            }
+            case PacketType.Play.Server.COLLECT_ITEM -> {
+                WrapperPlayServerCollectItem packet = new WrapperPlayServerCollectItem(event);
+                if (shouldSuppressCollectItem(
+                        playerData, packet.getCollectedEntityId(), packet.getCollectorEntityId())) {
+                    event.setCancelled(true);
+                }
             }
             case PacketType.Play.Server.ENTITY_ANIMATION -> {
                 WrapperPlayServerEntityAnimation packet = new WrapperPlayServerEntityAnimation(event);
@@ -377,11 +444,15 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         }
         boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
         boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
-        if (!isPlayer && managedByPieCloak && !excludedByUpstream) {
+        if (shouldManageSpawnTarget(isPlayer, managedByPieCloak, excludedByUpstream)) {
             return false;
         }
         EntityBypassRegistry.addEntity(entityID);
         return true;
+    }
+
+    static boolean shouldManageSpawnTarget(boolean isPlayer, boolean managedByPieCloak, boolean excludedByUpstream) {
+        return isPlayer || managedByPieCloak && !excludedByUpstream;
     }
 
     static boolean isBypassed(int entityID) {
@@ -402,13 +473,40 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     @Override
     protected void processDirectEntityShow(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
+        processDirectEntityVisibility(playerData, view, entity, worldEpoch, EntityViewTransition.Type.SHOW);
+    }
+
+    @Override
+    protected void processDirectEntityHide(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
+        processDirectEntityVisibility(playerData, view, entity, worldEpoch, EntityViewTransition.Type.HIDE);
+    }
+
+    private void processDirectEntityVisibility(
+            PlayerData playerData, EntityView<?> view, NettyEntity<?> entity,
+            int worldEpoch, EntityViewTransition.Type type) {
+        if (playerData.nettyData().packetsAreWithinBundle()) {
+            playerData.nettyData().deferDirectVisibilityEntity(entity.entityID());
+            return;
+        }
+        processDirectEntityVisibilityNow(playerData, view, entity, worldEpoch, type);
+    }
+
+    private void processDirectEntityVisibilityNow(
+            PlayerData playerData, EntityView<?> view, NettyEntity<?> entity,
+            int worldEpoch, EntityViewTransition.Type type) {
         Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
+        if (channel == null) {
+            return;
+        }
         User viewer = PacketEvents.getAPI().getProtocolManager().getUser(channel);
+        if (viewer == null) {
+            return;
+        }
         beginEntityTransition(
                 playerData,
                 viewer,
                 cast(view),
-                EntityViewTransition.Type.SHOW,
+                type,
                 entity,
                 worldEpoch,
                 CURRENT_TICK_SUPPLIER.getAsInt()
@@ -518,6 +616,29 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     protected void processTrackedMetadata(PacketWrapper<?> packet, NettyEntity<?> entity) {
         WrapperPlayServerEntityMetadata metadataPacket = (WrapperPlayServerEntityMetadata) packet;
         applyTrackedMetadata(entity, metadataPacket.getEntityMetadata());
+    }
+
+    static boolean shouldSuppressCollectItem(
+            PlayerData playerData, int collectedEntityID, int collectorEntityID) {
+        return isHiddenCollectItemReference(playerData, collectedEntityID)
+                || isHiddenCollectItemReference(playerData, collectorEntityID);
+    }
+
+    private static boolean isHiddenCollectItemReference(PlayerData playerData, int entityID) {
+        if (playerData.nettyData().isSelfEntityID(entityID)) {
+            return false;
+        }
+        NettyEntity<?> entity = null;
+        if (playerData.entityView().exists(entityID)) {
+            entity = (NettyEntity<?>) playerData.entityView().getEntity(entityID);
+        } else if (playerData.playerView().exists(entityID)) {
+            entity = (NettyEntity<?>) playerData.playerView().getEntity(entityID);
+        }
+        return shouldSuppressCollectItemReference(entity);
+    }
+
+    static boolean shouldSuppressCollectItemReference(NettyEntity<?> entity) {
+        return entity != null && (!entity.visible() || !entity.clientVisible());
     }
 
     static void applyTrackedMetadata(NettyEntity<?> entity, List<EntityData<?>> metadata) {

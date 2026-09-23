@@ -30,6 +30,42 @@ import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_VEHICLE;
  */
 public class NettyData implements Clearable {
     private static final int DEFAULT_MAP_SIZE = 16;
+    private static final int[] EMPTY_ENTITY_IDS = new int[0];
+
+    // Outbound bundle state is packet-thread-only. Visibility repair packets must not be injected
+    // between an unrelated bundle's opening and closing delimiters.
+    private boolean packetBundleOpen;
+    private IntOpenHashSet deferredDirectVisibilityEntityIDs;
+
+    public boolean packetsAreWithinBundle() {
+        return packetBundleOpen;
+    }
+
+    /** Toggles on each clientbound bundle delimiter and returns the state after the delimiter. */
+    public boolean togglePacketBundleState() {
+        packetBundleOpen = !packetBundleOpen;
+        return packetBundleOpen;
+    }
+
+    public void deferDirectVisibilityEntity(int entityID) {
+        if (deferredDirectVisibilityEntityIDs == null) {
+            deferredDirectVisibilityEntityIDs = new IntOpenHashSet(DEFAULT_MAP_SIZE);
+        }
+        deferredDirectVisibilityEntityIDs.add(entityID);
+    }
+
+    public boolean hasDeferredDirectVisibilityEntities() {
+        return deferredDirectVisibilityEntityIDs != null && !deferredDirectVisibilityEntityIDs.isEmpty();
+    }
+
+    public int[] drainDeferredDirectVisibilityEntityIDs() {
+        if (!hasDeferredDirectVisibilityEntities()) {
+            return EMPTY_ENTITY_IDS;
+        }
+        int[] entityIDs = deferredDirectVisibilityEntityIDs.toIntArray();
+        deferredDirectVisibilityEntityIDs.clear();
+        return entityIDs;
+    }
     //
     // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     // START Leash tracking:
@@ -379,6 +415,9 @@ public class NettyData implements Clearable {
         unresolvedVehicleIDsByPassengerID.clear();
         pendingPostEntitySpawnTasksByEntityID.clear();
         suppressedPostEntitySpawnTaskEntityIDs.clear();
+        if (deferredDirectVisibilityEntityIDs != null) {
+            deferredDirectVisibilityEntityIDs.clear();
+        }
         evictPendingPostSpawnTasksOnNextPacket = false;
     }
 
@@ -391,5 +430,6 @@ public class NettyData implements Clearable {
         }
         currentWorldMinHeight = Integer.MIN_VALUE;
         currentWorldName = null;
+        packetBundleOpen = false;
     }
 }

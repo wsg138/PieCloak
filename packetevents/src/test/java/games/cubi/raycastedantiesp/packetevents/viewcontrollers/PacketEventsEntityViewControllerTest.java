@@ -51,6 +51,15 @@ class PacketEventsEntityViewControllerTest {
     }
 
     @Test
+    void playerSpawnsRemainManagedOutsideEntityTargetFiltering() {
+        assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, false));
+        assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(true, false, true));
+        assertTrue(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, false));
+        assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, true, true));
+        assertFalse(PacketEventsEntityViewController.shouldManageSpawnTarget(false, false, false));
+    }
+
+    @Test
     void retainingSeenEntitySuppressesHideWithoutDestroying() {
         assertEquals(NONE, PacketEventsEntityViewController.resolveClientTransitionAction(
                 EntityViewTransition.Type.HIDE, true, true));
@@ -90,6 +99,23 @@ class PacketEventsEntityViewControllerTest {
                 EntityViewTransition.Type.SHOW, true));
         assertTrue(PacketEventsEntityViewController.transitionMatchesCurrentVisibility(
                 EntityViewTransition.Type.HIDE, false));
+    }
+
+    @Test
+    void collectItemSuppressesHiddenOrNotYetClientVisibleReferences() {
+        PacketEventsEntity entity = entity();
+        entity.setVisible(true);
+        entity.setClientVisible(true);
+        assertFalse(PacketEventsEntityViewController.shouldSuppressCollectItemReference(entity));
+
+        entity.setVisible(false);
+        assertTrue(PacketEventsEntityViewController.shouldSuppressCollectItemReference(entity));
+
+        entity.setVisible(true);
+        entity.setClientVisible(false);
+        assertTrue(PacketEventsEntityViewController.shouldSuppressCollectItemReference(entity));
+
+        assertFalse(PacketEventsEntityViewController.shouldSuppressCollectItemReference(null));
     }
 
     @Test
