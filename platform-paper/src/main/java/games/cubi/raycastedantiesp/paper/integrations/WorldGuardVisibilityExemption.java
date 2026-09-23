@@ -73,7 +73,6 @@ public final class WorldGuardVisibilityExemption implements PaperVisibilityExemp
         } catch (RuntimeException | Error throwable) {
             enabled.set(false);
             worlds.clear();
-            regionContainer = null;
             HandlerList.unregisterAll(this);
             throw throwable;
         }
