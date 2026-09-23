@@ -34,6 +34,12 @@ class EntityVisibilityPacketPolicyTest {
     }
 
     @Test
+    void explicitDamageSourcePositionMakesSourceEntityIdsClientIrrelevant() {
+        assertFalse(EntityVisibilityPacketPolicy.damageSourceUsesEntityReferences(true));
+        assertTrue(EntityVisibilityPacketPolicy.damageSourceUsesEntityReferences(false));
+    }
+
+    @Test
     void unresolvedRelationshipReferenceIsSuppressed() {
         assertTrue(EntityVisibilityPacketPolicy.shouldSuppressUnresolvedReference(false, false));
     }
