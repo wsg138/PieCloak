@@ -1,0 +1,163 @@
+name: PR15 corrected runtime gate
+
+on:
+  push:
+    branches: [validation/pr15-runtime-smoke]
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b3a745ce20f3efa2f4a6d957b8ff7ee8e1324d30
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build exact PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd leafpile/templates && javac --release 21 GenerateSources.java Preprocessor.java && java GenerateSources . ..)
+          ./gradlew :platform-paper:buildSnapshot --no-daemon
+      - name: Configure runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN="$GITHUB_WORKSPACE/platform-paper/run"
+          mkdir -p "$RUN/plugins"
+          curl --fail --location --retry 3 'https://github.com/retrooper/packetevents/releases/download/v2.12.0/packetevents-spigot-2.12.0.jar' -o "$RUN/plugins/packetevents-spigot-2.12.0.jar"
+          echo '24abbb7f7287c3659ffa4fa57611e6ceaf22edf90bef22cc184e1664c3f6b034  '"$RUN/plugins/packetevents-spigot-2.12.0.jar" | sha256sum --check --strict
+          cat > "$RUN/server.properties" <<'PROPS'
+          online-mode=false
+          enforce-secure-profile=false
+          enable-rcon=true
+          rcon.password=piecloak-smoke
+          rcon.port=25575
+          server-port=25565
+          view-distance=8
+          simulation-distance=8
+          spawn-protection=0
+          max-players=4
+          PROPS
+      - name: Start Paper
+        shell: bash
+        run: |
+          set -euo pipefail
+          (timeout 360s ./gradlew :platform-paper:runServer --no-daemon > "$RUNNER_TEMP/paper-console.log" 2>&1) &
+          echo $! > "$RUNNER_TEMP/paper.pid"
+          LOG="$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log"
+          for i in $(seq 1 120); do
+            if grep -Eq 'Done \([0-9.]+s\)!|Done \(' "$LOG" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          grep -Eq 'Done \([0-9.]+s\)!|Done \(' "$LOG"
+          grep -F 'Enabling packetevents v2.12.0' "$LOG"
+          grep -F 'Enabling PieCloak' "$LOG"
+      - name: Install client probe
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/probe" && cd "$RUNNER_TEMP/probe"
+          npm init -y >/dev/null
+          npm install --silent mineflayer@latest rcon-client@latest vec3@latest
+      - name: Validate managed hide/reveal cycles
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/probe/gate.js" <<'NODE'
+          const mineflayer = require('mineflayer')
+          const { Rcon } = require('rcon-client')
+          const { Vec3 } = require('vec3')
+          const { once } = require('events')
+          const sleep = ms => new Promise(r => setTimeout(r, ms))
+          const fail = m => { throw new Error(m) }
+          const entityAt = (bot, name, x, y, z) => Object.values(bot.entities).find(e => e.name === name && e.position && e.position.distanceTo(new Vec3(x,y,z)) <= 2.5)
+          const blockName = (bot,x,y,z) => bot.blockAt(new Vec3(x,y,z), false)?.name
+          async function cmd(rcon, text, mustNotContain) {
+            const out = await rcon.send(text)
+            console.log(`RCON ${text}:`, out)
+            if (mustNotContain && out.includes(mustNotContain)) fail(`${text} failed: ${out}`)
+            return out
+          }
+          const snapshot = bot => ({
+            bot: bot.entity.position,
+            wall: blockName(bot,10,201,0),
+            villager: Boolean(entityAt(bot,'villager',30,200,0)),
+            armorStand: Boolean(entityAt(bot,'armor_stand',28,200,1)),
+            campfire: blockName(bot,32,200,0)
+          })
+          function requireHidden(s,label) {
+            console.log(label,s)
+            if (s.villager || s.armorStand || s.campfire === 'campfire') fail(`${label}: managed target leaked`)
+          }
+          function requireShown(s,label) {
+            console.log(label,s)
+            if (!s.villager || !s.armorStand || s.campfire !== 'campfire') fail(`${label}: managed target failed to reveal`)
+          }
+          async function main() {
+            const rcon = await Rcon.connect({host:'127.0.0.1',port:25575,password:'piecloak-smoke'})
+            let bot
+            try {
+              bot = mineflayer.createBot({host:'127.0.0.1',port:25565,username:'PieCloakProbe',auth:'offline',hideErrors:false})
+              await Promise.race([once(bot,'spawn'),new Promise((_,rej)=>setTimeout(()=>rej(new Error('spawn timeout')),45000))])
+              await cmd(rcon,'gamemode creative PieCloakProbe')
+              await cmd(rcon,'forceload add -16 -16 48 16')
+              await sleep(1500)
+              await cmd(rcon,'fill -5 199 -5 40 199 5 minecraft:stone','not loaded')
+              await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:stone','not loaded')
+              await cmd(rcon,'setblock 32 200 0 minecraft:campfire','not loaded')
+              await cmd(rcon,'kill @e[type=minecraft:villager]')
+              await cmd(rcon,'kill @e[type=minecraft:armor_stand]')
+              await cmd(rcon,'summon minecraft:villager 30 200 0 {NoAI:1b,Invulnerable:1b,PersistenceRequired:1b}')
+              await cmd(rcon,'summon minecraft:armor_stand 28 200 1 {NoGravity:1b,Invulnerable:1b}')
+              await cmd(rcon,'tp PieCloakProbe 0 200 0')
+              await sleep(6000)
+              let s = snapshot(bot)
+              if (s.bot.y < 198) fail(`test floor failed; bot fell to ${s.bot.y}`)
+              if (s.wall !== 'stone') fail(`client did not receive occluding wall; got ${s.wall}`)
+              requireHidden(s,'occluded')
+              console.log(await rcon.send('raesp debugplayer PieCloakProbe'))
+
+              await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:air')
+              await sleep(6000)
+              s = snapshot(bot)
+              if (s.wall !== 'air') fail(`client did not receive wall removal; got ${s.wall}`)
+              requireShown(s,'revealed')
+              console.log(await rcon.send('raesp debugplayer PieCloakProbe'))
+
+              await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:stone')
+              await sleep(6000)
+              s = snapshot(bot)
+              if (s.wall !== 'stone') fail(`client did not receive wall restore; got ${s.wall}`)
+              requireHidden(s,'re-hidden')
+
+              await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:air')
+              await sleep(6000)
+              s = snapshot(bot)
+              requireShown(s,'re-revealed')
+              console.log('PR15_CORRECTED_RUNTIME_GATE=PASS')
+            } finally {
+              if (bot) bot.quit('done')
+              rcon.end()
+            }
+          }
+          main().catch(e => { console.error(e.stack || e); process.exit(1) })
+          NODE
+          cd "$RUNNER_TEMP/probe"
+          node gate.js
+      - name: Dump logs on failure
+        if: failure()
+        run: cat "$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log" || true
+      - name: Stop Paper
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/paper.pid")" 2>/dev/null || true
