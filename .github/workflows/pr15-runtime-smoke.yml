@@ -41,17 +41,19 @@ jobs:
           java GenerateSources . ..
 
       - name: Build exact PieCloak snapshot
-        run: ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
+        run: ./gradlew :platform-paper:buildSnapshot --no-daemon
 
-      - name: Prepare Paper runtime
+      - name: Prepare Paper runtime with official PacketEvents 2.12.0
         shell: bash
         run: |
           set -euo pipefail
           RUN_DIR="$GITHUB_WORKSPACE/platform-paper/run"
           mkdir -p "$RUN_DIR/plugins"
-          PACKETEVENTS_JAR="$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.github.retrooper/packetevents-spigot/2.12.0" -name 'packetevents-spigot-2.12.0.jar' -type f | head -n 1)"
-          test -n "$PACKETEVENTS_JAR"
-          cp "$PACKETEVENTS_JAR" "$RUN_DIR/plugins/packetevents-spigot-2.12.0.jar"
+          PE_JAR="$RUN_DIR/plugins/packetevents-spigot-2.12.0.jar"
+          curl --fail --location --retry 3 \
+            'https://github.com/retrooper/packetevents/releases/download/v2.12.0/packetevents-spigot-2.12.0.jar' \
+            --output "$PE_JAR"
+          echo '24abbb7f7287c3659ffa4fa57611e6ceaf22edf90bef22cc184e1664c3f6b034  '"$PE_JAR" | sha256sum --check --strict
           cat > "$RUN_DIR/server.properties" <<'PROPS'
           online-mode=false
           enforce-secure-profile=false
@@ -66,28 +68,25 @@ jobs:
           motd=PieCloak PR15 runtime smoke
           PROPS
 
-      - name: Start Paper and wait for readiness
+      - name: Start Paper and require PieCloak + PacketEvents to enable cleanly
         shell: bash
         run: |
           set -euo pipefail
           (timeout 360s ./gradlew :platform-paper:runServer --no-daemon > "$RUNNER_TEMP/paper-console.log" 2>&1) &
           echo $! > "$RUNNER_TEMP/paper.pid"
           for i in $(seq 1 120); do
-            if grep -Eq 'Done \([0-9.]+s\)!|Done \(' "$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log" 2>/dev/null; then
-              break
-            fi
+            LOG="$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log"
+            if grep -Eq 'Done \([0-9.]+s\)!|Done \(' "$LOG" 2>/dev/null; then break; fi
             if ! kill -0 "$(cat "$RUNNER_TEMP/paper.pid")" 2>/dev/null; then
-              echo 'Paper process exited before readiness'
-              cat "$RUNNER_TEMP/paper-console.log" || true
-              cat "$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log" || true
-              exit 1
+              echo 'Paper exited before readiness'; cat "$RUNNER_TEMP/paper-console.log" || true; cat "$LOG" || true; exit 1
             fi
             sleep 2
           done
-          grep -Eq 'Done \([0-9.]+s\)!|Done \(' "$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log"
-          grep -F 'PieCloak' "$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log" || true
-          grep -F 'PacketEvents' "$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log" || true
-          if grep -Ei 'Could not load.*PieCloak|Error occurred while enabling.*PieCloak|Exception.*PieCloak' "$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log"; then
+          LOG="$GITHUB_WORKSPACE/platform-paper/run/logs/latest.log"
+          grep -Eq 'Done \([0-9.]+s\)!|Done \(' "$LOG"
+          grep -F 'Enabling packetevents v2.12.0' "$LOG"
+          grep -F 'Enabling PieCloak' "$LOG"
+          if grep -Ei 'Error occurred while (loading|enabling).*PieCloak|Error occurred while (loading|enabling).*packetevents|NoClassDefFoundError|ClassNotFoundException' "$LOG"; then
             exit 1
           fi
 
@@ -121,13 +120,35 @@ jobs:
             return block ? block.name : null
           }
 
+          async function snapshot(bot) {
+            return {
+              villager: Boolean(entityAt(bot, 'villager', 30, 200, 0)),
+              armorStand: Boolean(entityAt(bot, 'armor_stand', 28, 200, 1)),
+              campfire: blockName(bot, 32, 200, 0)
+            }
+          }
+
+          function requireHidden(state, label) {
+            console.log(label, state)
+            if (state.villager) fail(`${label}: managed villager is visible`)
+            if (state.armorStand) fail(`${label}: managed armor stand is visible`)
+            if (state.campfire === 'campfire') fail(`${label}: managed campfire is visible`)
+          }
+
+          function requireShown(state, label) {
+            console.log(label, state)
+            if (!state.villager) fail(`${label}: managed villager is missing`)
+            if (!state.armorStand) fail(`${label}: managed armor stand is missing`)
+            if (state.campfire !== 'campfire') fail(`${label}: expected campfire, got ${state.campfire}`)
+          }
+
           async function main() {
             const rcon = await Rcon.connect({ host: '127.0.0.1', port: 25575, password: 'piecloak-smoke' })
             let bot
             try {
               const plugins = await rcon.send('plugins')
               console.log('plugins:', plugins)
-              if (!/PieCloak|RaycastedAntiESP/i.test(plugins)) fail('PieCloak/RaycastedAntiESP is not enabled')
+              if (!/PieCloak|RaycastedAntiESP/i.test(plugins)) fail('PieCloak is not enabled')
               if (!/PacketEvents/i.test(plugins)) fail('PacketEvents is not enabled')
 
               await rcon.send('kill @e[type=minecraft:villager]')
@@ -138,80 +159,27 @@ jobs:
               await rcon.send('summon minecraft:armor_stand 28 200 1 {NoGravity:1b,Invulnerable:1b}')
               await rcon.send('setblock 32 200 0 minecraft:campfire')
 
-              bot = mineflayer.createBot({
-                host: '127.0.0.1',
-                port: 25565,
-                username: 'PieCloakProbe',
-                auth: 'offline',
-                hideErrors: false
-              })
+              bot = mineflayer.createBot({ host: '127.0.0.1', port: 25565, username: 'PieCloakProbe', auth: 'offline', hideErrors: false })
               bot.on('error', error => console.error('bot error:', error))
               bot.on('kicked', reason => console.error('bot kicked:', reason))
               await Promise.race([
                 once(bot, 'spawn'),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('bot spawn timeout')), 45000))
               ])
-
               await rcon.send('gamemode creative PieCloakProbe')
               await rcon.send('tp PieCloakProbe 0 200 0')
               await sleep(5000)
 
-              const hiddenVillager = entityAt(bot, 'villager', 30, 200, 0)
-              const hiddenArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
-              const hiddenBlock = blockName(bot, 32, 200, 0)
-              console.log('occluded state:', {
-                villagerVisible: Boolean(hiddenVillager),
-                armorStandVisible: Boolean(hiddenArmorStand),
-                block: hiddenBlock
-              })
-              if (hiddenVillager) fail('managed villager leaked through occluding wall')
-              if (hiddenArmorStand) fail('managed armor stand leaked through occluding wall')
-              if (hiddenBlock === 'campfire') fail('managed campfire leaked through occluding wall')
-
+              requireHidden(await snapshot(bot), 'occluded')
               await rcon.send('fill 10 200 -3 13 205 3 minecraft:air')
               await sleep(5000)
-
-              const shownVillager = entityAt(bot, 'villager', 30, 200, 0)
-              const shownArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
-              const shownBlock = blockName(bot, 32, 200, 0)
-              console.log('revealed state:', {
-                villagerVisible: Boolean(shownVillager),
-                armorStandVisible: Boolean(shownArmorStand),
-                block: shownBlock
-              })
-              if (!shownVillager) fail('managed villager did not reveal after line of sight opened')
-              if (!shownArmorStand) fail('managed armor stand did not reveal after line of sight opened')
-              if (shownBlock !== 'campfire') fail(`managed campfire did not reveal; client sees ${shownBlock}`)
-
+              requireShown(await snapshot(bot), 'revealed')
               await rcon.send('fill 10 200 -3 13 205 3 minecraft:stone')
               await sleep(5000)
-
-              const rehiddenVillager = entityAt(bot, 'villager', 30, 200, 0)
-              const rehiddenArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
-              const rehiddenBlock = blockName(bot, 32, 200, 0)
-              console.log('re-hidden state:', {
-                villagerVisible: Boolean(rehiddenVillager),
-                armorStandVisible: Boolean(rehiddenArmorStand),
-                block: rehiddenBlock
-              })
-              if (rehiddenVillager) fail('managed villager did not hide after occlusion returned')
-              if (rehiddenArmorStand) fail('managed armor stand did not hide after occlusion returned')
-              if (rehiddenBlock === 'campfire') fail('managed campfire did not hide after occlusion returned')
-
+              requireHidden(await snapshot(bot), 're-hidden')
               await rcon.send('fill 10 200 -3 13 205 3 minecraft:air')
               await sleep(5000)
-
-              const reshownVillager = entityAt(bot, 'villager', 30, 200, 0)
-              const reshownArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
-              const reshownBlock = blockName(bot, 32, 200, 0)
-              console.log('re-revealed state:', {
-                villagerVisible: Boolean(reshownVillager),
-                armorStandVisible: Boolean(reshownArmorStand),
-                block: reshownBlock
-              })
-              if (!reshownVillager || !reshownArmorStand || reshownBlock !== 'campfire') {
-                fail('managed targets failed the second reveal cycle')
-              }
+              requireShown(await snapshot(bot), 're-revealed')
 
               console.log('PR15_MANAGED_VISIBILITY_RUNTIME_SMOKE=PASS')
             } finally {
@@ -220,10 +188,7 @@ jobs:
             }
           }
 
-          main().catch(error => {
-            console.error(error.stack || error)
-            process.exit(1)
-          })
+          main().catch(error => { console.error(error.stack || error); process.exit(1) })
           NODE
           cd "$RUNNER_TEMP/probe"
           node probe.js
