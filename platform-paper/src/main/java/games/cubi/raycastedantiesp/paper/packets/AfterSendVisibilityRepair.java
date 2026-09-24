@@ -16,6 +16,11 @@ final class AfterSendVisibilityRepair {
     private AfterSendVisibilityRepair() {
     }
 
+    static void discardNewTasks(List<Runnable> tasks, int firstNewTask) {
+        Objects.requireNonNull(tasks, "tasks");
+        tasks.subList(firstNewTask, tasks.size()).clear();
+    }
+
     static void wrapNewTasks(
             List<Runnable> tasks,
             int firstNewTask,
