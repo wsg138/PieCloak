@@ -1,13 +1,14 @@
 package games.cubi.raycastedantiesp.core.engine;
 
+import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
-import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
+import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,7 +17,6 @@ import org.spongepowered.configurate.BasicConfigurationNode;
 import org.spongepowered.configurate.ConfigurationNode;
 import org.spongepowered.configurate.serialize.SerializationException;
 
-import java.lang.reflect.Proxy;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -27,11 +27,17 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ManagedEntityRevealRegressionTest {
+    private static final BlockInfoResolver EMPTY_RESOLVER = new BlockInfoResolver() {
+        @Override public boolean isOccluding(int blockStateID) { return false; }
+        @Override public boolean isTileEntity(int blockStateID) { return false; }
+        @Override public boolean hasBlockEntityData(int blockStateID) { return false; }
+    };
+
     @BeforeEach
     void initialiseViews() {
         ViewRegistry.reset();
         ViewRegistry.initialise(
-                ignored -> emptyBlockView(),
+                epochSupplier -> new PacketEventsBlockView(EMPTY_RESOLVER, true, epochSupplier),
                 PacketEventsEntityView::createEntityView,
                 PacketEventsEntityView::createPlayerView
         );
@@ -137,33 +143,5 @@ class ManagedEntityRevealRegressionTest {
         node.node("visible-recheck-interval-ticks").set(10);
         node.node("keep-client-entity-when-hidden").set(false);
         return EntityConfig.load(node, "checks.entity");
-    }
-
-    private static BlockView emptyBlockView() {
-        return (BlockView) Proxy.newProxyInstance(
-                Thread.currentThread().getContextClassLoader(),
-                new Class[]{BlockView.class},
-                (proxy, method, args) -> {
-                    if ("isBlockOccluding".equals(method.getName())) {
-                        return false;
-                    }
-                    return defaultValue(method.getReturnType());
-                }
-        );
-    }
-
-    private static Object defaultValue(Class<?> returnType) {
-        if (!returnType.isPrimitive()) {
-            return null;
-        }
-        if (returnType == boolean.class) return false;
-        if (returnType == byte.class) return (byte) 0;
-        if (returnType == short.class) return (short) 0;
-        if (returnType == int.class) return 0;
-        if (returnType == long.class) return 0L;
-        if (returnType == float.class) return 0F;
-        if (returnType == double.class) return 0D;
-        if (returnType == char.class) return (char) 0;
-        return null;
     }
 }
