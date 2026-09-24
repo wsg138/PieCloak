@@ -19,6 +19,7 @@ jobs:
         with:
           ref: b3a745ce20f3efa2f4a6d957b8ff7ee8e1324d30
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -31,8 +32,16 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Generate LeafPile sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+
       - name: Build exact PieCloak snapshot
-        run: ./gradlew :platform-paper:buildSnapshot --no-daemon
+        run: ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
 
       - name: Prepare Paper runtime
         shell: bash
@@ -105,18 +114,16 @@ jobs:
           const fail = message => { throw new Error(message) }
           const near = (entity, x, y, z, radius = 2.5) =>
             entity && entity.position && entity.position.distanceTo(new Vec3(x, y, z)) <= radius
-
-          async function entityAt(bot, name, x, y, z) {
-            return Object.values(bot.entities).find(entity => entity.name === name && near(entity, x, y, z))
-          }
-
-          async function blockName(bot, x, y, z) {
+          const entityAt = (bot, name, x, y, z) =>
+            Object.values(bot.entities).find(entity => entity.name === name && near(entity, x, y, z))
+          const blockName = (bot, x, y, z) => {
             const block = bot.blockAt(new Vec3(x, y, z), false)
             return block ? block.name : null
           }
 
           async function main() {
             const rcon = await Rcon.connect({ host: '127.0.0.1', port: 25575, password: 'piecloak-smoke' })
+            let bot
             try {
               const plugins = await rcon.send('plugins')
               console.log('plugins:', plugins)
@@ -131,7 +138,7 @@ jobs:
               await rcon.send('summon minecraft:armor_stand 28 200 1 {NoGravity:1b,Invulnerable:1b}')
               await rcon.send('setblock 32 200 0 minecraft:campfire')
 
-              const bot = mineflayer.createBot({
+              bot = mineflayer.createBot({
                 host: '127.0.0.1',
                 port: 25565,
                 username: 'PieCloakProbe',
@@ -149,9 +156,9 @@ jobs:
               await rcon.send('tp PieCloakProbe 0 200 0')
               await sleep(5000)
 
-              const hiddenVillager = await entityAt(bot, 'villager', 30, 200, 0)
-              const hiddenArmorStand = await entityAt(bot, 'armor_stand', 28, 200, 1)
-              const hiddenBlock = await blockName(bot, 32, 200, 0)
+              const hiddenVillager = entityAt(bot, 'villager', 30, 200, 0)
+              const hiddenArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
+              const hiddenBlock = blockName(bot, 32, 200, 0)
               console.log('occluded state:', {
                 villagerVisible: Boolean(hiddenVillager),
                 armorStandVisible: Boolean(hiddenArmorStand),
@@ -164,9 +171,9 @@ jobs:
               await rcon.send('fill 10 200 -3 13 205 3 minecraft:air')
               await sleep(5000)
 
-              const shownVillager = await entityAt(bot, 'villager', 30, 200, 0)
-              const shownArmorStand = await entityAt(bot, 'armor_stand', 28, 200, 1)
-              const shownBlock = await blockName(bot, 32, 200, 0)
+              const shownVillager = entityAt(bot, 'villager', 30, 200, 0)
+              const shownArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
+              const shownBlock = blockName(bot, 32, 200, 0)
               console.log('revealed state:', {
                 villagerVisible: Boolean(shownVillager),
                 armorStandVisible: Boolean(shownArmorStand),
@@ -179,9 +186,9 @@ jobs:
               await rcon.send('fill 10 200 -3 13 205 3 minecraft:stone')
               await sleep(5000)
 
-              const rehiddenVillager = await entityAt(bot, 'villager', 30, 200, 0)
-              const rehiddenArmorStand = await entityAt(bot, 'armor_stand', 28, 200, 1)
-              const rehiddenBlock = await blockName(bot, 32, 200, 0)
+              const rehiddenVillager = entityAt(bot, 'villager', 30, 200, 0)
+              const rehiddenArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
+              const rehiddenBlock = blockName(bot, 32, 200, 0)
               console.log('re-hidden state:', {
                 villagerVisible: Boolean(rehiddenVillager),
                 armorStandVisible: Boolean(rehiddenArmorStand),
@@ -194,9 +201,9 @@ jobs:
               await rcon.send('fill 10 200 -3 13 205 3 minecraft:air')
               await sleep(5000)
 
-              const reshownVillager = await entityAt(bot, 'villager', 30, 200, 0)
-              const reshownArmorStand = await entityAt(bot, 'armor_stand', 28, 200, 1)
-              const reshownBlock = await blockName(bot, 32, 200, 0)
+              const reshownVillager = entityAt(bot, 'villager', 30, 200, 0)
+              const reshownArmorStand = entityAt(bot, 'armor_stand', 28, 200, 1)
+              const reshownBlock = blockName(bot, 32, 200, 0)
               console.log('re-revealed state:', {
                 villagerVisible: Boolean(reshownVillager),
                 armorStandVisible: Boolean(reshownArmorStand),
@@ -206,10 +213,9 @@ jobs:
                 fail('managed targets failed the second reveal cycle')
               }
 
-              bot.quit('runtime smoke complete')
-              await sleep(1000)
               console.log('PR15_MANAGED_VISIBILITY_RUNTIME_SMOKE=PASS')
             } finally {
+              if (bot) bot.quit('runtime smoke complete')
               rcon.end()
             }
           }
