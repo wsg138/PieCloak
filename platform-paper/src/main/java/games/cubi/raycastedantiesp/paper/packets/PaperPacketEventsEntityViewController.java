@@ -74,6 +74,7 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
                 ? null
                 : PlayerRegistry.getInstance().getPlayerData(playerUUID);
         if (playerData == null) {
+            AfterSendVisibilityRepair.discardNewTasks(afterSendTasks, firstControllerTask);
             return;
         }
         suppressHiddenEntitySound(event, playerData);
