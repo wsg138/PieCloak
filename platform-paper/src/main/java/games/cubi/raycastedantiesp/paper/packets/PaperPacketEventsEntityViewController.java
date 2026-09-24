@@ -20,7 +20,6 @@ import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
-import games.cubi.raycastedantiesp.core.players.WorldEpochGuard;
 import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
@@ -75,18 +74,17 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
                 ? null
                 : PlayerRegistry.getInstance().getPlayerData(playerUUID);
         if (playerData == null) {
+            AfterSendVisibilityRepair.discardNewTasks(afterSendTasks, firstControllerTask);
             return;
         }
         suppressHiddenEntitySound(event, playerData);
         suppressHiddenDamageEvent(event, playerData);
-        int worldEpoch = playerData.acquireWorldEpoch();
-        for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
-            afterSendTasks.set(index, WorldEpochGuard.fence(
-                    playerData,
-                    worldEpoch,
-                    afterSendTasks.get(index)
-            ));
-        }
+        AfterSendVisibilityRepair.wrapNewTasks(
+                afterSendTasks,
+                firstControllerTask,
+                playerData,
+                playerData.acquireWorldEpoch(),
+                event.getUser()::flushPackets);
     }
 
     private void suppressHiddenEntitySound(PacketSendEvent event, PlayerData playerData) {

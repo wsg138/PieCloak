@@ -32,6 +32,12 @@ public final class RaycastUtil {
         return raycast(start, end, settings, 0f);
     }
 
+    /**
+     * Raycasts to a non-block target with an optional vertical aim offset. BlockSpatial targets are
+     * always aimed at their block centre; an entity-style Y offset must never move a block target.
+     * Keeping that invariant here prevents call-site argument migrations from silently shifting
+     * block-entity visibility rays above or below the actual block.
+     */
     public static boolean raycast(Locatable start, Spatial end, Settings settings, float yOffsetEnd) {
         RayGeometry geometry = RayGeometry.between(start, end, yOffsetEnd);
         if (geometry.distance() <= settings.alwaysShowRadius()) {
@@ -85,9 +91,11 @@ public final class RaycastUtil {
             double deltaZ,
             double distance) {
         private static RayGeometry between(Locatable start, Spatial end, float yOffsetEnd) {
-            double endOffset = end instanceof BlockSpatial ? 0.5 : 0.0;
+            boolean blockTarget = end instanceof BlockSpatial;
+            double endOffset = blockTarget ? 0.5 : 0.0;
+            double effectiveYOffset = blockTarget ? 0.0 : yOffsetEnd;
             double endX = end.x() + endOffset;
-            double endY = end.y() + endOffset + yOffsetEnd;
+            double endY = end.y() + endOffset + effectiveYOffset;
             double endZ = end.z() + endOffset;
             double deltaX = endX - start.x();
             double deltaY = endY - start.y();

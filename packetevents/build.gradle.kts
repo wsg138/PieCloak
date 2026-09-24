@@ -28,6 +28,7 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(project(":leafpile"))
     testImplementation("com.github.retrooper:packetevents-api:2.12.0")
+    testImplementation("org.spongepowered:configurate-core:4.2.0")
     testImplementation("net.kyori:adventure-api:4.25.0")
 }
 

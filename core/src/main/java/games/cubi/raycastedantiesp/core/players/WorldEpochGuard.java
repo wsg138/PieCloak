@@ -10,7 +10,9 @@ public final class WorldEpochGuard {
         Objects.requireNonNull(playerData, "playerData");
         Objects.requireNonNull(task, "task");
         return () -> {
-            if (playerData.isConnected() && playerData.acquireWorldEpoch() == expectedWorldEpoch) {
+            if (playerData.isConnected()
+                    && PlayerData.isStableWorldEpoch(expectedWorldEpoch)
+                    && playerData.acquireWorldEpoch() == expectedWorldEpoch) {
                 task.run();
             }
         };
