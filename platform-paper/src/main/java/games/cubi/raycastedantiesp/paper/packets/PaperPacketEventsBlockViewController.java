@@ -65,6 +65,7 @@ public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewC
                 ? null
                 : PlayerRegistry.getInstance().getPlayerData(playerUUID);
         if (playerData == null) {
+            AfterSendVisibilityRepair.discardNewTasks(afterSendTasks, firstControllerTask);
             return;
         }
         AfterSendVisibilityRepair.wrapNewTasks(
