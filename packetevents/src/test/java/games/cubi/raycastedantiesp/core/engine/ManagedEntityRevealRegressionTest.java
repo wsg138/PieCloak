@@ -75,7 +75,7 @@ class ManagedEntityRevealRegressionTest {
         AtomicInteger transitionEpoch = new AtomicInteger();
         entityView.drainTransitions((type, entity, epoch) -> {
             transitionType.set(type);
-            transitionedEntity.set(entity);
+            transitionedEntity.set((PacketEventsEntity) entity);
             transitionEpoch.set(epoch);
         });
 
