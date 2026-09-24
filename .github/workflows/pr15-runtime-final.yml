@@ -70,7 +70,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/probe" && cd "$RUNNER_TEMP/probe"
           npm init -y >/dev/null
           npm install --silent mineflayer@latest rcon-client@latest vec3@latest
-      - name: Validate managed hide/reveal cycles
+      - name: Validate managed hide/reveal cycles and existing-target join
         shell: bash
         run: |
           set -euo pipefail
@@ -104,15 +104,28 @@ jobs:
             console.log(label,s)
             if (!s.villager || !s.armorStand || s.campfire !== 'campfire') fail(`${label}: managed target failed to reveal`)
           }
+          async function joinBot(username) {
+            const bot = mineflayer.createBot({host:'127.0.0.1',port:25565,username,auth:'offline',hideErrors:false})
+            await Promise.race([once(bot,'spawn'),new Promise((_,rej)=>setTimeout(()=>rej(new Error(`${username} spawn timeout`)),45000))])
+            return bot
+          }
+          async function prepareViewer(rcon, bot, username, x=0, z=0) {
+            await cmd(rcon,`gamemode creative ${username}`)
+            await cmd(rcon,`tp ${username} ${x} 200 ${z}`)
+            await sleep(6000)
+            const s = snapshot(bot)
+            if (s.bot.y < 198) fail(`${username}: test floor failed; bot fell to ${s.bot.y}`)
+            return s
+          }
           async function main() {
-            const rcon = await Rcon.connect({host:'127.0.0.1',port:25575,password:'piecloak-smoke'})
-            let bot
+            const rcon = await Rcon.connect({host:'127.0.0.1',port:25575,password:'piecloak-smoke',timeout:30000})
+            let bot1
+            let bot2
             try {
-              bot = mineflayer.createBot({host:'127.0.0.1',port:25565,username:'PieCloakProbe',auth:'offline',hideErrors:false})
-              await Promise.race([once(bot,'spawn'),new Promise((_,rej)=>setTimeout(()=>rej(new Error('spawn timeout')),45000))])
+              bot1 = await joinBot('PieCloakProbe')
               await cmd(rcon,'gamemode creative PieCloakProbe')
               await cmd(rcon,'forceload add -16 -16 48 16')
-              await sleep(1500)
+              await sleep(2000)
               await cmd(rcon,'fill -5 199 -5 40 199 5 minecraft:stone','not loaded')
               await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:stone','not loaded')
               await cmd(rcon,'setblock 32 200 0 minecraft:campfire','not loaded')
@@ -122,32 +135,58 @@ jobs:
               await cmd(rcon,'summon minecraft:armor_stand 28 200 1 {NoGravity:1b,Invulnerable:1b}')
               await cmd(rcon,'tp PieCloakProbe 0 200 0')
               await sleep(6000)
-              let s = snapshot(bot)
+
+              let s = snapshot(bot1)
               if (s.bot.y < 198) fail(`test floor failed; bot fell to ${s.bot.y}`)
               if (s.wall !== 'stone') fail(`client did not receive occluding wall; got ${s.wall}`)
-              requireHidden(s,'occluded')
+              requireHidden(s,'viewer1 occluded')
               console.log(await rcon.send('raesp debugplayer PieCloakProbe'))
 
               await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:air')
               await sleep(6000)
-              s = snapshot(bot)
+              s = snapshot(bot1)
               if (s.wall !== 'air') fail(`client did not receive wall removal; got ${s.wall}`)
-              requireShown(s,'revealed')
+              requireShown(s,'viewer1 revealed')
               console.log(await rcon.send('raesp debugplayer PieCloakProbe'))
 
               await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:stone')
               await sleep(6000)
-              s = snapshot(bot)
+              s = snapshot(bot1)
               if (s.wall !== 'stone') fail(`client did not receive wall restore; got ${s.wall}`)
-              requireHidden(s,'re-hidden')
+              requireHidden(s,'viewer1 re-hidden')
 
               await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:air')
               await sleep(6000)
-              s = snapshot(bot)
-              requireShown(s,'re-revealed')
+              s = snapshot(bot1)
+              requireShown(s,'viewer1 re-revealed')
+
+              // Existing-target join path: targets now predate viewer2's connection.
+              await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:stone')
+              await sleep(2000)
+              bot2 = await joinBot('PieCloakProbe2')
+              s = await prepareViewer(rcon, bot2, 'PieCloakProbe2', 0, 2)
+              if (s.wall !== 'stone') fail(`viewer2 did not receive occluding wall; got ${s.wall}`)
+              requireHidden(s,'viewer2 existing-target occluded')
+              console.log(await rcon.send('raesp debugplayer PieCloakProbe2'))
+
+              await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:air')
+              await sleep(6000)
+              s = snapshot(bot2)
+              if (s.wall !== 'air') fail(`viewer2 did not receive wall removal; got ${s.wall}`)
+              requireShown(s,'viewer2 existing-target revealed')
+              console.log(await rcon.send('raesp debugplayer PieCloakProbe2'))
+
+              // Always-show radius must reveal regardless of voxel ray traversal.
+              await cmd(rcon,'fill 10 200 -3 13 205 3 minecraft:stone')
+              await cmd(rcon,'tp PieCloakProbe2 20 200 0')
+              await sleep(6000)
+              s = snapshot(bot2)
+              requireShown(s,'viewer2 always-show-radius')
+
               console.log('PR15_CORRECTED_RUNTIME_GATE=PASS')
             } finally {
-              if (bot) bot.quit('done')
+              if (bot2) bot2.quit('done')
+              if (bot1) bot1.quit('done')
               rcon.end()
             }
           }
