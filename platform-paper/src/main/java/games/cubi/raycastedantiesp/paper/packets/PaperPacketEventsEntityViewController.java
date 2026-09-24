@@ -20,7 +20,6 @@ import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
-import games.cubi.raycastedantiesp.core.players.WorldEpochGuard;
 import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
@@ -81,10 +80,11 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         suppressHiddenDamageEvent(event, playerData);
         int worldEpoch = playerData.acquireWorldEpoch();
         for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
-            afterSendTasks.set(index, WorldEpochGuard.fence(
+            afterSendTasks.set(index, AfterSendVisibilityRepair.fenceAndFlush(
                     playerData,
                     worldEpoch,
-                    afterSendTasks.get(index)
+                    afterSendTasks.get(index),
+                    event.getUser()::flushPackets
             ));
         }
     }
