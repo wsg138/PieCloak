@@ -225,7 +225,7 @@ public abstract class AsyncEngine implements Engine {
             int startTick,
             int threads,
             long startNanos,
-            TickTimingStats tickTimingStats) {
+            TimingStats tickTimingStats) {
         int tickAlreadyRunning = runningTick.get();
         if (scheduledTick != tickAlreadyRunning) {
             return false;
@@ -245,7 +245,7 @@ public abstract class AsyncEngine implements Engine {
             int threads,
             long scheduledNanos,
             long startNanos,
-            TickTimingStats tickTimingStats) {
+            TimingStats tickTimingStats) {
         if (tickWorkActive.compareAndSet(false, true)) {
             return true;
         }
@@ -267,7 +267,7 @@ public abstract class AsyncEngine implements Engine {
             long startNanos,
             int threads,
             DebugConfig debugConfig,
-            TickTimingStats tickTimingStats) {
+            TimingStats tickTimingStats) {
         boolean claimedRunningTick = false;
         try {
             tickNanos.set(startNanos);
@@ -295,8 +295,8 @@ public abstract class AsyncEngine implements Engine {
             long startNanos,
             int threads,
             int playerCount,
-            TickTimingStats tickTimingStats) {
-        if (tickTimingStats == TickTimingStatsNoOp.INSTANCE) {
+            TimingStats tickTimingStats) {
+        if (tickTimingStats == TimingStatsNoOp.INSTANCE) {
             return null;
         }
         return new TickTimings(
@@ -325,7 +325,7 @@ public abstract class AsyncEngine implements Engine {
             DebugConfig debugConfig,
             int currentTick,
             TickTimings timings,
-            TickTimingStats tickTimingStats) {
+            TimingStats tickTimingStats) {
         EntityConfig entityConfig = config.getEntityConfig();
         PlayerConfig playerConfig = config.getPlayerConfig();
         TileEntityConfig tileEntityConfig = config.getTileEntityConfig();
@@ -354,7 +354,7 @@ public abstract class AsyncEngine implements Engine {
     }
 
     private void recoverFailedTickSetup(
-            int currentTick, boolean claimedRunningTick, TickTimingStats tickTimingStats) {
+            int currentTick, boolean claimedRunningTick, TimingStats tickTimingStats) {
         if (claimedRunningTick) {
             completeTick(currentTick, null, tickTimingStats);
             return;
@@ -382,7 +382,7 @@ public abstract class AsyncEngine implements Engine {
         }
     }
 
-    private void completeTick(int currentTick, TickTimings timings, TickTimingStats timingStats) {
+    private void completeTick(int currentTick, TickTimings timings, TimingStats timingStats) {
         try {
             long completionNanos = System.nanoTime();
             if (timings != null) {
@@ -590,7 +590,7 @@ public abstract class AsyncEngine implements Engine {
                 return BlockView.VisibilityResolver.HIDE;
             }
             timings.incrementTileRaycasts();
-            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, raycastSettings);
+            boolean canSee = RaycastUtil.raycast(playerLocation, tileEntityLocation, raycastSettings, 1);
             return canSee ? BlockView.VisibilityResolver.SHOW : BlockView.VisibilityResolver.HIDE;
         });
         timings.addTileChecked(checked);
@@ -612,10 +612,10 @@ public abstract class AsyncEngine implements Engine {
     /**
      * Selects the timing sink from the current debug config.
      *
-     * @return a collecting {@link TickTimingStats} while timing diagnostics are enabled, otherwise the
+     * @return a collecting {@link TimingStats} while timing diagnostics are enabled, otherwise the
      * no-op singleton.
      */
-    private TickTimingStats timingStats() {
+    private TimingStats timingStats() {
         return timingStats(config.getDebugConfig());
     }
 
@@ -625,7 +625,7 @@ public abstract class AsyncEngine implements Engine {
      *
      * @return the timing sink that should be used for a newly starting tick or skip record.
      */
-    private TickTimingStats timingStats(DebugConfig debugConfig) {
+    private TimingStats timingStats(DebugConfig debugConfig) {
         return timingStatsSelector.select(debugConfig.recordTimings());
     }
 }
