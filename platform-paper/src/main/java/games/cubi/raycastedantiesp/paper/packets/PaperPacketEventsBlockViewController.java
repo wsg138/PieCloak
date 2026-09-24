@@ -67,15 +67,12 @@ public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewC
         if (playerData == null) {
             return;
         }
-        int worldEpoch = playerData.acquireWorldEpoch();
-        for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
-            afterSendTasks.set(index, AfterSendVisibilityRepair.fenceAndFlush(
-                    playerData,
-                    worldEpoch,
-                    afterSendTasks.get(index),
-                    event.getUser()::flushPackets
-            ));
-        }
+        AfterSendVisibilityRepair.wrapNewTasks(
+                afterSendTasks,
+                firstControllerTask,
+                playerData,
+                playerData.acquireWorldEpoch(),
+                event.getUser()::flushPackets);
     }
 
     @Override
