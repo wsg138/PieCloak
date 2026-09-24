@@ -1,5 +1,6 @@
 package games.cubi.raycastedantiesp.paper.utils;
 
+import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -21,9 +22,21 @@ public final class PaperScheduler {
      */
     public static void runForAudience(RaycastedAntiESP plugin, CommandSender audience, Runnable task) {
         if (audience instanceof Entity entity) {
-            entity.getScheduler().run(plugin, ignored -> task.run(), null);
+            Logger.info("[AudienceSchedulerDiagnostic] scheduling entity audience callback.",
+                    4, PaperScheduler.class);
+            var scheduled = entity.getScheduler().run(plugin, ignored -> {
+                Logger.info("[AudienceSchedulerDiagnostic] entity audience callback executed.",
+                        4, PaperScheduler.class);
+                task.run();
+            }, () -> Logger.warning("[AudienceSchedulerDiagnostic] entity audience callback retired before execution.",
+                    4, PaperScheduler.class));
+            Logger.info("[AudienceSchedulerDiagnostic] entity audience schedule result="
+                            + (scheduled == null ? "null" : "scheduled") + ".",
+                    4, PaperScheduler.class);
             return;
         }
+        Logger.info("[AudienceSchedulerDiagnostic] scheduling non-entity audience callback on global region.",
+                4, PaperScheduler.class);
         runGlobal(plugin, task);
     }
 }
