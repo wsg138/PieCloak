@@ -78,15 +78,12 @@ public final class PaperPacketEventsEntityViewController extends PacketEventsEnt
         }
         suppressHiddenEntitySound(event, playerData);
         suppressHiddenDamageEvent(event, playerData);
-        int worldEpoch = playerData.acquireWorldEpoch();
-        for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
-            afterSendTasks.set(index, AfterSendVisibilityRepair.fenceAndFlush(
-                    playerData,
-                    worldEpoch,
-                    afterSendTasks.get(index),
-                    event.getUser()::flushPackets
-            ));
-        }
+        AfterSendVisibilityRepair.wrapNewTasks(
+                afterSendTasks,
+                firstControllerTask,
+                playerData,
+                playerData.acquireWorldEpoch(),
+                event.getUser()::flushPackets);
     }
 
     private void suppressHiddenEntitySound(PacketSendEvent event, PlayerData playerData) {
