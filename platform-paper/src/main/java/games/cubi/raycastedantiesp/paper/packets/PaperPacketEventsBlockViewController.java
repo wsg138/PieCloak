@@ -5,12 +5,15 @@ import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
+import games.cubi.raycastedantiesp.core.players.PlayerData;
+import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsBlockViewController;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsRespawnStateInvalidator;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.Material;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntSupplier;
@@ -52,7 +55,27 @@ public class PaperPacketEventsBlockViewController extends PacketEventsBlockViewC
             }
             return;
         }
+
+        List<Runnable> afterSendTasks = event.getTasksAfterSend();
+        int firstControllerTask = afterSendTasks.size();
         super.onPacketSend(event);
+
+        UUID playerUUID = event.getUser().getUUID();
+        PlayerData playerData = playerUUID == null
+                ? null
+                : PlayerRegistry.getInstance().getPlayerData(playerUUID);
+        if (playerData == null) {
+            return;
+        }
+        int worldEpoch = playerData.acquireWorldEpoch();
+        for (int index = firstControllerTask; index < afterSendTasks.size(); index++) {
+            afterSendTasks.set(index, AfterSendVisibilityRepair.fenceAndFlush(
+                    playerData,
+                    worldEpoch,
+                    afterSendTasks.get(index),
+                    event.getUser()::flushPackets
+            ));
+        }
     }
 
     @Override
