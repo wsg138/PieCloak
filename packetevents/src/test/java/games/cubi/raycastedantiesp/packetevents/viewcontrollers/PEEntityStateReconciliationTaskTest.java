@@ -146,6 +146,93 @@ class PEEntityStateReconciliationTaskTest {
         assertNotNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
     }
 
+    @Test
+    void expiredPreSpawnTeleportAndMoveNeverAlterLateManagedSpawn() {
+        PlayerData playerData = playerData();
+        int entityID = 147;
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                playerData, entityID, 80, 90, 100, 25, 35, 1, 2, 3, false, 40));
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.relativeMove(
+                playerData, entityID, 5, 6, 7, true, 41));
+
+        playerData.nettyData().evictOldPendingPostSpawnTasks(56);
+        PacketEventsEntity lateSpawn = insertEntity(playerData, entityID);
+        playerData.nettyData().runPendingPostSpawnTaskForEntity(entityID);
+
+        assertEquals(0, lateSpawn.x());
+        assertEquals(0, lateSpawn.y());
+        assertEquals(0, lateSpawn.z());
+        assertEquals(0, lateSpawn.yaw());
+        assertNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
+
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                playerData, entityID, 7, 8, 9, 10, 20, 0, 0, 0, true, 57));
+        playerData.nettyData().runPendingPostSpawnTaskForEntity(entityID);
+
+        assertEquals(7, lateSpawn.x());
+        assertEquals(8, lateSpawn.y());
+        assertEquals(9, lateSpawn.z());
+        assertEquals(10, lateSpawn.yaw());
+    }
+
+    @Test
+    void managedSpawnBeforeEvictionReplaysOriginalTeleport() {
+        PlayerData playerData = playerData();
+        int entityID = 148;
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                playerData, entityID, 12, 13, 14, 35, 40, 0, 0, 0, false, 40));
+
+        playerData.nettyData().evictOldPendingPostSpawnTasks(55);
+        PacketEventsEntity spawned = insertEntity(playerData, entityID);
+        playerData.nettyData().runPendingPostSpawnTaskForEntity(entityID);
+
+        assertEquals(12, spawned.x());
+        assertEquals(13, spawned.y());
+        assertEquals(14, spawned.z());
+        assertEquals(35, spawned.yaw());
+        assertNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
+    }
+
+    @Test
+    void expirationIsPerViewerForIdenticalEntityIdTeleports() {
+        PlayerData expiredViewer = playerData();
+        PlayerData unexpiredViewer = playerData();
+        int entityID = 149;
+        expiredViewer.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                expiredViewer, entityID, 90, 0, 0, 0, 0, 0, 0, 0, false, 0));
+        unexpiredViewer.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                unexpiredViewer, entityID, 30, 0, 0, 0, 0, 0, 0, 0, false, 1));
+
+        expiredViewer.nettyData().evictOldPendingPostSpawnTasks(16);
+        unexpiredViewer.nettyData().evictOldPendingPostSpawnTasks(16);
+        PacketEventsEntity first = insertEntity(expiredViewer, entityID);
+        PacketEventsEntity second = insertEntity(unexpiredViewer, entityID);
+        expiredViewer.nettyData().runPendingPostSpawnTaskForEntity(entityID);
+        unexpiredViewer.nettyData().runPendingPostSpawnTaskForEntity(entityID);
+
+        assertEquals(0, first.x());
+        assertEquals(30, second.x());
+    }
+
+    @Test
+    void bypassedSpawnResetDiscardsExpiredTeleportBeforeIdReuse() {
+        PlayerData playerData = playerData();
+        int entityID = 150;
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                playerData, entityID, 900, 0, 0, 0, 0, 0, 0, 0, false, 0));
+        playerData.nettyData().evictOldPendingPostSpawnTasks(16);
+
+        // Equivalent queue reset to PacketEntityViewController.handleBypassedEntitySpawn.
+        playerData.nettyData().clearPendingPostSpawnTasksForEntity(entityID);
+        playerData.nettyData().addPostEntitySpawnTask(entityID, PEEntityStateReconciliationTask.teleport(
+                playerData, entityID, 15, 0, 0, 0, 0, 0, 0, 0, false, 17));
+        PacketEventsEntity reused = insertEntity(playerData, entityID);
+        playerData.nettyData().runPendingPostSpawnTaskForEntity(entityID);
+
+        assertEquals(15, reused.x());
+        assertNull(playerData.nettyData().consumePendingPostSpawnTasksForEntity(entityID));
+    }
+
     private PlayerData playerData() {
         UUID playerUUID = UUID.randomUUID();
         registeredPlayers.add(playerUUID);
