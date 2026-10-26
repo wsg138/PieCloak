@@ -87,7 +87,9 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
             // Register BEFORE reading already-enabled state; plugin enable callbacks
             // cannot be lost during construction. No optional Fancy API is touched.
             if (registerForLateEnable) {
-                Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get());
+                registerWithRollback(
+                        () -> Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get()),
+                        () -> HandlerList.unregisterAll(this));
                 listenerRegistered = true;
             }
             startIfEnabled(Integration.FANCY_NPCS);
@@ -95,6 +97,21 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
         } catch (RuntimeException | Error failure) {
             try {
                 close();
+            } catch (RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
+    }
+
+    // A plugin manager may partially register handlers before it throws. In that case,
+    // clean up this listener even though registration never reported success.
+    static void registerWithRollback(Runnable register, Runnable unregister) {
+        try {
+            register.run();
+        } catch (RuntimeException | Error failure) {
+            try {
+                unregister.run();
             } catch (RuntimeException | Error cleanupFailure) {
                 failure.addSuppressed(cleanupFailure);
             }

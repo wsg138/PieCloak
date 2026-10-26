@@ -17,8 +17,37 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class FancyCompatibilityTest {
+    @Test
+    void listenerRegistrationFailureUnregistersPartialHandlers() {
+        List<String> calls = new ArrayList<>();
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> FancyCompatibility.registerWithRollback(
+                        () -> {
+                            calls.add("register");
+                            throw new IllegalStateException("partially registered");
+                        },
+                        () -> calls.add("unregister")));
+        assertEquals("partially registered", failure.getMessage());
+        assertEquals(List.of("register", "unregister"), calls);
+    }
+
+    @Test
+    void listenerRegistrationFailurePreservesCleanupFailure() {
+        IllegalStateException registrationFailure = new IllegalStateException("register");
+        IllegalStateException cleanupFailure = new IllegalStateException("unregister");
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> FancyCompatibility.registerWithRollback(
+                        () -> { throw registrationFailure; },
+                        () -> { throw cleanupFailure; }));
+        assertSame(registrationFailure, thrown);
+        assertEquals(1, thrown.getSuppressed().length);
+        assertSame(cleanupFailure, thrown.getSuppressed()[0]);
+    }
+
     @Test
     void lateEnabledIntegrationsStartOnceAndCloseInReverseOrder() {
         AtomicBoolean npc = new AtomicBoolean();
