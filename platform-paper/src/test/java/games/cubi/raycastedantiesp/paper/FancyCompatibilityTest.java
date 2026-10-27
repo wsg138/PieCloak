@@ -21,6 +21,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class FancyCompatibilityTest {
+    private static final String NPC_PLUGIN = FancyCompatibility.FANCY_NPCS_PLUGIN;
+    private static final String HOLOGRAM_PLUGIN = FancyCompatibility.FANCY_HOLOGRAMS_PLUGIN;
+    private static final String NPC_LABEL = "npc";
+    private static final String HOLOGRAM_LABEL = "holo";
+
     @Test
     void listenerRegistrationFailureUnregistersPartialHandlers() {
         List<String> calls = new ArrayList<>();
@@ -53,11 +58,11 @@ class FancyCompatibilityTest {
         List<String> calls = new ArrayList<>();
         FancyCompatibility compatibility = new FancyCompatibility(
                 plugin -> true,
-                getClass().getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 (name, loader) -> {
                     boolean hologram = name.contains("Holograms");
                     return () -> {
-                        calls.add(hologram ? "hologram" : "npc");
+                        calls.add(hologram ? "hologram" : NPC_LABEL);
                         if (hologram) {
                             throw new AssertionError("hologram cleanup failure");
                         }
@@ -67,7 +72,7 @@ class FancyCompatibilityTest {
 
         AssertionError failure = assertThrows(AssertionError.class, compatibility::close);
         assertEquals("hologram cleanup failure", failure.getMessage());
-        assertEquals(List.of("hologram", "npc"), calls);
+        assertEquals(List.of("hologram", NPC_LABEL), calls);
         assertEquals(1, failure.getSuppressed().length);
         assertEquals("npc cleanup failure", failure.getSuppressed()[0].getMessage());
         assertDoesNotThrow(compatibility::close);
@@ -79,20 +84,20 @@ class FancyCompatibilityTest {
         AtomicBoolean holo = new AtomicBoolean();
         List<String> calls = new ArrayList<>();
         FancyCompatibility compat = new FancyCompatibility(
-            plugin -> plugin.equals("FancyNpcs") ? npc.get() : holo.get(),
-            getClass().getClassLoader(),
+            plugin -> plugin.equals(NPC_PLUGIN) ? npc.get() : holo.get(),
+            Thread.currentThread().getContextClassLoader(),
             (name, loader) -> {
-                String type=name.contains("Npcs") ? "npc" : "holo";
+                String type=name.contains("Npcs") ? NPC_LABEL : HOLOGRAM_LABEL;
                 calls.add("start-"+type);
                 return () -> calls.add("close-"+type);
             });
         assertEquals(List.of(), calls);
         npc.set(true);
-        compat.onPluginEnabledName("FancyNpcs");
-        compat.onPluginEnabledName("FancyNpcs");
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        compat.onPluginEnabledName(NPC_PLUGIN);
         holo.set(true);
-        compat.onPluginEnabledName("FancyHolograms");
-        compat.onPluginEnabledName("FancyHolograms");
+        compat.onPluginEnabledName(HOLOGRAM_PLUGIN);
+        compat.onPluginEnabledName(HOLOGRAM_PLUGIN);
         compat.close();
         compat.close();
         assertEquals(List.of("start-npc","start-holo","close-holo","close-npc"), calls);
@@ -103,16 +108,16 @@ class FancyCompatibilityTest {
         AtomicBoolean holo = new AtomicBoolean(false);
         List<String> calls = new ArrayList<>();
         FancyCompatibility compat = new FancyCompatibility(
-            plugin -> plugin.equals("FancyNpcs") || holo.get(),
-            getClass().getClassLoader(),
+            plugin -> plugin.equals(NPC_PLUGIN) || holo.get(),
+            Thread.currentThread().getContextClassLoader(),
             (name, loader) -> {
-                calls.add(name.contains("Npcs") ? "npc" : "holo");
+                calls.add(name.contains("Npcs") ? NPC_LABEL : HOLOGRAM_LABEL);
                 return () -> {};
             });
-        assertEquals(List.of("npc"), calls);
+        assertEquals(List.of(NPC_LABEL), calls);
         holo.set(true);
-        compat.onPluginEnabledName("FancyHolograms");
-        assertEquals(List.of("npc","holo"), calls);
+        compat.onPluginEnabledName(HOLOGRAM_PLUGIN);
+        assertEquals(List.of(NPC_LABEL,HOLOGRAM_LABEL), calls);
         compat.close();
     }
 
@@ -121,15 +126,15 @@ class FancyCompatibilityTest {
         AtomicBoolean enabled = new AtomicBoolean();
         List<String> calls = new ArrayList<>();
         FancyCompatibility compat = new FancyCompatibility(
-            plugin -> enabled.get(), getClass().getClassLoader(),
+            plugin -> enabled.get(), Thread.currentThread().getContextClassLoader(),
             (name, loader) -> {
                 calls.add(name);
                 return () -> {};
             });
         compat.close();
         enabled.set(true);
-        compat.onPluginEnabledName("FancyNpcs");
-        compat.onPluginEnabledName("FancyHolograms");
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        compat.onPluginEnabledName(HOLOGRAM_PLUGIN);
         assertEquals(List.of(), calls);
     }
 
@@ -137,7 +142,7 @@ class FancyCompatibilityTest {
     void unknownPluginNotificationHasNoEffect() {
         List<String> calls = new ArrayList<>();
         FancyCompatibility compat = new FancyCompatibility(
-            plugin -> true, getClass().getClassLoader(),
+            plugin -> true, Thread.currentThread().getContextClassLoader(),
             (name, loader) -> {
                 calls.add(name);
                 return () -> {};
