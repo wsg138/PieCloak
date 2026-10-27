@@ -179,18 +179,23 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
             return;
         }
         closed = true;
+        Throwable failure = null;
         if (listenerRegistered) {
             listenerRegistered = false;
-            HandlerList.unregisterAll(this);
+            try {
+                HandlerList.unregisterAll(this);
+            } catch (RuntimeException | Error throwable) {
+                // Keep closing integrations even when Bukkit listener removal fails.
+                failure = throwable;
+            }
         }
-        Throwable failure = null;
         for (int index = integrations.size() - 1; index >= 0; index--) {
             try {
                 integrations.get(index).close();
-            } catch (Exception | LinkageError throwable) {
+            } catch (Exception | Error throwable) {
                 if (failure == null) {
                     failure = throwable;
-                } else {
+                } else if (failure != throwable) {
                     failure.addSuppressed(throwable);
                 }
             }
@@ -200,8 +205,8 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
         if (failure instanceof RuntimeException runtimeException) {
             throw runtimeException;
         }
-        if (failure instanceof LinkageError linkageError) {
-            throw linkageError;
+        if (failure instanceof Error error) {
+            throw error;
         }
         if (failure != null) {
             throw new IllegalStateException("Unable to close one or more optional compatibility layers", failure);

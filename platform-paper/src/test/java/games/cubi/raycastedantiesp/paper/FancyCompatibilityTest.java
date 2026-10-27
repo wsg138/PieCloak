@@ -49,6 +49,31 @@ class FancyCompatibilityTest {
     }
 
     @Test
+    void closeAttemptsEveryIntegrationAfterAnErrorAndPreservesFailures() {
+        List<String> calls = new ArrayList<>();
+        FancyCompatibility compatibility = new FancyCompatibility(
+                plugin -> true,
+                getClass().getClassLoader(),
+                (name, loader) -> {
+                    boolean hologram = name.contains("Holograms");
+                    return () -> {
+                        calls.add(hologram ? "hologram" : "npc");
+                        if (hologram) {
+                            throw new AssertionError("hologram cleanup failure");
+                        }
+                        throw new IllegalStateException("npc cleanup failure");
+                    };
+                });
+
+        AssertionError failure = assertThrows(AssertionError.class, compatibility::close);
+        assertEquals("hologram cleanup failure", failure.getMessage());
+        assertEquals(List.of("hologram", "npc"), calls);
+        assertEquals(1, failure.getSuppressed().length);
+        assertEquals("npc cleanup failure", failure.getSuppressed()[0].getMessage());
+        assertDoesNotThrow(compatibility::close);
+    }
+
+    @Test
     void lateEnabledIntegrationsStartOnceAndCloseInReverseOrder() {
         AtomicBoolean npc = new AtomicBoolean();
         AtomicBoolean holo = new AtomicBoolean();
