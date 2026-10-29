@@ -14,9 +14,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
+import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.event.server.PluginEnableEvent;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
@@ -59,6 +61,9 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
     private final IntegrationFactory factory;
     private final List<AutoCloseable> integrations = new ArrayList<>();
     private final EnumSet<Integration> startedIntegrations = EnumSet.noneOf(Integration.class);
+    private final EnumSet<Integration> blockedIntegrations = EnumSet.noneOf(Integration.class);
+    private final EnumMap<Integration, AutoCloseable> activeIntegrations = new EnumMap<>(Integration.class);
+    private Throwable integrationFailure;
     private final Predicate<String> isPluginEnabled;
     private final ClassLoader integrationClassLoader;
     private boolean listenerRegistered;
@@ -126,6 +131,45 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPluginDisable(PluginDisableEvent event) {
+        if (!closed) {
+            onPluginDisabledName(event.getPlugin().getName());
+        }
+    }
+
+    // Called while the optional plugin is still loaded, before its classloader can go away.
+    void onPluginDisabledName(String pluginName) {
+        if (closed) {
+            return;
+        }
+        for (Integration integration : Integration.values()) {
+            if (!integration.pluginName.equals(pluginName)) {
+                continue;
+            }
+            AutoCloseable layer = activeIntegrations.get(integration);
+            if (layer == null) {
+                return;
+            }
+            try {
+                layer.close();
+            } catch (Exception | Error failure) {
+                // Retain failed layers and fence same-JVM reload if teardown was unsafe.
+                blockedIntegrations.add(integration);
+                if (integrationFailure == null) {
+                    integrationFailure = failure;
+                } else if (integrationFailure != failure) {
+                    integrationFailure.addSuppressed(failure);
+                }
+                Logger.error("Failed to disable optional " + pluginName
+                        + " compatibility; same-JVM reload is blocked.", failure, 2, FancyCompatibility.class);
+                return;
+            }
+            activeIntegrations.remove(integration);
+            integrations.remove(layer);
+            startedIntegrations.remove(integration);
+        }
+    }
     void onPluginEnabledName(String pluginName) {
         if (closed) {
             return;
@@ -138,11 +182,14 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
     }
 
     private void startIfEnabled(Integration integration) {
-        if (closed || startedIntegrations.contains(integration)) {
+        if (closed || startedIntegrations.contains(integration) || blockedIntegrations.contains(integration)) {
             return;
         }
         int countBefore = integrations.size();
-        loadIfEnabled(integration, isPluginEnabled, integrationClassLoader, factory, integrations::add);
+        loadIfEnabled(integration, isPluginEnabled, integrationClassLoader, factory, layer -> {
+            integrations.add(layer);
+            activeIntegrations.put(integration, layer);
+        });
         if (integrations.size() != countBefore) {
             startedIntegrations.add(integration);
         }
@@ -179,7 +226,7 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
             return;
         }
         closed = true;
-        Throwable failure = null;
+        Throwable failure = integrationFailure;
         if (listenerRegistered) {
             listenerRegistered = false;
             try {
@@ -201,6 +248,8 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
             }
         }
         integrations.clear();
+        activeIntegrations.clear();
+        startedIntegrations.clear();
 
         if (failure instanceof RuntimeException runtimeException) {
             throw runtimeException;

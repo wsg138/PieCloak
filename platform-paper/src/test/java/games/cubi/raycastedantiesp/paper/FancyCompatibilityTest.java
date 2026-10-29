@@ -104,6 +104,49 @@ class FancyCompatibilityTest {
     }
 
     @Test
+    void optionalDisableAndReenableCreatesFreshIntegrationWithoutDuplicates() {
+        AtomicBoolean npc = new AtomicBoolean(true);
+        List<String> calls = new ArrayList<>();
+        FancyCompatibility compat = new FancyCompatibility(
+                plugin -> plugin.equals(NPC_PLUGIN) && npc.get(),
+                Thread.currentThread().getContextClassLoader(),
+                (name, loader) -> {
+                    calls.add("start");
+                    return () -> calls.add("close");
+                });
+        assertEquals(List.of("start"), calls);
+        npc.set(false);
+        compat.onPluginDisabledName(NPC_PLUGIN);
+        compat.onPluginDisabledName(NPC_PLUGIN);
+        assertEquals(List.of("start", "close"), calls);
+        npc.set(true);
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        assertEquals(List.of("start", "close", "start"), calls);
+        compat.close();
+        assertEquals(List.of("start", "close", "start", "close"), calls);
+    }
+
+    @Test
+    void failedDisableFencesSameJvmReloadAndPropagatesOnClose() {
+        List<String> calls = new ArrayList<>();
+        FancyCompatibility compat = new FancyCompatibility(
+                plugin -> plugin.equals(NPC_PLUGIN),
+                Thread.currentThread().getContextClassLoader(),
+                (name, loader) -> {
+                    calls.add("start");
+                    return () -> {
+                        calls.add("close");
+                        throw new IllegalStateException("failed optional unregister");
+                    };
+                });
+        compat.onPluginDisabledName(NPC_PLUGIN);
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        assertEquals(List.of("start", "close"), calls);
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, compat::close);
+        assertEquals("failed optional unregister", thrown.getMessage());
+    }
+    @Test
     void pluginAlreadyEnabledAtConstructionStartsImmediately() {
         AtomicBoolean holo = new AtomicBoolean(false);
         List<String> calls = new ArrayList<>();

@@ -20,16 +20,23 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 
 final class FancyHologramsCompatibility extends PaperListener {
+    private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyHologramScope();
     FancyHologramsCompatibility() {
-        register();
         try {
+            register();
             // Holograms may already have loaded during FancyHolograms.onEnable.
             var plugin = FancyHologramsPlugin.get();
             if (plugin != null && plugin.getHologramManager() != null) {
                 plugin.getHologramManager().getHolograms().forEach(this::add);
             }
-        } catch (RuntimeException | LinkageError failure) {
-            close();
+        } catch (RuntimeException | Error failure) {
+            try {
+                close();
+            } catch (RuntimeException | Error cleanupFailure) {
+                if (cleanupFailure != failure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
             throw failure;
         }
     }
@@ -51,10 +58,17 @@ final class FancyHologramsCompatibility extends PaperListener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onHologramDelete(HologramDeleteEvent event) {
-        EntityBypassRegistry.markEntityDespawned(event.getHologram().getEntityId());
+        bypassScope.removeEntity(event.getHologram().getEntityId());
     }
 
     private void add(Hologram hologram) {
-        EntityBypassRegistry.addEntity(hologram.getEntityId());
+        bypassScope.addEntity(hologram.getEntityId());
     }
-}
+    @Override
+    public void close() {
+        try {
+            super.close();
+        } finally {
+            bypassScope.close();
+        }
+    }}

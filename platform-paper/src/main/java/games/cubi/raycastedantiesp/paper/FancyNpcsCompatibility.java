@@ -18,9 +18,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 
 final class FancyNpcsCompatibility extends PaperListener {
+    private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyNpcScope();
     FancyNpcsCompatibility() {
-        register();
         try {
+            register();
             // PluginEnableEvent occurs AFTER FancyNpcs.onEnable; therefore
             // backfill NPCs that were constructed before this listener existed.
             var plugin = FancyNpcsPlugin.get();
@@ -34,14 +35,20 @@ final class FancyNpcsCompatibility extends PaperListener {
                         continue;
                     }
                     try {
-                        EntityBypassRegistry.addEntity(npc.getEntityId());
+                        bypassScope.addEntity(npc.getEntityId());
                     } catch (NullPointerException notYetCreated) {
                         continue;
                     }
                 }
             }
-        } catch (RuntimeException | LinkageError failure) {
-            close();
+        } catch (RuntimeException | Error failure) {
+            try {
+                close();
+            } catch (RuntimeException | Error cleanupFailure) {
+                if (cleanupFailure != failure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
             throw failure;
         }
     }
@@ -50,16 +57,23 @@ final class FancyNpcsCompatibility extends PaperListener {
     // NpcSpawnEvent runs before viewer spawn packets and is the safe registration point.
     @EventHandler(priority = EventPriority.LOWEST)
     public void onNpcSpawn(NpcSpawnEvent event) {
-        EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
+        bypassScope.addEntity(event.getNpc().getEntityId());
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onNpcModify(NpcModifyEvent event) {
-        EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
+        bypassScope.addEntity(event.getNpc().getEntityId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onNpcRemove(NpcRemoveEvent event) {
-        EntityBypassRegistry.markEntityDespawned(event.getNpc().getEntityId());
+        bypassScope.removeEntity(event.getNpc().getEntityId());
     }
-}
+    @Override
+    public void close() {
+        try {
+            super.close();
+        } finally {
+            bypassScope.close();
+        }
+    }}
