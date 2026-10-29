@@ -9,7 +9,6 @@
 package games.cubi.raycastedantiesp.paper;
 
 import de.oliver.fancynpcs.api.FancyNpcsPlugin;
-import de.oliver.fancynpcs.api.events.NpcCreateEvent;
 import de.oliver.fancynpcs.api.events.NpcModifyEvent;
 import de.oliver.fancynpcs.api.events.NpcRemoveEvent;
 import de.oliver.fancynpcs.api.events.NpcSpawnEvent;
@@ -47,13 +46,10 @@ final class FancyNpcsCompatibility extends PaperListener {
         }
     }
 
+    // FancyNpcs calls NpcCreateEvent before npc.create(), when getEntityId() is invalid.
+    // NpcSpawnEvent runs before viewer spawn packets and is the safe registration point.
     @EventHandler(priority = EventPriority.LOWEST)
     public void onNpcSpawn(NpcSpawnEvent event) {
-        EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onNpcCreate(NpcCreateEvent event) {
         EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
     }
 
