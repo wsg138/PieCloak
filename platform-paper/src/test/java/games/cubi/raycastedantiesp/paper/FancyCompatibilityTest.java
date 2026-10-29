@@ -25,6 +25,8 @@ class FancyCompatibilityTest {
     private static final String HOLOGRAM_PLUGIN = FancyCompatibility.FANCY_HOLOGRAMS_PLUGIN;
     private static final String NPC_LABEL = "npc";
     private static final String HOLOGRAM_LABEL = "holo";
+    private static final String START_LABEL = "start";
+    private static final String CLOSE_LABEL = "close";
 
     @Test
     void listenerRegistrationFailureUnregistersPartialHandlers() {
@@ -111,20 +113,20 @@ class FancyCompatibilityTest {
                 plugin -> plugin.equals(NPC_PLUGIN) && npc.get(),
                 Thread.currentThread().getContextClassLoader(),
                 (name, loader) -> {
-                    calls.add("start");
-                    return () -> calls.add("close");
+                    calls.add(START_LABEL);
+                    return () -> calls.add(CLOSE_LABEL);
                 });
-        assertEquals(List.of("start"), calls);
+        assertEquals(List.of(START_LABEL), calls);
         npc.set(false);
         compat.onPluginDisabledName(NPC_PLUGIN);
         compat.onPluginDisabledName(NPC_PLUGIN);
-        assertEquals(List.of("start", "close"), calls);
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL), calls);
         npc.set(true);
         compat.onPluginEnabledName(NPC_PLUGIN);
         compat.onPluginEnabledName(NPC_PLUGIN);
-        assertEquals(List.of("start", "close", "start"), calls);
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL, START_LABEL), calls);
         compat.close();
-        assertEquals(List.of("start", "close", "start", "close"), calls);
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL, START_LABEL, CLOSE_LABEL), calls);
     }
 
     @Test
@@ -134,15 +136,15 @@ class FancyCompatibilityTest {
                 plugin -> plugin.equals(NPC_PLUGIN),
                 Thread.currentThread().getContextClassLoader(),
                 (name, loader) -> {
-                    calls.add("start");
+                    calls.add(START_LABEL);
                     return () -> {
-                        calls.add("close");
+                        calls.add(CLOSE_LABEL);
                         throw new IllegalStateException("failed optional unregister");
                     };
                 });
         compat.onPluginDisabledName(NPC_PLUGIN);
         compat.onPluginEnabledName(NPC_PLUGIN);
-        assertEquals(List.of("start", "close"), calls);
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL), calls);
         IllegalStateException thrown = assertThrows(IllegalStateException.class, compat::close);
         assertEquals("failed optional unregister", thrown.getMessage());
     }

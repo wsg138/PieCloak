@@ -32,14 +32,18 @@ public final class EntityBypassRegistry {
         private BypassScope() {
         }
 
-        public synchronized void addEntity(int entityID) {
-            if (!closed) {
-                entityIds.add(entityID);
+        public void addEntity(int entityID) {
+            synchronized (this) {
+                if (!closed) {
+                    entityIds.add(entityID);
+                }
             }
         }
 
-        public synchronized boolean removeEntity(int entityID) {
-            return !closed && entityIds.remove(entityID);
+        public boolean removeEntity(int entityID) {
+            synchronized (this) {
+                return !closed && entityIds.remove(entityID);
+            }
         }
 
         private boolean isBypassed(int entityID) {
@@ -47,8 +51,10 @@ public final class EntityBypassRegistry {
         }
 
         @Override
-        public synchronized void close() {
-            closed = true;
+        public void close() {
+            synchronized (this) {
+                closed = true;
+            }
         }
     }
 

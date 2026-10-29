@@ -139,6 +139,7 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
     }
 
     // Called while the optional plugin is still loaded, before its classloader can go away.
+    @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging does its own filtering.
     void onPluginDisabledName(String pluginName) {
         if (closed) {
             return;
