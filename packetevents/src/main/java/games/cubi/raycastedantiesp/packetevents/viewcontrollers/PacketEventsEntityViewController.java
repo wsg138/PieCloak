@@ -437,14 +437,15 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         }
         boolean alreadyBypassed = isBypassed(entityID);
         boolean relationshipSupportTarget = shouldTrackRelationshipSupport(
-                isPlayer, isMinecartLike(packet.getEntityType()));
-        // Preserve the existing early bypass for players and minecarts. Non-player
+                isPlayer, isPassengerVehicle(packet.getEntityType()));
+        // Preserve the existing early bypass for players and passenger vehicles. Non-player
         // ordinary entities must still receive their own upstream classification,
         // even if Fancy already added a separate bypass reason.
         if (alreadyBypassed && (isPlayer || relationshipSupportTarget)) {
             return true;
         }
         if (relationshipSupportTarget) {
+
             EntityBypassRegistry.addRelationshipSupportEntity(entityID);
             return false;
         }
@@ -473,12 +474,15 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         return EntityBypassRegistry.isBypassed(entityID);
     }
 
-    static boolean isMinecartLike(EntityType entityType) {
-        return entityType != null && entityType.isInstanceOf(EntityTypes.MINECART_ABSTRACT);
+    static boolean isPassengerVehicle(EntityType entityType) {
+        // Track excluded vehicles so their movement can update managed passengers.
+        // PacketEvents uses BOAT as the parent for wood boats and bamboo rafts.
+        return entityType != null && (entityType.isInstanceOf(EntityTypes.MINECART_ABSTRACT)
+                || entityType.isInstanceOf(EntityTypes.BOAT));
     }
 
-    static boolean shouldTrackRelationshipSupport(boolean isPlayer, boolean minecartLike) {
-        return !isPlayer && minecartLike;
+    static boolean shouldTrackRelationshipSupport(boolean isPlayer, boolean passengerVehicle) {
+        return !isPlayer && passengerVehicle;
     }
 
     protected NettyEntity<?> createSelfEntity(PlayerData ownData, int entityID, UUID playerUUID) {
