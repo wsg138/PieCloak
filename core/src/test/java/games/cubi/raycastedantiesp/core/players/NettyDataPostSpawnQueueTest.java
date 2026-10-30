@@ -116,6 +116,42 @@ class NettyDataPostSpawnQueueTest {
         assertEquals(0, executions.get());
     }
 
+    /** Repeated expiries cannot happen without an intervening reset. */
+    @Test
+    void repeatedWarningRequiresResetForSameViewerAndEntityId() {
+        NettyData data = newData();
+        AtomicInteger ran = new AtomicInteger();
+        data.addPostEntitySpawnTask(ENTITY_ID, new TestTask(0, ran));
+        data.evictOldPendingPostSpawnTasks(16);
+        for (int tick : new int[]{17, 50, 200}) {
+            data.addPostEntitySpawnTask(ENTITY_ID, new TestTask(tick, ran));
+            data.evictOldPendingPostSpawnTasks(tick + 16);
+            assertNull(data.consumePendingPostSpawnTasksForEntity(ENTITY_ID));
+        }
+        assertEquals(0, ran.get());
+    }
+
+    /** An intervening late spawn, destroy, or reset permits another queue/expiry. */
+    @Test
+    void eachDocumentedResetPathCanRearmASecondExpiry() {
+        for (int which=0; which<3; which++) {
+            NettyData data = newData();
+            AtomicInteger ran = new AtomicInteger();
+            data.addPostEntitySpawnTask(ENTITY_ID, new TestTask(0, ran));
+            data.evictOldPendingPostSpawnTasks(16);
+            if (which == 0) data.runPendingPostSpawnTaskForEntity(ENTITY_ID);
+            else if (which == 1) data.clearPendingPostSpawnTasksForEntity(ENTITY_ID);
+            else data.clearPendingReconciliationState();
+            TestTask second = new TestTask(20, ran);
+            data.addPostEntitySpawnTask(ENTITY_ID, second);
+            assertSame(second, data.consumePendingPostSpawnTasksForEntity(ENTITY_ID));
+            data.addPostEntitySpawnTask(ENTITY_ID, second);
+            data.evictOldPendingPostSpawnTasks(36);
+            assertNull(data.consumePendingPostSpawnTasksForEntity(ENTITY_ID));
+            assertEquals(0, ran.get());
+        }
+    }
+
     private static NettyData newData() {
         return new NettyData(new SelfEntity());
     }
