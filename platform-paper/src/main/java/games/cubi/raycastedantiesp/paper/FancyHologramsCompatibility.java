@@ -21,7 +21,7 @@ import org.bukkit.event.EventPriority;
 
 final class FancyHologramsCompatibility extends PaperListener {
     private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyHologramScope();
-    private final WeakIdentityRetirementGuard<Hologram> retiredHolograms = new WeakIdentityRetirementGuard<>();
+    private final WeakIdentityRetirementGuard<Hologram> retiredHolograms = new WeakIdentityRetirementGuard<>(bypassScope);
     FancyHologramsCompatibility() {
         try {
             register();
@@ -60,12 +60,12 @@ final class FancyHologramsCompatibility extends PaperListener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onHologramDelete(HologramDeleteEvent event) {
         int entityId = event.getHologram().getEntityId();
-        retiredHolograms.retire(event.getHologram(), entityId, () -> bypassScope.removeEntity(entityId));
+        retiredHolograms.retire(event.getHologram(), entityId);
     }
 
     private void add(Hologram hologram) {
         int entityId = hologram.getEntityId();
-        retiredHolograms.registerIfActive(hologram, entityId, () -> bypassScope.addEntity(entityId));
+        retiredHolograms.registerIfActive(hologram, entityId);
     }
     @Override
     public void close() {

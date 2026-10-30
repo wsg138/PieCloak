@@ -20,7 +20,7 @@ import org.bukkit.event.EventPriority;
 
 final class FancyNpcsCompatibility extends PaperListener {
     private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyNpcScope();
-    private final WeakIdentityRetirementGuard<Npc> retiredNpcs = new WeakIdentityRetirementGuard<>();
+    private final WeakIdentityRetirementGuard<Npc> retiredNpcs = new WeakIdentityRetirementGuard<>(bypassScope);
     FancyNpcsCompatibility() {
         try {
             register();
@@ -70,13 +70,13 @@ final class FancyNpcsCompatibility extends PaperListener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onNpcRemove(NpcRemoveEvent event) {
         int entityId = event.getNpc().getEntityId();
-        retiredNpcs.retire(event.getNpc(), entityId, () -> bypassScope.removeEntity(entityId));
+        retiredNpcs.retire(event.getNpc(), entityId);
     }
     private void add(Npc npc) {
         // Remove and spawn callbacks may race across the main and async threads.
         // The owner-specific guard and its retirement are one atomic decision.
         int entityId = npc.getEntityId();
-        retiredNpcs.registerIfActive(npc, entityId, () -> bypassScope.addEntity(entityId));
+        retiredNpcs.registerIfActive(npc, entityId);
     }
     @Override
     public void close() {
