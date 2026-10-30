@@ -9,6 +9,7 @@
 package games.cubi.raycastedantiesp.paper;
 
 import de.oliver.fancynpcs.api.FancyNpcsPlugin;
+import de.oliver.fancynpcs.api.Npc;
 import de.oliver.fancynpcs.api.events.NpcModifyEvent;
 import de.oliver.fancynpcs.api.events.NpcRemoveEvent;
 import de.oliver.fancynpcs.api.events.NpcSpawnEvent;
@@ -19,6 +20,7 @@ import org.bukkit.event.EventPriority;
 
 final class FancyNpcsCompatibility extends PaperListener {
     private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyNpcScope();
+    private final WeakIdentityRetirementGuard<Npc> retiredNpcs = new WeakIdentityRetirementGuard<>();
     FancyNpcsCompatibility() {
         try {
             register();
@@ -35,7 +37,7 @@ final class FancyNpcsCompatibility extends PaperListener {
                         continue;
                     }
                     try {
-                        bypassScope.addEntity(npc.getEntityId());
+                        add(npc);
                     } catch (NullPointerException notYetCreated) {
                         continue;
                     }
@@ -57,17 +59,24 @@ final class FancyNpcsCompatibility extends PaperListener {
     // NpcSpawnEvent runs before viewer spawn packets and is the safe registration point.
     @EventHandler(priority = EventPriority.LOWEST)
     public void onNpcSpawn(NpcSpawnEvent event) {
-        bypassScope.addEntity(event.getNpc().getEntityId());
+        add(event.getNpc());
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onNpcModify(NpcModifyEvent event) {
-        bypassScope.addEntity(event.getNpc().getEntityId());
+        add(event.getNpc());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onNpcRemove(NpcRemoveEvent event) {
-        bypassScope.removeEntity(event.getNpc().getEntityId());
+        int entityId = event.getNpc().getEntityId();
+        retiredNpcs.retire(event.getNpc(), entityId, () -> bypassScope.removeEntity(entityId));
+    }
+    private void add(Npc npc) {
+        // Remove and spawn callbacks may race across the main and async threads.
+        // The owner-specific guard and its retirement are one atomic decision.
+        int entityId = npc.getEntityId();
+        retiredNpcs.registerIfActive(npc, entityId, () -> bypassScope.addEntity(entityId));
     }
     @Override
     public void close() {
@@ -76,4 +85,5 @@ final class FancyNpcsCompatibility extends PaperListener {
         } finally {
             bypassScope.close();
         }
-    }}
+    }
+}
