@@ -25,6 +25,8 @@ class FancyCompatibilityTest {
     private static final String HOLOGRAM_PLUGIN = FancyCompatibility.FANCY_HOLOGRAMS_PLUGIN;
     private static final String NPC_LABEL = "npc";
     private static final String HOLOGRAM_LABEL = "holo";
+    private static final String START_LABEL = "start";
+    private static final String CLOSE_LABEL = "close";
 
     @Test
     void listenerRegistrationFailureUnregistersPartialHandlers() {
@@ -53,6 +55,37 @@ class FancyCompatibilityTest {
         assertSame(cleanupFailure, thrown.getSuppressed()[0]);
     }
 
+    @Test
+    void registerRollbackDoesNotSelfSuppressTheOriginalFailure() {
+        IllegalStateException sameFailure = new IllegalStateException("same throwable");
+        IllegalStateException observed = assertThrows(IllegalStateException.class,
+                () -> FancyCompatibility.registerWithRollback(
+                        () -> { throw sameFailure; },
+                        () -> { throw sameFailure; }));
+        assertSame(sameFailure, observed);
+        assertEquals(0, observed.getSuppressed().length);
+    }
+
+    @Test
+    void listenerUnregisterPreservesPreviousIntegrationTeardownFailure() {
+        IllegalStateException original = new IllegalStateException("plugin disable failed");
+        AssertionError unregisterFailure = new AssertionError("parent listener cleanup failed");
+        Throwable observed = FancyCompatibility.unregisterRetainingFailure(
+                original, () -> { throw unregisterFailure; });
+        assertSame(original, observed);
+        assertEquals(1, observed.getSuppressed().length);
+        assertSame(unregisterFailure, observed.getSuppressed()[0]);
+    }
+
+    @Test
+    void listenerUnregisterHandlesAbsentAndIdenticalPriorFailure() {
+        IllegalStateException sameFailure = new IllegalStateException("same unregister");
+        assertSame(sameFailure, FancyCompatibility.unregisterRetainingFailure(
+                null, () -> { throw sameFailure; }));
+        assertSame(sameFailure, FancyCompatibility.unregisterRetainingFailure(
+                sameFailure, () -> { throw sameFailure; }));
+        assertEquals(0, sameFailure.getSuppressed().length);
+    }
     @Test
     void closeAttemptsEveryIntegrationAfterAnErrorAndPreservesFailures() {
         List<String> calls = new ArrayList<>();
@@ -103,6 +136,49 @@ class FancyCompatibilityTest {
         assertEquals(List.of("start-npc","start-holo","close-holo","close-npc"), calls);
     }
 
+    @Test
+    void optionalDisableAndReenableCreatesFreshIntegrationWithoutDuplicates() {
+        AtomicBoolean npc = new AtomicBoolean(true);
+        List<String> calls = new ArrayList<>();
+        FancyCompatibility compat = new FancyCompatibility(
+                plugin -> plugin.equals(NPC_PLUGIN) && npc.get(),
+                Thread.currentThread().getContextClassLoader(),
+                (name, loader) -> {
+                    calls.add(START_LABEL);
+                    return () -> calls.add(CLOSE_LABEL);
+                });
+        assertEquals(List.of(START_LABEL), calls);
+        npc.set(false);
+        compat.onPluginDisabledName(NPC_PLUGIN);
+        compat.onPluginDisabledName(NPC_PLUGIN);
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL), calls);
+        npc.set(true);
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL, START_LABEL), calls);
+        compat.close();
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL, START_LABEL, CLOSE_LABEL), calls);
+    }
+
+    @Test
+    void failedDisableFencesSameJvmReloadAndPropagatesOnClose() {
+        List<String> calls = new ArrayList<>();
+        FancyCompatibility compat = new FancyCompatibility(
+                plugin -> plugin.equals(NPC_PLUGIN),
+                Thread.currentThread().getContextClassLoader(),
+                (name, loader) -> {
+                    calls.add(START_LABEL);
+                    return () -> {
+                        calls.add(CLOSE_LABEL);
+                        throw new IllegalStateException("failed optional unregister");
+                    };
+                });
+        compat.onPluginDisabledName(NPC_PLUGIN);
+        compat.onPluginEnabledName(NPC_PLUGIN);
+        assertEquals(List.of(START_LABEL, CLOSE_LABEL), calls);
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, compat::close);
+        assertEquals("failed optional unregister", thrown.getMessage());
+    }
     @Test
     void pluginAlreadyEnabledAtConstructionStartsImmediately() {
         AtomicBoolean holo = new AtomicBoolean(false);
