@@ -22,6 +22,7 @@ import org.bukkit.event.EventPriority;
 final class FancyHologramsCompatibility extends PaperListener {
     private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyHologramScope();
     private final WeakIdentityRetirementGuard<Hologram> retiredHolograms = new WeakIdentityRetirementGuard<>(bypassScope);
+    private FancyWeakOwnerSweeper weakOwnerSweeper;
     FancyHologramsCompatibility() {
         try {
             register();
@@ -30,6 +31,7 @@ final class FancyHologramsCompatibility extends PaperListener {
             if (plugin != null && plugin.getHologramManager() != null) {
                 plugin.getHologramManager().getHolograms().forEach(this::add);
             }
+            weakOwnerSweeper = new FancyWeakOwnerSweeper(retiredHolograms);
         } catch (RuntimeException | Error failure) {
             try {
                 close();
@@ -72,7 +74,13 @@ final class FancyHologramsCompatibility extends PaperListener {
         try {
             super.close();
         } finally {
-            bypassScope.close();
+            try {
+                if (weakOwnerSweeper != null) {
+                    weakOwnerSweeper.close();
+                }
+            } finally {
+                bypassScope.close();
+            }
         }
     }
 }

@@ -73,6 +73,11 @@ final class WeakIdentityRetirementGuard<T> {
         }
     }
 
+    // The queue must also be polled during quiet periods: without a scheduled
+    // sweep, collected owners can leave stale numeric exemptions indefinitely.
+    synchronized void sweepCollected() {
+        discardCollected();
+    }
     private OwnerState getOrCreate(T owner) {
         IdentityReference<T> probe = new IdentityReference<>(owner, null);
         OwnerState state = owners.get(probe);
