@@ -101,4 +101,32 @@ class EntityBypassRegistryTest {
         holo.addEntity(id);
         assertFalse(EntityBypassRegistry.isBypassed(id));
     }
-}
+
+    @Test
+    void concurrentCallbacksCannotReintroduceClosedScope() throws Exception {
+        int id = 2026;
+        for (int iteration = 0; iteration < 100; iteration++) {
+            var scope = EntityBypassRegistry.openFancyNpcScope();
+            var ready = new java.util.concurrent.CountDownLatch(1);
+            var start = new java.util.concurrent.CountDownLatch(1);
+            Thread callback = new Thread(() -> {
+                ready.countDown();
+                try {
+                    start.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                for (int j = 0; j < 100; j++) {
+                    scope.addEntity(id);
+                }
+            });
+            callback.start();
+            assertTrue(ready.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            start.countDown();
+            scope.close();
+            callback.join(2000);
+            assertFalse(callback.isAlive());
+            assertFalse(EntityBypassRegistry.isBypassed(id));
+        }
+    }}
