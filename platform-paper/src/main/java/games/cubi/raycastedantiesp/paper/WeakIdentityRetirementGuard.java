@@ -23,36 +23,43 @@ final class WeakIdentityRetirementGuard<T> {
     private final ReferenceQueue<T> referenceQueue = new ReferenceQueue<>();
     private final Map<IdentityReference<T>, Integer> retiredEntityIds = new HashMap<>();
 
-    synchronized boolean registerIfActive(T owner, int entityId, Runnable register) {
+    boolean registerIfActive(T owner, int entityId, Runnable register) {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(register, "register");
-        discardCollected();
-        Integer retiredId = retiredEntityIds.get(new IdentityReference<>(owner, null));
-        if (retiredId != null && retiredId == entityId) {
-            return false;
+        synchronized (this) {
+            discardCollected();
+            Integer retiredId = retiredEntityIds.get(new IdentityReference<>(owner, null));
+            if (retiredId != null && retiredId == entityId) {
+                return false;
+            }
+            register.run();
+            return true;
         }
-        register.run();
-        return true;
     }
 
-    synchronized void retire(T owner, int entityId, Runnable unregister) {
+    void retire(T owner, int entityId, Runnable unregister) {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(unregister, "unregister");
-        discardCollected();
-        // A duplicate remove for a retired old owner must not clear the
-        // replacement owner if it has legitimately claimed the same ID.
-        Integer alreadyRetired = retiredEntityIds.get(new IdentityReference<>(owner, null));
-        if (alreadyRetired != null && alreadyRetired == entityId) {
-            return;
+        synchronized (this) {
+            discardCollected();
+            // A duplicate remove for a retired old owner must not clear the
+            // replacement owner if it has legitimately claimed the same ID.
+            Integer alreadyRetired = retiredEntityIds.get(new IdentityReference<>(owner, null));
+            if (alreadyRetired != null && alreadyRetired == entityId) {
+                return;
+            }
+            retiredEntityIds.put(new IdentityReference<>(owner, referenceQueue), entityId);
+            unregister.run();
         }
-        retiredEntityIds.put(new IdentityReference<>(owner, referenceQueue), entityId);
-        unregister.run();
     }
 
     @SuppressWarnings("unchecked") // ReferenceQueue holds only our own reference subtype.
     private void discardCollected() {
-        IdentityReference<T> expired;
-        while ((expired = (IdentityReference<T>) referenceQueue.poll()) != null) {
+        while (true) {
+            IdentityReference<T> expired = (IdentityReference<T>) referenceQueue.poll();
+            if (expired == null) {
+                return;
+            }
             retiredEntityIds.remove(expired);
         }
     }
