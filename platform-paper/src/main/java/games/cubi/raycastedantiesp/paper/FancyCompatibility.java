@@ -10,14 +10,20 @@ package games.cubi.raycastedantiesp.paper;
 
 import games.cubi.logs.Logger;
 import org.bukkit.Bukkit;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
+import org.bukkit.event.server.PluginEnableEvent;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-public final class FancyCompatibility implements AutoCloseable {
+public final class FancyCompatibility implements AutoCloseable, Listener {
     static final String FANCY_NPCS_PLUGIN = "FancyNpcs";
     static final String FANCY_HOLOGRAMS_PLUGIN = "FancyHolograms";
 
@@ -34,25 +40,112 @@ public final class FancyCompatibility implements AutoCloseable {
         }
     }
 
+    @FunctionalInterface
+    interface IntegrationFactory {
+        AutoCloseable create(String className, ClassLoader loader)
+                throws ReflectiveOperationException;
+    }
+
+    private static AutoCloseable loadReflectively(String name, ClassLoader loader)
+            throws ReflectiveOperationException {
+        // Class names come only from the fixed internal integration enum.
+        Object obj = Class.forName(name, true, loader).getDeclaredConstructor().newInstance();
+        if (!(obj instanceof AutoCloseable result)) {
+            throw new IllegalStateException("Integration is not AutoCloseable: " + name);
+        }
+        return result;
+    }
+
+    private final IntegrationFactory factory;
     private final List<AutoCloseable> integrations = new ArrayList<>();
+    private final EnumSet<Integration> startedIntegrations = EnumSet.noneOf(Integration.class);
+    private final Predicate<String> isPluginEnabled;
+    private final ClassLoader integrationClassLoader;
+    private boolean listenerRegistered;
+    private boolean closed;
 
     @SuppressWarnings("PMD.UseProperClassLoader") // Bukkit requires this plugin's defining loader, not a container context loader.
     FancyCompatibility() {
         this(pluginName -> Bukkit.getPluginManager().isPluginEnabled(pluginName),
-                FancyCompatibility.class.getClassLoader());
+                FancyCompatibility.class.getClassLoader(), true, FancyCompatibility::loadReflectively);
     }
 
     FancyCompatibility(Predicate<String> pluginEnabled, ClassLoader classLoader) {
-        Objects.requireNonNull(pluginEnabled, "pluginEnabled");
-        Objects.requireNonNull(classLoader, "classLoader");
-
-        startIfEnabled(Integration.FANCY_NPCS, pluginEnabled, classLoader);
-        startIfEnabled(Integration.FANCY_HOLOGRAMS, pluginEnabled, classLoader);
+        this(pluginEnabled, classLoader, false, FancyCompatibility::loadReflectively);
     }
 
-    private void startIfEnabled(
-            Integration integration, Predicate<String> pluginEnabled, ClassLoader classLoader) {
-        loadIfEnabled(integration, pluginEnabled, classLoader, integrations::add);
+    FancyCompatibility(Predicate<String> pluginEnabled, ClassLoader classLoader, IntegrationFactory factory) {
+        this(pluginEnabled, classLoader, false, factory);
+    }
+
+    private FancyCompatibility(Predicate<String> pluginEnabled, ClassLoader classLoader,
+                               boolean registerForLateEnable, IntegrationFactory factory) {
+        isPluginEnabled = Objects.requireNonNull(pluginEnabled, "pluginEnabled");
+        integrationClassLoader = Objects.requireNonNull(classLoader, "classLoader");
+        this.factory = Objects.requireNonNull(factory, "factory");
+        try {
+            // Register BEFORE reading already-enabled state; plugin enable callbacks
+            // cannot be lost during construction. No optional Fancy API is touched.
+            if (registerForLateEnable) {
+                registerWithRollback(
+                        () -> Bukkit.getPluginManager().registerEvents(this, RaycastedAntiESP.get()),
+                        () -> HandlerList.unregisterAll(this));
+                listenerRegistered = true;
+            }
+            startIfEnabled(Integration.FANCY_NPCS);
+            startIfEnabled(Integration.FANCY_HOLOGRAMS);
+        } catch (RuntimeException | Error failure) {
+            try {
+                close();
+            } catch (RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
+    }
+
+    // A plugin manager may partially register handlers before it throws. In that case,
+    // clean up this listener even though registration never reported success.
+    static void registerWithRollback(Runnable register, Runnable unregister) {
+        try {
+            register.run();
+        } catch (RuntimeException | Error failure) {
+            try {
+                unregister.run();
+            } catch (RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPluginEnable(PluginEnableEvent event) {
+        if (!closed && event.getPlugin().isEnabled()) {
+            onPluginEnabledName(event.getPlugin().getName());
+        }
+    }
+
+    void onPluginEnabledName(String pluginName) {
+        if (closed) {
+            return;
+        }
+        for (Integration integration : Integration.values()) {
+            if (integration.pluginName.equals(pluginName)) {
+                startIfEnabled(integration);
+            }
+        }
+    }
+
+    private void startIfEnabled(Integration integration) {
+        if (closed || startedIntegrations.contains(integration)) {
+            return;
+        }
+        int countBefore = integrations.size();
+        loadIfEnabled(integration, isPluginEnabled, integrationClassLoader, factory, integrations::add);
+        if (integrations.size() != countBefore) {
+            startedIntegrations.add(integration);
+        }
     }
 
     @SuppressWarnings("PMD.GuardLogStatement") // CubiLogging performs its own level filtering.
@@ -60,6 +153,7 @@ public final class FancyCompatibility implements AutoCloseable {
             Integration integration,
             Predicate<String> pluginEnabled,
             ClassLoader classLoader,
+            IntegrationFactory factory,
             Consumer<AutoCloseable> integrationOwner) {
         Objects.requireNonNull(integrationOwner, "integrationOwner");
         if (!pluginEnabled.test(integration.pluginName)) {
@@ -67,14 +161,7 @@ public final class FancyCompatibility implements AutoCloseable {
         }
 
         try {
-            // nosemgrep: java.lang.security.audit.unsafe-reflection.unsafe-reflection -- class name is selected only from the private enum above.
-            Class<?> integrationClass = Class.forName(integration.implementationClass, true, classLoader);
-            Object instance = integrationClass.getDeclaredConstructor().newInstance();
-            if (!(instance instanceof AutoCloseable closeable)) {
-                throw new IllegalStateException(
-                        "Optional integration does not implement AutoCloseable: " + integration.implementationClass);
-            }
-            integrationOwner.accept(closeable);
+            integrationOwner.accept(factory.create(integration.implementationClass, classLoader));
         } catch (ReflectiveOperationException | LinkageError | RuntimeException throwable) {
             Logger.error(
                     "Unable to initialize optional " + integration.pluginName
@@ -88,14 +175,27 @@ public final class FancyCompatibility implements AutoCloseable {
 
     @Override
     public void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
         Throwable failure = null;
+        if (listenerRegistered) {
+            listenerRegistered = false;
+            try {
+                HandlerList.unregisterAll(this);
+            } catch (RuntimeException | Error throwable) {
+                // Keep closing integrations even when Bukkit listener removal fails.
+                failure = throwable;
+            }
+        }
         for (int index = integrations.size() - 1; index >= 0; index--) {
             try {
                 integrations.get(index).close();
-            } catch (Exception | LinkageError throwable) {
+            } catch (Exception | Error throwable) {
                 if (failure == null) {
                     failure = throwable;
-                } else {
+                } else if (failure != throwable) {
                     failure.addSuppressed(throwable);
                 }
             }
@@ -105,8 +205,8 @@ public final class FancyCompatibility implements AutoCloseable {
         if (failure instanceof RuntimeException runtimeException) {
             throw runtimeException;
         }
-        if (failure instanceof LinkageError linkageError) {
-            throw linkageError;
+        if (failure instanceof Error error) {
+            throw error;
         }
         if (failure != null) {
             throw new IllegalStateException("Unable to close one or more optional compatibility layers", failure);

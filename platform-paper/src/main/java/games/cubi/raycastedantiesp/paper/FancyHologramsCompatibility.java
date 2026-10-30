@@ -8,6 +8,7 @@
 
 package games.cubi.raycastedantiesp.paper;
 
+import de.oliver.fancyholograms.api.FancyHologramsPlugin;
 import de.oliver.fancyholograms.api.events.HologramCreateEvent;
 import de.oliver.fancyholograms.api.events.HologramDeleteEvent;
 import de.oliver.fancyholograms.api.events.HologramShowEvent;
@@ -21,6 +22,16 @@ import org.bukkit.event.EventPriority;
 final class FancyHologramsCompatibility extends PaperListener {
     FancyHologramsCompatibility() {
         register();
+        try {
+            // Holograms may already have loaded during FancyHolograms.onEnable.
+            var plugin = FancyHologramsPlugin.get();
+            if (plugin != null && plugin.getHologramManager() != null) {
+                plugin.getHologramManager().getHolograms().forEach(this::add);
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            close();
+            throw failure;
+        }
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)

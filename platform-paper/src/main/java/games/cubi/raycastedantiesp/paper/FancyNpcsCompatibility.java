@@ -8,7 +8,7 @@
 
 package games.cubi.raycastedantiesp.paper;
 
-import de.oliver.fancynpcs.api.events.NpcCreateEvent;
+import de.oliver.fancynpcs.api.FancyNpcsPlugin;
 import de.oliver.fancynpcs.api.events.NpcModifyEvent;
 import de.oliver.fancynpcs.api.events.NpcRemoveEvent;
 import de.oliver.fancynpcs.api.events.NpcSpawnEvent;
@@ -20,15 +20,36 @@ import org.bukkit.event.EventPriority;
 final class FancyNpcsCompatibility extends PaperListener {
     FancyNpcsCompatibility() {
         register();
+        try {
+            // PluginEnableEvent occurs AFTER FancyNpcs.onEnable; therefore
+            // backfill NPCs that were constructed before this listener existed.
+            var plugin = FancyNpcsPlugin.get();
+            if (plugin != null && plugin.getNpcManager() != null) {
+                // A registered but not yet created FancyNPC has no native
+                // entity handle. In FancyNpcs 2.12.1, getEntityId() then
+                // dereferences a null internal entity. Skip that NPC now;
+                // its create/spawn callback will register the live ID later.
+                for (var npc : plugin.getNpcManager().getAllNpcs()) {
+                    if (npc == null) {
+                        continue;
+                    }
+                    try {
+                        EntityBypassRegistry.addEntity(npc.getEntityId());
+                    } catch (NullPointerException notYetCreated) {
+                        continue;
+                    }
+                }
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            close();
+            throw failure;
+        }
     }
 
+    // FancyNpcs calls NpcCreateEvent before npc.create(), when getEntityId() is invalid.
+    // NpcSpawnEvent runs before viewer spawn packets and is the safe registration point.
     @EventHandler(priority = EventPriority.LOWEST)
     public void onNpcSpawn(NpcSpawnEvent event) {
-        EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onNpcCreate(NpcCreateEvent event) {
         EntityBypassRegistry.addEntity(event.getNpc().getEntityId());
     }
 
