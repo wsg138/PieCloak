@@ -103,7 +103,9 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
             try {
                 close();
             } catch (RuntimeException | Error cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
+                if (cleanupFailure != failure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
             }
             throw failure;
         }
@@ -118,12 +120,27 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
             try {
                 unregister.run();
             } catch (RuntimeException | Error cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
+                if (cleanupFailure != failure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
             }
             throw failure;
         }
     }
 
+    static Throwable unregisterRetainingFailure(Throwable priorFailure, Runnable unregister) {
+        try {
+            unregister.run();
+        } catch (RuntimeException | Error cleanupFailure) {
+            if (priorFailure == null) {
+                return cleanupFailure;
+            }
+            if (priorFailure != cleanupFailure) {
+                priorFailure.addSuppressed(cleanupFailure);
+            }
+        }
+        return priorFailure;
+    }
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPluginEnable(PluginEnableEvent event) {
         if (!closed && event.getPlugin().isEnabled()) {
@@ -230,12 +247,10 @@ public final class FancyCompatibility implements AutoCloseable, Listener {
         Throwable failure = integrationFailure;
         if (listenerRegistered) {
             listenerRegistered = false;
-            try {
-                HandlerList.unregisterAll(this);
-            } catch (RuntimeException | Error throwable) {
-                // Keep closing integrations even when Bukkit listener removal fails.
-                failure = throwable;
-            }
+            // Preserve a previous failed optional teardown as the primary cause;
+            // listener cleanup failures are separate suppressed evidence.
+            failure = unregisterRetainingFailure(
+                    failure, () -> HandlerList.unregisterAll(this));
         }
         for (int index = integrations.size() - 1; index >= 0; index--) {
             try {

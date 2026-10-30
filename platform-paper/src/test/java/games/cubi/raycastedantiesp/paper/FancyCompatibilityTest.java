@@ -56,6 +56,37 @@ class FancyCompatibilityTest {
     }
 
     @Test
+    void registerRollbackDoesNotSelfSuppressTheOriginalFailure() {
+        IllegalStateException sameFailure = new IllegalStateException("same throwable");
+        IllegalStateException observed = assertThrows(IllegalStateException.class,
+                () -> FancyCompatibility.registerWithRollback(
+                        () -> { throw sameFailure; },
+                        () -> { throw sameFailure; }));
+        assertSame(sameFailure, observed);
+        assertEquals(0, observed.getSuppressed().length);
+    }
+
+    @Test
+    void listenerUnregisterPreservesPreviousIntegrationTeardownFailure() {
+        IllegalStateException original = new IllegalStateException("plugin disable failed");
+        AssertionError unregisterFailure = new AssertionError("parent listener cleanup failed");
+        Throwable observed = FancyCompatibility.unregisterRetainingFailure(
+                original, () -> { throw unregisterFailure; });
+        assertSame(original, observed);
+        assertEquals(1, observed.getSuppressed().length);
+        assertSame(unregisterFailure, observed.getSuppressed()[0]);
+    }
+
+    @Test
+    void listenerUnregisterHandlesAbsentAndIdenticalPriorFailure() {
+        IllegalStateException sameFailure = new IllegalStateException("same unregister");
+        assertSame(sameFailure, FancyCompatibility.unregisterRetainingFailure(
+                null, () -> { throw sameFailure; }));
+        assertSame(sameFailure, FancyCompatibility.unregisterRetainingFailure(
+                sameFailure, () -> { throw sameFailure; }));
+        assertEquals(0, sameFailure.getSuppressed().length);
+    }
+    @Test
     void closeAttemptsEveryIntegrationAfterAnErrorAndPreservesFailures() {
         List<String> calls = new ArrayList<>();
         FancyCompatibility compatibility = new FancyCompatibility(
