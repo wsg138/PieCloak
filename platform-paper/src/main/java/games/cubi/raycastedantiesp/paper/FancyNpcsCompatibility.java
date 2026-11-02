@@ -21,6 +21,7 @@ import org.bukkit.event.EventPriority;
 final class FancyNpcsCompatibility extends PaperListener {
     private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyNpcScope();
     private final WeakIdentityRetirementGuard<Npc> retiredNpcs = new WeakIdentityRetirementGuard<>(bypassScope);
+    private FancyWeakOwnerSweeper weakOwnerSweeper;
     FancyNpcsCompatibility() {
         try {
             register();
@@ -43,6 +44,7 @@ final class FancyNpcsCompatibility extends PaperListener {
                     }
                 }
             }
+            weakOwnerSweeper = new FancyWeakOwnerSweeper(retiredNpcs);
         } catch (RuntimeException | Error failure) {
             try {
                 close();
@@ -83,7 +85,13 @@ final class FancyNpcsCompatibility extends PaperListener {
         try {
             super.close();
         } finally {
-            bypassScope.close();
+            try {
+                if (weakOwnerSweeper != null) {
+                    weakOwnerSweeper.close();
+                }
+            } finally {
+                bypassScope.close();
+            }
         }
     }
 }
