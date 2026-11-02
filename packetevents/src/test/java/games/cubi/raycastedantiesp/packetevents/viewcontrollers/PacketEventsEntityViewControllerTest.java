@@ -18,6 +18,8 @@ import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
+import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 
@@ -71,6 +73,50 @@ class PacketEventsEntityViewControllerTest {
         for (EntityType boat : boats) {
             assertTrue(PacketEventsEntityViewController.isPassengerVehicle(boat), boat.getName().toString());
         }
+    }
+
+    @AfterEach
+    void resetBypassRegistry() {
+        EntityBypassRegistry.reset();
+    }
+
+    @Test
+    void fancyBypassDoesNotSkipIndependentUpstreamSpawnClassification() {
+        int entityId = 76543;
+        var npcScope = EntityBypassRegistry.openFancyNpcScope();
+        npcScope.addEntity(entityId);
+        assertTrue(PacketEventsEntityViewController.resolveClassifiedSpawnBypass(
+                entityId, true, false, true, true));
+        npcScope.close();
+        // This reason must have been recorded by the actual spawn decision path,
+        // not manually injected by the test after Fancy registration.
+        assertTrue(EntityBypassRegistry.isBypassed(entityId));
+        assertTrue(EntityBypassRegistry.markEntityDespawned(entityId));
+        assertFalse(EntityBypassRegistry.isBypassed(entityId));
+    }
+
+    @Test
+    void fancyOnlySpawnDoesNotAcquireUnrelatedGlobalExclusion() {
+        int entityId = 76544;
+        var npcScope = EntityBypassRegistry.openFancyNpcScope();
+        npcScope.addEntity(entityId);
+        assertTrue(PacketEventsEntityViewController.resolveClassifiedSpawnBypass(
+                entityId, true, false, true, false));
+        npcScope.close();
+        assertFalse(EntityBypassRegistry.isBypassed(entityId));
+    }
+
+    @Test
+    void playerSpawnAndOrdinaryUpstreamSpawnRetainExistingPolicy() {
+        int playerId = 76545;
+        assertFalse(PacketEventsEntityViewController.resolveClassifiedSpawnBypass(
+                playerId, false, true, false, true));
+        assertFalse(EntityBypassRegistry.isBypassed(playerId));
+
+        int entityId = 76546;
+        assertTrue(PacketEventsEntityViewController.resolveClassifiedSpawnBypass(
+                entityId, false, false, true, true));
+        assertTrue(EntityBypassRegistry.isBypassed(entityId));
     }
 
     @Test

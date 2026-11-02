@@ -435,18 +435,33 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         if (EntityBypassRegistry.isRelationshipSupportEntity(entityID)) {
             return false;
         }
-        if (isBypassed(entityID)) {
+        boolean alreadyBypassed = isBypassed(entityID);
+        boolean relationshipSupportTarget = shouldTrackRelationshipSupport(
+                isPlayer, isPassengerVehicle(packet.getEntityType()));
+        // Preserve the existing early bypass for players and passenger vehicles. Non-player
+        // ordinary entities must still receive their own upstream classification,
+        // even if Fancy already added a separate bypass reason.
+        if (alreadyBypassed && (isPlayer || relationshipSupportTarget)) {
             return true;
         }
-        if (shouldTrackRelationshipSupport(isPlayer, isPassengerVehicle(packet.getEntityType()))) {
+        if (relationshipSupportTarget) {
+
             EntityBypassRegistry.addRelationshipSupportEntity(entityID);
             return false;
         }
         boolean excludedByUpstream = EntityTypeExclusions.excludes(getPrimitiveEntityType(packet.getEntityType()));
         boolean managedByPieCloak = targetFilter.shouldCullEntity(packet.getEntityType(), isPlayer);
+        return resolveClassifiedSpawnBypass(entityID, alreadyBypassed, isPlayer,
+                managedByPieCloak, excludedByUpstream);
+    }
+
+    static boolean resolveClassifiedSpawnBypass(
+            int entityID, boolean alreadyBypassed, boolean isPlayer,
+            boolean managedByPieCloak, boolean excludedByUpstream) {
         if (shouldManageSpawnTarget(isPlayer, managedByPieCloak, excludedByUpstream)) {
-            return false;
+            return alreadyBypassed;
         }
+        // This reason is independent of any optional Fancy integration's lifetime.
         EntityBypassRegistry.addEntity(entityID);
         return true;
     }
