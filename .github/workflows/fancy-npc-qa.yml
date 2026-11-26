@@ -1,0 +1,59 @@
+name: Fancy NPC runtime acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'qa/fancy/**'
+      - 'platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/Fancy*'
+      - 'platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/WeakIdentityRetirementGuard.java'
+      - '.github/workflows/fancy-npc-qa.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fancy-qa-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  paper-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Generate and build exact candidate
+        run: |
+          set -euo pipefail
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:buildSnapshot --no-daemon
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install isolated protocol clients
+        run: |
+          npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund mineflayer@4.39.0
+          echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
+          node --version
+          java -version
+      - name: Test real FancyNpcs lifecycle and packets
+        run: python3 qa/fancy/run.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: fancy-runtime-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/piecloak-fancy-qa/*/server.log
+            ${{ runner.temp }}/piecloak-fancy-qa/*/clients.jsonl
+          if-no-files-found: warn
+          retention-days: 7
