@@ -48,7 +48,7 @@ for p in sorted(retain):
     put(p,old(p))
 # Preserve the old strict DDA rather than exchanging it for an algorithm that
 # intentionally misses intermediate voxels; expose upstream chunk-view API.
-edit("build.gradle.kts",lambda s:s+"\n"+upstream("build.gradle.kts")+"\n")
+edit("build.gradle.kts",lambda s:s.rstrip()+"\n\n"+upstream("build.gradle.kts").rstrip()+"\n")
 edit(C+"view/BlockView.java",lambda s:replace(s,"    boolean isBlockOccluding(int x, int y, int z);","""    boolean isBlockOccluding(int x, int y, int z);
 
     default games.cubi.raycastedantiesp.core.chunks.ChunkOcclusionView getChunkOcclusionView(int chunkX, int chunkY, int chunkZ) {
