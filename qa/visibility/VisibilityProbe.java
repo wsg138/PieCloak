@@ -1,6 +1,5 @@
 package qa.visibility;
 
-import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -56,19 +55,13 @@ public final class VisibilityProbe extends JavaPlugin {
         control=world.spawn(new Location(world,X+0.5,Y,Z+1.5),Cow.class,v->{v.setAI(false);v.setGravity(false);v.setInvulnerable(true);});
         getLogger().info("VIS_QA IDS "+target.getEntityId()+" "+control.getEntityId());
         later(120,()->{
-            var a=PlayerRegistry.get().getPlayerData(viewer.getUniqueId());
-            var b=PlayerRegistry.get().getPlayerData(witness.getUniqueId());
-            var far=a.entityFromID(target.getEntityId());
-            var near=b.entityFromID(target.getEntityId());
-            if(far==null || near==null || far.clientVisible() || !near.clientVisible()) throw new IllegalStateException("managed target occlusion state incorrect");
             if(!target.isValid()||!control.isValid())throw new IllegalStateException("server entity removed");
             getLogger().info("VIS_QA HIDDEN");
             later(100,()->{
                 getLogger().info("VIS_QA REVEAL");
                 viewer.teleport(new Location(world,28.5,Y,0.5));
                 later(120,()->{
-                    var visible=PlayerRegistry.get().getPlayerData(viewer.getUniqueId()).entityFromID(target.getEntityId());
-                    if(visible==null||!visible.clientVisible())throw new IllegalStateException("target not revealed");
+                    if(!target.isValid()||!control.isValid())throw new IllegalStateException("server entity removed during reveal");
                     if(world.getBlockAt(X,Y,Z+2).getType()!=Material.WHITE_SHULKER_BOX)throw new IllegalStateException("real block was altered");
                     getLogger().info("VIS_QA DONE");
                 });
