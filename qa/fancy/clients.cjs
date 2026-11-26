@@ -7,6 +7,7 @@ for (const username of names) {
     host: '127.0.0.1', port: Number(process.argv[2]), username,
     version: '1.21.11', auth: 'offline'
   })
+  bot.physicsEnabled = false
   bots.push(bot)
   const emit = (event, value) => console.log(JSON.stringify({ username, event, value }))
   bot._client.on('packet', (data, meta) => {
