@@ -119,6 +119,9 @@ abstract class AbstractChunkParser<D> implements ChunkParser {
                             } else if (state != null && !state.visible()) {
                                 section.set(localX, localY, localZ, hiddenBlockID.applyAsInt(blockY));
                                 mutatedBlock = true;
+                                state.setClientVisible(false);
+                            } else if (state != null) {
+                                state.setClientVisible(true);
                             }
                         }
                     }

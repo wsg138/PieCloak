@@ -254,8 +254,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         updateTileExemptionState(tileEntity, exempt);
         ensureTileReplayData(tileEntity).setBlockEntityData(packet.getBlockEntityType(), packet.getNBT());
         if (tileChecksEnabled && exempt) {
-            if (!tileEntity.visible()) {
-                blockView.recordOutboundTileEntityVisibility(tileEntity, true);
+            if (!tileEntity.visible() || !tileEntity.clientVisible()) {
+                tileEntity.setVisible(true);
+                tileEntity.setLastChecked(TrackedTileEntity.NEVER_CHECKED);
                 event.setCancelled(true);
                 processInitialTileEntityOperationSafely(playerData, viewer, Operation.SHOW, tileEntity,
                         blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK,
@@ -373,6 +374,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 } else if (state != null && !state.visible()) {
                     change.setBlockId(getHiddenBlockId(key.blockY()));
                     event.markForReEncode(true);
+                    state.setClientVisible(false);
+                } else if (state != null) {
+                    state.setClientVisible(true);
                 }
             } else {
                 blockView.removeTileEntity(world, key);
@@ -565,6 +569,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 () -> viewer.writePacketSilently(getBlockChangeWith(
                         state.blockX(), state.blockY(), state.blockZ(), getHiddenBlockId(state.blockY()))),
                 null);
+        state.setClientVisible(false);
     }
 
     private void showTileEntity(User viewer, BlockView blockView,
@@ -595,11 +600,10 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 ? () -> viewer.writePacketSilently(buildBlockEntityDataPacket(tileEntity, replayData))
                 : null;
         executeTransitionWrites(operation, stage,
-                () -> {
-                    viewer.writePacketSilently(getBlockChangeWith(tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), tileEntity.blockID()));
-                    tileEntity.setClientVisible(true);
-                },
+                () -> viewer.writePacketSilently(getBlockChangeWith(
+                        tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), tileEntity.blockID())),
                 blockEntityDataWrite);
+        tileEntity.setClientVisible(true);
     }
 
     static void executeTransitionWrites(Operation operation, Stage startingStage,
@@ -652,6 +656,8 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 processInitialTileEntityOperationSafely(playerData, viewer, Operation.HIDE, state,
                         blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK,
                         playerData.acquireWorldEpoch());
+            } else if (state != null) {
+                state.setClientVisible(true);
             }
         } else {
             blockView.removeTileEntity(world, location);
