@@ -1,0 +1,63 @@
+name: Reconcile upstream integration candidate
+on:
+  push:
+    branches: ['integration/upstream-20261126']
+    paths: ['.github/workflows/integrate-upstream.yml','maintenance/integrate.py']
+permissions:
+  contents: write
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Reconcile pinned source histories
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp maintenance/integrate.py "$RUNNER_TEMP/integrate.py"
+          fork=d535948e203754e7c57c386e03360c050757bda4
+          upstream=373343e96706885c057bb00613dd113d68ec9f33
+          baseline=853fa1531acbbb1458f776bbe2dc637fd0d40b7c
+          git fetch --no-tags https://github.com/Cubicake/RaycastedAntiESP.git main
+          test "$(git rev-parse FETCH_HEAD)" = "$upstream"
+          git checkout --detach "$fork"
+          rc=0
+          git merge-tree --write-tree --name-only --merge-base="$baseline" "$fork" "$upstream" > "$RUNNER_TEMP/merge.txt" || rc=$?
+          test "$rc" -le 1
+          tree="$(head -n 1 "$RUNNER_TEMP/merge.txt")"
+          git read-tree --reset -u "$tree"
+          python3 "$RUNNER_TEMP/integrate.py" "$fork" "$upstream" "$baseline"
+          git add -A
+          git diff --cached --check
+          git config user.name "PieCloak integration"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tree="$(git write-tree)"
+          commit="$(printf '%s\n' 'Integrate upstream 373343e with PieCloak policy adaptations (candidate)' | git commit-tree "$tree" -p "$fork" -p "$upstream")"
+          git checkout --detach "$commit"
+          git push origin "$commit:refs/heads/integration/upstream-candidate-20261126"
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          git diff --stat "$fork" HEAD
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Compile and run full regression suite
+        run: |
+          set -euo pipefail
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: success()
+        with:
+          name: upstream-integration-candidate-jar
+          path: platform-paper/build/libs/RaycastedAntiESP-*.jar
+          if-no-files-found: error
