@@ -24,6 +24,7 @@ import java.util.function.Function;
  * Weak keys allow abandoned owners to release their bypasses on queue drain.
  */
 final class WeakIdentityRetirementGuard<T> {
+    private static final String OWNER_PARAM = "owner";
     private final EntityBypassRegistry.BypassScope bypassScope;
     private final ReferenceQueue<T> referenceQueue = new ReferenceQueue<>();
     private final Map<IdentityReference<T>, OwnerState> owners = new HashMap<>();
@@ -38,20 +39,22 @@ final class WeakIdentityRetirementGuard<T> {
      * Concurrent callbacks cannot publish a previously captured ID after a newer
      * callback has already registered its replacement.
      */
-    synchronized boolean registerCurrent(T owner, Function<? super T, Integer> resolver) {
-        Objects.requireNonNull(owner, "owner");
+    boolean registerCurrent(T owner, Function<? super T, Integer> resolver) {
+        Objects.requireNonNull(owner, OWNER_PARAM);
         Objects.requireNonNull(resolver, "resolver");
-        discardCollected();
-        OwnerState state = getOrCreate(owner);
-        if (state.permanentlyRetired) {
-            return false;
+        synchronized (this) {
+            discardCollected();
+            OwnerState state = getOrCreate(owner);
+            if (state.permanentlyRetired) {
+                return false;
+            }
+            Integer entityId = resolver.apply(owner);
+            return entityId != null && registerIfActive(owner, entityId);
         }
-        Integer entityId = resolver.apply(owner);
-        return entityId != null && registerIfActive(owner, entityId);
     }
 
     boolean registerIfActive(T owner, int entityId) {
-        Objects.requireNonNull(owner, "owner");
+        Objects.requireNonNull(owner, OWNER_PARAM);
         synchronized (this) {
             discardCollected();
             OwnerState state = getOrCreate(owner);
@@ -78,7 +81,7 @@ final class WeakIdentityRetirementGuard<T> {
     }
 
     void retire(T owner, int entityId) {
-        Objects.requireNonNull(owner, "owner");
+        Objects.requireNonNull(owner, OWNER_PARAM);
         synchronized (this) {
             discardCollected();
             OwnerState state = getOrCreate(owner);
@@ -99,16 +102,18 @@ final class WeakIdentityRetirementGuard<T> {
      * callbacks on the deleted object. This tombstone is identity-scoped and
      * weakly held, so replacement NPC objects and other integrations are unaffected.
      */
-    synchronized void retireOwner(T owner) {
-        Objects.requireNonNull(owner, "owner");
-        discardCollected();
-        OwnerState state = getOrCreate(owner);
-        state.permanentlyRetired = true;
-        for (int activeId : state.activeIds) {
-            releaseOwner(activeId);
+    void retireOwner(T owner) {
+        Objects.requireNonNull(owner, OWNER_PARAM);
+        synchronized (this) {
+            discardCollected();
+            OwnerState state = getOrCreate(owner);
+            state.permanentlyRetired = true;
+            for (int activeId : state.activeIds) {
+                releaseOwner(activeId);
+            }
+            state.activeIds.clear();
+            state.retiredIds.clear();
         }
-        state.activeIds.clear();
-        state.retiredIds.clear();
     }
 
     // The queue must also be polled during quiet periods: without a scheduled

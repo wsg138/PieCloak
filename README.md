@@ -42,7 +42,7 @@ Use a full server restart when updating PieCloak or Fancy integrations.
 | Leaf / Folia / Geyser | Existing integrations retained; this candidate's full platform-specific acceptance remains pending |
 | Hot disable / re-enable | Not a supported FancyNpcs upgrade path; use a full process restart |
 
-The newer FancyNpcs checks are documented in [TESTING.md](TESTING.md) and the [hosted runtime test results](https://github.com/wsg138/PieCloak/actions/runs/45768946135). These results do not imply the older published JAR includes the fix or that every platform or optional integration has been fully validated.
+The newer FancyNpcs checks are on [PR #34](https://github.com/wsg138/PieCloak/pull/34), with [hosted runtime test results](https://github.com/wsg138/PieCloak/actions/runs/45768946135). These results do not imply the older published JAR includes the fix or that every platform or optional integration has been fully validated.
 
 ## What players should know
 

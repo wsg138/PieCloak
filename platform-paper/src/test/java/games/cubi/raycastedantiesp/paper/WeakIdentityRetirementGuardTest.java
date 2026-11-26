@@ -262,8 +262,7 @@ class WeakIdentityRetirementGuardTest {
             Object owner = new Object();
             assertTrue(guard.registerIfActive(owner, 1000));
             var start = new CountDownLatch(1);
-            var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
-            try {
+            try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
                 var spawn = executor.submit(() -> {
                     start.await();
                     for (int id = 1001; id < 1060; id++) {
@@ -283,8 +282,6 @@ class WeakIdentityRetirementGuardTest {
                     assertFalse(guard.registerIfActive(owner, id));
                     assertFalse(EntityBypassRegistry.isBypassed(id));
                 }
-            } finally {
-                executor.shutdownNow();
             }
         }
     }
@@ -333,36 +330,37 @@ class WeakIdentityRetirementGuardTest {
         var firstRead = new CountDownLatch(1);
         var secondStarted = new CountDownLatch(1);
         var allowFirst = new CountDownLatch(1);
-        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
-        try {
-            var first = executor.submit(() -> guard.registerCurrent(owner, ignored -> {
-                int captured = nativeId.get();
-                firstRead.countDown();
-                try {
-                    if (!allowFirst.await(5, TimeUnit.SECONDS)) {
-                        throw new AssertionError("first callback was not released");
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            try {
+                var first = executor.submit(() -> guard.registerCurrent(owner, ignored -> {
+                    int captured = nativeId.get();
+                    firstRead.countDown();
+                    try {
+                        if (!allowFirst.await(5, TimeUnit.SECONDS)) {
+                            throw new AssertionError("first callback was not released");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
                     }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new AssertionError(e);
-                }
-                return captured;
-            }));
-            assertTrue(firstRead.await(5, TimeUnit.SECONDS));
-            nativeId.set(1202);
-            var second = executor.submit(() -> {
-                secondStarted.countDown();
-                return guard.registerCurrent(owner, ignored -> nativeId.get());
-            });
-            assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
-            allowFirst.countDown();
-            assertTrue(first.get(5, TimeUnit.SECONDS));
-            assertTrue(second.get(5, TimeUnit.SECONDS));
-            assertFalse(EntityBypassRegistry.isBypassed(1201));
-            assertTrue(EntityBypassRegistry.isBypassed(1202));
-        } finally {
-            allowFirst.countDown();
-            executor.shutdownNow();
+                    return captured;
+                }));
+                assertTrue(firstRead.await(5, TimeUnit.SECONDS));
+                nativeId.set(1202);
+                var second = executor.submit(() -> {
+                    secondStarted.countDown();
+                    return guard.registerCurrent(owner, ignored -> nativeId.get());
+                });
+                assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
+                allowFirst.countDown();
+                assertTrue(first.get(5, TimeUnit.SECONDS));
+                assertTrue(second.get(5, TimeUnit.SECONDS));
+                assertFalse(EntityBypassRegistry.isBypassed(1201));
+                assertTrue(EntityBypassRegistry.isBypassed(1202));
+            } finally {
+                allowFirst.countDown();
+                executor.shutdownNow();
+            }
         }
     }
 }
