@@ -1,12 +1,48 @@
+<div align="center">
+
 # PieCloak
 
+**Selective anti-ESP and base-clue protection for Minecraft servers.**
+
+[![Download PieCloak](https://img.shields.io/badge/Download-PieCloak_JAR-238636?style=for-the-badge&logo=github)](https://github.com/wsg138/PieCloak/releases)
+[![Build](https://github.com/wsg138/PieCloak/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/wsg138/PieCloak/actions/workflows/build.yml)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/5aa184993c2247ca9df86b95e6b6361f)](https://app.codacy.com/gh/wsg138/PieCloak/dashboard)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+
+[Download & installation](#download--installation) · [Compatibility](#compatibility) · [Configuration](#current-production-values) · [Commands](#commands) · [Build from source](#build)
+
+</div>
 
 PieCloak is Enthusia SMP's anti-ESP/base-finding layer and a public modified fork of [RaycastedAntiESP](https://github.com/Cubicake/RaycastedAntiESP). It is designed to hide selected **base clues** from clients when those clues should not actually be visible, reducing information available to pie-chart/entity/block-entity based base-finding tools without changing the real server-side entities or blocks.
 
 It keeps the upstream packet, async-engine, chunk-processing, compatibility, and performance work while applying anti-ESP handling only to an explicit allowlist of clues used on Enthusia. Anything outside that allowlist is sent normally.
 
-Public source: https://github.com/wsg138/PieCloak
+## Download & installation
+
+**[Download the published release candidate (.jar)](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-01-bd6f034/PieCloak-1.21.11-2026-11-01-bd6f034.jar)** · [Release notes and SHA-256](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-01-bd6f034)
+
+The November 1 published candidate predates the newer FancyNpcs lifecycle fix. For newer development builds, see [GitHub Actions](https://github.com/wsg138/PieCloak/actions/workflows/build.yml); successful runs contain a shaded JAR artifact. Actions artifacts are temporary and may require a GitHub sign-in. The complete upstream update is not released yet.
+
+1. Install a compatible [PacketEvents](https://modrinth.com/plugin/packetevents) JAR.
+2. Stop the server and back up your existing PieCloak configuration.
+3. Place the PieCloak JAR in the server's `plugins/` directory, replacing any previous PieCloak JAR. Do not install RaycastedAntiESP alongside it.
+4. Start the server, inspect startup logs, and review the generated configuration before changing its target allowlist.
+
+Use a full server restart when updating PieCloak or Fancy integrations.
+
+## Compatibility
+
+| Component | Supported baseline / verification |
+| --- | --- |
+| Minecraft / Paper | 1.21.11; hosted lifecycle tests on Paper build 132 |
+| Java | 21 build target; expanded hosted runtime tests used Java 25 |
+| PacketEvents | Required; 2.12.0 tested |
+| FancyNpcs | Optional; 2.12.1 tested for spawning, deletion, type changes, interaction, movement, visibility range and saved NPCs after restart |
+| FancyHolograms | Optional; 2.12.0 installed alongside FancyNpcs during the same tests |
+| Leaf / Folia / Geyser | Existing integrations retained; this candidate's full platform-specific acceptance remains pending |
+| Hot disable / re-enable | Not a supported FancyNpcs upgrade path; use a full process restart |
+
+The newer FancyNpcs checks are on [PR #34](https://github.com/wsg138/PieCloak/pull/34), with [hosted runtime test results](https://github.com/wsg138/PieCloak/actions/runs/45768946135). These results do not imply the older published JAR includes the fix or that every platform or optional integration has been fully validated.
 
 ## What players should know
 
