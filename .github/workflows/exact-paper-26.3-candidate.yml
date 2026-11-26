@@ -1,7 +1,7 @@
-name: Exact 26.3 build runtime acceptance
+name: Exact 26.3 build managed visibility acceptance
 on:
   push:
-    branches: [qa/paper-26.3-exact-built-candidate]
+    branches: [qa/paper-26.3-exact-visibility]
 permissions:
   contents: read
   actions: read
@@ -47,18 +47,12 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund @wp2508/mineflayer@4.42.9
           echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
-      - name: Fancy integrations and legacy migration
-        run: python3 qa/fancy/run.py
-      - name: Native and synthetic cancellation
-        if: always() && env.PIECLOAK_CANDIDATE != ''
-        run: python3 qa/cancel/run.py
       - name: Actual managed entity and block occlusion
-        if: always() && env.PIECLOAK_CANDIDATE != ''
         run: python3 qa/visibility/run.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: exact-paper-26.3-runtime-logs
+          name: exact-paper-26.3-visibility-logs
           path: |
             ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
             ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
