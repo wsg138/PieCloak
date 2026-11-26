@@ -119,6 +119,19 @@ class ClientStateResetterTest {
         assertFalse(PlayerRegistry.get().unregisterPlayer(playerUUID, oldGeneration));
         assertSame(newGeneration, PlayerRegistry.get().getPlayerData(playerUUID));
         assertTrue(newGeneration.isConnected());
+        assertEquals(1, PlayerRegistry.get().getPlayerDataArray().length);
+        assertSame(newGeneration, PlayerRegistry.get().getPlayerDataArray()[0]);
+        assertTrue(PlayerRegistry.get().unregisterPlayer(playerUUID, newGeneration));
+        assertEquals(0, PlayerRegistry.get().getPlayerDataArray().length);
+    }
+
+    @Test
+    void registryClearPublishesEmptySnapshot() {
+        register(UUID.randomUUID());
+        register(UUID.randomUUID());
+        assertEquals(2, PlayerRegistry.get().getPlayerDataArray().length);
+        PlayerRegistry.get().clear();
+        assertEquals(0, PlayerRegistry.get().getPlayerDataArray().length);
     }
 
     private PlayerData register(UUID playerUUID) {

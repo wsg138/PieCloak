@@ -35,6 +35,10 @@ PieCloak is a modified fork of [RaycastedAntiESP](https://github.com/Cubicake/Ra
 
 5. Port selected changes as normal commits on top of PieCloak `main`. Prefer small commits with clear messages.
 
+## Upstream integration baseline
+
+The November 26 integration reconciles upstream `373343e96706885c057bb00613dd113d68ec9f33` against the previous documented content baseline `853fa1531acbbb1458f776bbe2dc637fd0d40b7c`. The integration retains both Git histories. The typed schema 2.1, block selectors, logging, registry snapshots, library updates and tile client visibility are integrated. PieCloak deliberately preserves its exact voxel DDA geometry rather than upstream's approximate ray-stepping algorithm; the section lookup optimization is adapted to DDA. The fork retains its stronger staged packet repairs and lifecycle fences. The original 2.0 configuration is backed up as `config.yml.pre-2.1.bak` during migration, and numeric legacy block-state overrides are retained alongside selectors. Target filter and block classification changes remain restart-only.
+
 ## Current Platform Baseline
 
 The active production target is Minecraft 1.21.11 on Java 21 with Paper development bundle `1.21.11-R0.1-SNAPSHOT`. `gradle.properties` is the build source of truth for those values. The root `verifyCurrentPlatformBaseline` task is an intentional guard against accidental target drift.
