@@ -1,0 +1,47 @@
+name: Exact Paper 26.3 release multi-entity burst acceptance
+on:
+  push:
+    branches: [qa/reconciliation-burst-26.3-20261126]
+permissions:
+  contents: read
+jobs:
+  burst:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Prepare probe compile dependencies
+        run: |
+          set -euo pipefail
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew verifyCurrentPlatformBaseline :platform-paper:compileJava --no-daemon
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install isolated protocol clients
+        run: |
+          npm install --prefix "$RUNNER_TEMP/burstqa-node" --ignore-scripts --no-audit --no-fund @wp2508/mineflayer@4.42.9
+          echo "NODE_PATH=$RUNNER_TEMP/burstqa-node/node_modules" >> "$GITHUB_ENV"
+      - name: Exercise burst against checksum-pinned published JAR
+        run: python3 qa/burst/run.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: burst-26.3-acceptance-logs
+          path: |
+            ${{ runner.temp }}/burst-qa/server.log
+            ${{ runner.temp }}/burst-qa/clients.jsonl
+          if-no-files-found: warn
+          retention-days: 14
