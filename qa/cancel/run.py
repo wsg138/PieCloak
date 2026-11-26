@@ -74,7 +74,7 @@ probe = OUT / "probe.jar"
 subprocess.run(["jar", "--create", "--file", str(probe), "-C", str(classes), "."], check=True, timeout=60)
 plugins = OUT / "plugins"
 plugins.mkdir()
-for source in [candidate, packets, probe, FANCY_OUT / "ViaVersion.jar", FANCY_OUT / "ViaBackwards.jar"]:
+for source in [candidate, packets, probe]:
     shutil.copy2(source, plugins / source.name)
 (OUT / "eula.txt").write_text("eula=true\n")
 (OUT / "server.properties").write_text(f"server-ip=127.0.0.1\nserver-port={PORT}\nonline-mode=false\nenforce-secure-profile=false\nlevel-type=minecraft:flat\nview-distance=3\nsimulation-distance=3\nmax-players=2\nspawn-protection=0\nspawn-monsters=false\n")

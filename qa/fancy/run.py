@@ -175,7 +175,7 @@ def scenario(label, paper, candidate, fancy, packets, holograms, probe):
     folder.mkdir()
     plugins = folder / "plugins"
     plugins.mkdir()
-    for src in [candidate, fancy, packets, probe, OUT / "ViaVersion.jar", OUT / "ViaBackwards.jar"] + ([holograms] if holograms else []):
+    for src in [candidate, fancy, packets, probe] + ([holograms] if holograms else []):
         shutil.copy2(src, plugins / src.name)
     shutil.copy2(paper, folder / "paper.jar")
     (folder / "eula.txt").write_text("eula=true\n")
@@ -219,8 +219,6 @@ def main():
     latest_release("fancynpcs", fancy)
     latest_release("packetevents", packets, "2.14.0")
     select_holograms(holograms)
-    latest_release("viaversion", OUT / "ViaVersion.jar")
-    latest_release("viabackwards", OUT / "ViaBackwards.jar")
     probe = compile_probe(candidate, fancy, OUT)
     failures = []
     for label, optional in (("npc-only", None), ("npc-and-holograms", holograms)):

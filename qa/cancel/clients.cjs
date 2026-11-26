@@ -1,6 +1,6 @@
-const mineflayer = require('mineflayer')
+const mineflayer = require('@wp2508/mineflayer')
 for (const username of ['FancyQaA', 'FancyQaB']) {
-  const bot = mineflayer.createBot({host:'127.0.0.1', port:Number(process.argv[2]), username, version:'1.21.11', auth:'offline'})
+  const bot = mineflayer.createBot({host:'127.0.0.1', port:Number(process.argv[2]), username, version:'26.3', auth:'offline'})
   bot._client.on('packet',(data,meta)=>{
     if (meta.name==='spawn_entity') {
       console.log(JSON.stringify({username,event:'spawn',id:data.entityId,at:Date.now()}))
