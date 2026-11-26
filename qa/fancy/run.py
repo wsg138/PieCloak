@@ -179,8 +179,25 @@ def scenario(label, paper, candidate, fancy, packets, holograms, probe):
         "enforce-secure-profile=false\nlevel-type=minecraft:flat\n"
         "view-distance=3\nsimulation-distance=3\nmax-players=2\nspawn-protection=0\n"
         "spawn-monsters=false\n")
+    # One fixture starts fresh; the other uses the actual legacy 2.0 config.
+    legacy = None
+    config = plugins / "PieCloak" / "config.yml"
+    if holograms:
+        legacy_path = ROOT / "qa/fancy/legacy-config.yml"
+        legacy = legacy_path.read_bytes()
+        config.parent.mkdir()
+        config.write_bytes(legacy)
     run_instance(folder, label)
+    if not re.search(r"(?m)^config-version:\s*['\"]?2\.1['\"]?\s*$", config.read_text()):
+        raise AssertionError("config did not start on schema 2.1")
+    if legacy is not None:
+        backup = config.with_name("config.yml.pre-2.1.bak")
+        assert backup.read_bytes() == legacy, "original configuration backup is not byte-identical"
+        assert "target-filter:" in config.read_text(), "legacy allowlist disappeared"
     run_instance(folder, label, restart=True)
+    if legacy is not None:
+        assert backup.read_bytes() == legacy, "restart changed original configuration backup"
+        print("LEGACY_CONFIG_MIGRATION_PASS", flush=True)
 
 def main():
     candidates = sorted((ROOT / "platform-paper/build/libs").glob("RaycastedAntiESP-*.jar"))
