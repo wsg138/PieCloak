@@ -23,13 +23,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          test "$(gh api "repos/$GH_REPO/actions/runs/45881005658" --jq .head_sha)" = "1188e464852dbccd07bfe85209600c8b5a1de5c7"
-          timeout 420 gh run watch 45881005658 --exit-status --interval 10
-          gh run download 45881005658 --name PieCloak-explicit-26.3 --dir "$RUNNER_TEMP/candidate"
+          test "$(gh api "repos/$GH_REPO/actions/runs/45881201244" --jq .head_sha)" = "7234dfdf835147a2c25037e53036c2d55a145e7d"
+          timeout 420 gh run watch 45881201244 --exit-status --interval 10
+          gh run download 45881201244 --name PieCloak-explicit-26.3 --dir "$RUNNER_TEMP/candidate"
           shopt -s nullglob
           jars=("$RUNNER_TEMP/candidate"/RaycastedAntiESP-*.jar)
           test "${#jars[@]}" = 1
-          unzip -p "${jars[0]}" build-properties/platform.yml | grep -Ex 'long-git: (1188e464852dbccd07bfe85209600c8b5a1de5c7|ade8f10d735021cf81816a26ea62ccc42c96bc5c)'
+          unzip -p "${jars[0]}" build-properties/platform.yml | grep -Ex 'long-git: (7234dfdf835147a2c25037e53036c2d55a145e7d|3bfdc5186cbcca1f26dae9fda96c53ffed1f03cc)'
           unzip -p "${jars[0]}" build-properties/platform.yml | grep -Fx 'minecraft-version: 26.3'
           sha=$(sha256sum "${jars[0]}" | cut -d' ' -f1)
           echo "PIECLOAK_CANDIDATE=${jars[0]}" >> "$GITHUB_ENV"
