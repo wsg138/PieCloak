@@ -96,7 +96,7 @@ class ClientStateResetterMissingMetadataTest {
 
     private static final class EntityStub extends NettyEntity<Clearable> {
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID) {
-            super(owningPlayer, entityID, entityUUID);
+            super(owningPlayer, entityID, entityUUID, () -> {});
         }
 
         private static EntityStub createSelf(

@@ -148,6 +148,11 @@ class RaycastUtilTest {
         }
 
         @Override
+        public void spawnParticleAt(UUID world, double x, double y, double z, Colour colour) {
+            spawnParticleAt(world, new ImmutableSpatialImpl(x, y, z), colour);
+        }
+
+        @Override
         public void spawnParticleAt(UUID world, Spatial spatial, Colour colour) {
             worlds.add(world);
             positions.add(new ImmutableSpatialImpl(spatial.x(), spatial.y(), spatial.z()));

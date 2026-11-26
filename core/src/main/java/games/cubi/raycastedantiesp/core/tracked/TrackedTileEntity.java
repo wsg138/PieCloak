@@ -9,6 +9,10 @@ public interface TrackedTileEntity<T> extends ImmutableBlockSpatial, Clearable {
     boolean visible();
     TrackedTileEntity<T> setVisible(boolean visible);
 
+    /** Last successfully transmitted tile visibility, owned by the packet thread. */
+    boolean clientVisible();
+    TrackedTileEntity<T> setClientVisible(boolean visible);
+
     /** Whether a target-location exemption currently overrides normal hiding for this tile entity. */
     boolean visibilityExempt();
     TrackedTileEntity<T> setVisibilityExempt(boolean visibilityExempt);

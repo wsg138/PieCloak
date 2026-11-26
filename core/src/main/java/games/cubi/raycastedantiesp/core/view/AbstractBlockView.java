@@ -182,6 +182,7 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     public void recordOutboundTileEntityVisibility(TrackedTileEntity<?> tileEntity, boolean visible) {
         if (tileEntity != null) {
             tileEntity.setVisible(visible);
+            tileEntity.setClientVisible(visible);
             tileEntity.setLastChecked(TrackedTileEntity.NEVER_CHECKED);
         }
     }
@@ -207,6 +208,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             if (!tileEntity.visible()) {
                 tileEntity.setVisible(true);
                 tileEntity.setLastChecked(currentTick);
+            }
+            if (!tileEntity.clientVisible()) {
                 try {
                     visibilityRepairConsumer.accept(tileEntity);
                 } catch (RuntimeException exception) {

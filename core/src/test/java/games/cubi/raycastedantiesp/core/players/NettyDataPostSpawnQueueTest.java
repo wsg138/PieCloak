@@ -158,7 +158,7 @@ class NettyDataPostSpawnQueueTest {
 
     private static final class SelfEntity extends NettyEntity<Clearable> {
         private SelfEntity() {
-            super(null, 0, 0, 0, 1, UUID.randomUUID(), true, 0, true);
+            super(null, 0, 0, 0, 1, UUID.randomUUID(), true, 0, true, () -> {});
         }
     }
 

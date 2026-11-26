@@ -595,8 +595,10 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 ? () -> viewer.writePacketSilently(buildBlockEntityDataPacket(tileEntity, replayData))
                 : null;
         executeTransitionWrites(operation, stage,
-                () -> viewer.writePacketSilently(getBlockChangeWith(
-                        tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), tileEntity.blockID())),
+                () -> {
+                    viewer.writePacketSilently(getBlockChangeWith(tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), tileEntity.blockID()));
+                    tileEntity.setClientVisible(true);
+                },
                 blockEntityDataWrite);
     }
 
@@ -701,12 +703,6 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 blockView.getTrackedTileEntity(world, position);
     }
 
-    @SuppressWarnings("unchecked")
-    static @Nullable TrackedTileEntity<PacketEventsTileEntityReplayData> resolveCurrentTransitionState(
-            BlockViewTransition transition, int currentWorldEpoch) {
-        return resolveCurrentTransitionState(
-                transition.tileEntity(), transition.worldEpoch(), currentWorldEpoch);
-    }
 
     @SuppressWarnings("unchecked")
     static @Nullable TrackedTileEntity<PacketEventsTileEntityReplayData> resolveCurrentTransitionState(

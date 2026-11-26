@@ -10,6 +10,7 @@ import java.lang.invoke.VarHandle;
 /** Tile visibility and lifecycle are shared with the engine; block and replay data are packet-thread-only. */
 public abstract class NettyTileEntity<PacketReplayData extends Clearable> extends InvasivelyLinkedSWMRList<NettyTileEntity<PacketReplayData>> implements TrackedTileEntity<PacketReplayData> {
     private volatile boolean visible;
+    private boolean clientVisible;
     private volatile boolean visibilityExemptState;
     private volatile int lastChecked; private static final VarHandle LAST_CHECKED = VarHandler.get(NettyTileEntity.class, "lastChecked", int.class);
     private char blockID;
@@ -25,6 +26,7 @@ public abstract class NettyTileEntity<PacketReplayData extends Clearable> extend
 
         this.blockID = blockID;
         this.visible = visible;
+        this.clientVisible = visible;
         LAST_CHECKED.set(this, lastChecked);
     }
 
@@ -33,6 +35,7 @@ public abstract class NettyTileEntity<PacketReplayData extends Clearable> extend
         this.y = y;
         this.z = z;
         this.visible = visible;
+        this.clientVisible = visible;
         this.blockID = blockID;
         LAST_CHECKED.set(this, NEVER_CHECKED);
     }
@@ -45,6 +48,17 @@ public abstract class NettyTileEntity<PacketReplayData extends Clearable> extend
     @Override
     public TrackedTileEntity<PacketReplayData> setVisible(boolean visible) {
         this.visible = visible;
+        return this;
+    }
+
+    @Override
+    public boolean clientVisible() {
+        return clientVisible;
+    }
+
+    @Override
+    public TrackedTileEntity<PacketReplayData> setClientVisible(boolean visible) {
+        this.clientVisible = visible;
         return this;
     }
 

@@ -13,8 +13,6 @@ import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.spongepowered.configurate.BasicConfigurationNode;
-import org.spongepowered.configurate.ConfigurationNode;
 import org.spongepowered.configurate.serialize.SerializationException;
 
 import java.util.UUID;
@@ -133,15 +131,6 @@ class ManagedEntityRevealRegressionTest {
     }
 
     private static EntityConfig entityConfig() throws SerializationException {
-        ConfigurationNode node = BasicConfigurationNode.root();
-        node.node("enabled").set(true);
-        node.node("hide-sounds-when-hidden").set(true);
-        node.node("max-occluding-count").set(3);
-        node.node("always-show-radius").set(24);
-        node.node("raycast-radius").set(48);
-        node.node("hide-on-spawn-distance").set(0);
-        node.node("visible-recheck-interval-ticks").set(10);
-        node.node("keep-client-entity-when-hidden").set(false);
-        return EntityConfig.load(node, "checks.entity");
+        return new EntityConfig(new games.cubi.raycastedantiesp.core.config.raycast.RaycastSettings(true, (byte) 3, (short) 24, (short) 48, (short) 0, (short) 10), true, false, java.util.Set.of());
     }
 }

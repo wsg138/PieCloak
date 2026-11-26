@@ -159,11 +159,11 @@ class ClientStateResetterTest {
 
     private static final class EntityStub extends NettyEntity<Clearable> {
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID) {
-            super(owningPlayer, entityID, entityUUID);
+            super(owningPlayer, entityID, entityUUID, () -> {});
         }
 
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID, boolean visible) {
-            super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible);
+            super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible, () -> {});
         }
 
         private static EntityStub createSelf(PlayerData owningPlayer, int entityID, UUID playerUUID) {
