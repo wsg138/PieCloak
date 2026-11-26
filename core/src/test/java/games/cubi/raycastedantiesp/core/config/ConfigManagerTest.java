@@ -195,6 +195,34 @@ class ConfigManagerTest {
     }
 
     @Test
+    void migratesForkAllowlistWithoutReintroducingDefaultsOrLosingExplicitFalse() throws IOException {
+        CommentedConfigurationNode node = defaultNode();
+        node.node("config-version").raw("2.0");
+        node.node("target-filter", "enabled").raw(false);
+        node.node("target-filter", "entities").raw(List.of());
+        node.node("target-filter", "block-entities").raw(List.of("minecraft:bell"));
+        node.node("target-filter", "block-entity-groups").raw(List.of());
+        node.node("checks", "player", "enabled").raw(false);
+        saveNode(node);
+        byte[] original = Files.readAllBytes(configPath());
+
+        ConfigManager manager = earlyManager();
+        manager.completeInitialLoad();
+
+        assertFalse(manager.getTargetFilterConfig().enabled());
+        assertEquals(List.of(), manager.getTargetFilterConfig().entities());
+        assertEquals(List.of("minecraft:bell"), manager.getTargetFilterConfig().blockEntities());
+        assertEquals(List.of(), manager.getTargetFilterConfig().blockEntityGroups());
+        assertFalse(manager.getPlayerConfig().enabled());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(original,
+                Files.readAllBytes(configPath().resolveSibling("config.yml.pre-2.1.bak")));
+
+        String migrated = Files.readString(configPath());
+        manager.load();
+        assertEquals(migrated, Files.readString(configPath()));
+    }
+
+    @Test
     void acceptedEnumSpellingsArePersistedCanonically() throws IOException {
         CommentedConfigurationNode node = defaultNode();
         node.node("engine", "mode").raw("SiMpLe");
