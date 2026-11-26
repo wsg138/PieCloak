@@ -71,8 +71,10 @@ packets = OUT / "PacketEvents.jar"
 download(asset["url"], packets, asset["hashes"]["sha512"], "sha512")
 classes = OUT / "probe-classes"
 classes.mkdir()
-cache = Path.home() / ".gradle/caches/modules-2/files-2.1"
-deps = sorted(x for x in cache.rglob("*.jar") if not x.name.endswith(("-sources.jar","-javadoc.jar")))
+subprocess.run(["java","-Dpaperclip.patchonly=true","-jar","paper.jar"],cwd=OUT,check=True,timeout=240)
+deps=sorted(x for folder in ("libraries","versions") for x in (OUT/folder).rglob("*.jar"))
+assert deps, "Paper runtime classpath missing"
+print("Paper runtime dependency jars",len(deps),flush=True)
 cp = os.pathsep.join(str(x) for x in [candidate, packets, *deps])
 args = OUT / "javac.args"
 args.write_text(f'-classpath "{cp}"\n-d "{classes}"\n"{ROOT / "qa/burst/BurstProbe.java"}"\n')

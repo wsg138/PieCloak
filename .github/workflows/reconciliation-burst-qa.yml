@@ -11,21 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
-          submodules: recursive
           persist-credentials: false
-      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-      - name: Prepare probe compile dependencies
-        run: |
-          set -euo pipefail
-          cd leafpile/templates
-          javac --release 21 GenerateSources.java Preprocessor.java
-          java GenerateSources . ..
-          cd ../..
-          ./gradlew verifyCurrentPlatformBaseline :platform-paper:compileJava --no-daemon
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
         with:
           distribution: temurin
