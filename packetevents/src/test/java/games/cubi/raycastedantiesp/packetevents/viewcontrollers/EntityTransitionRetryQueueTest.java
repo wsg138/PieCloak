@@ -2,7 +2,7 @@ package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import games.cubi.raycastedantiesp.packetevents.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import org.junit.jupiter.api.Test;
 
@@ -26,12 +26,12 @@ class EntityTransitionRetryQueueTest {
         EntityView<PacketEventsEntity> view = view(false);
         PacketEventsEntity entity = entity(17);
 
-        EntityTransitionWork<String> show = work(viewer, view, entity, EntityViewTransition.Type.SHOW);
+        EntityTransitionWork<String> show = work(viewer, view, entity, TransitionType.Entity.SHOW);
         assertTrue(show.recordFailure(10));
         assertEquals(ENQUEUED, queue.retry(show));
 
         assertSame(show, queue.cancel(viewer, view, entity.entityUUID()));
-        EntityTransitionWork<String> hide = work(viewer, view, entity, EntityViewTransition.Type.HIDE);
+        EntityTransitionWork<String> hide = work(viewer, view, entity, TransitionType.Entity.HIDE);
         assertTrue(hide.recordFailure(10));
         assertEquals(ENQUEUED, queue.retry(hide));
 
@@ -46,7 +46,7 @@ class EntityTransitionRetryQueueTest {
         UUID viewer = UUID.randomUUID();
         EntityView<PacketEventsEntity> view = view(false);
         PacketEventsEntity entity = entity(19);
-        EntityTransitionWork<String> show = work(viewer, view, entity, EntityViewTransition.Type.SHOW);
+        EntityTransitionWork<String> show = work(viewer, view, entity, TransitionType.Entity.SHOW);
         FailingVisibility visibility = new FailingVisibility();
 
         try {
@@ -66,7 +66,7 @@ class EntityTransitionRetryQueueTest {
     void retryBackoffDefersWorkUntilItsDueTick() {
         EntityTransitionRetryQueue<String> queue = new EntityTransitionRetryQueue<>();
         UUID viewer = UUID.randomUUID();
-        EntityTransitionWork<String> work = work(viewer, view(false), entity(18), EntityViewTransition.Type.SHOW);
+        EntityTransitionWork<String> work = work(viewer, view(false), entity(18), TransitionType.Entity.SHOW);
 
         assertTrue(work.recordFailure(100));
         assertEquals(ENQUEUED, queue.retry(work));
@@ -84,8 +84,8 @@ class EntityTransitionRetryQueueTest {
         PacketEventsEntity first = entity(20);
         PacketEventsEntity second = entity(21);
 
-        EntityTransitionWork<String> firstWork = work(viewer, view, first, EntityViewTransition.Type.SHOW);
-        EntityTransitionWork<String> secondWork = work(viewer, view, second, EntityViewTransition.Type.SHOW);
+        EntityTransitionWork<String> firstWork = work(viewer, view, first, TransitionType.Entity.SHOW);
+        EntityTransitionWork<String> secondWork = work(viewer, view, second, TransitionType.Entity.SHOW);
         assertTrue(firstWork.recordFailure(0));
         assertTrue(secondWork.recordFailure(0));
         assertEquals(ENQUEUED, queue.retry(firstWork));
@@ -110,7 +110,7 @@ class EntityTransitionRetryQueueTest {
                     crowdedViewer,
                     crowdedView,
                     entity(1000 + id),
-                    EntityViewTransition.Type.SHOW
+                    TransitionType.Entity.SHOW
             );
             assertTrue(work.recordFailure(0));
             assertEquals(ENQUEUED, queue.retry(work));
@@ -119,7 +119,7 @@ class EntityTransitionRetryQueueTest {
                 crowdedViewer,
                 crowdedView,
                 entity(5000),
-                EntityViewTransition.Type.SHOW
+                TransitionType.Entity.SHOW
         );
         assertTrue(rejectedViewerWork.recordFailure(0));
         assertEquals(CAPACITY_REJECTED, queue.retry(rejectedViewerWork));
@@ -132,7 +132,7 @@ class EntityTransitionRetryQueueTest {
                     viewer,
                     view(false),
                     entity(10000 + id),
-                    EntityViewTransition.Type.SHOW
+                    TransitionType.Entity.SHOW
             );
             assertTrue(work.recordFailure(0));
             assertEquals(ENQUEUED, queue.retry(work));
@@ -141,7 +141,7 @@ class EntityTransitionRetryQueueTest {
                 UUID.randomUUID(),
                 view(false),
                 entity(20000),
-                EntityViewTransition.Type.SHOW
+                TransitionType.Entity.SHOW
         );
         assertTrue(rejectedGlobalWork.recordFailure(0));
         assertEquals(CAPACITY_REJECTED, queue.retry(rejectedGlobalWork));
@@ -152,9 +152,9 @@ class EntityTransitionRetryQueueTest {
             UUID viewer,
             EntityView<PacketEventsEntity> view,
             PacketEventsEntity entity,
-            EntityViewTransition.Type type
+            TransitionType.Entity type
     ) {
-        EntityTransitionPlan<String> plan = type == EntityViewTransition.Type.HIDE
+        EntityTransitionPlan<String> plan = type == TransitionType.Entity.HIDE
                 ? EntityTransitionPlan.hide("destroy")
                 : EntityTransitionPlan.show(
                         "spawn", "position", "head", List.of(), null, null, List.of()

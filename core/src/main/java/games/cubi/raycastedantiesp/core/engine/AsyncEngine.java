@@ -274,7 +274,7 @@ public abstract class AsyncEngine implements Engine {
             runningTick.set(startTick);
             claimedRunningTick = true;
 
-            Collection<PlayerData> allPlayers = PlayerRegistry.getInstance().getAllPlayerData();
+            Collection<PlayerData> allPlayers = java.util.Arrays.asList(PlayerRegistry.get().getPlayerDataArray());
             TickTimings timings = createTickTimings(
                     scheduledTick, scheduledNanos, startTick, startNanos, threads, allPlayers.size(), tickTimingStats);
             List<List<PlayerData>> batches = createPlayerBatches(allPlayers, threads);

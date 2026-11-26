@@ -5,7 +5,7 @@ import games.cubi.locatables.api.BlockSpatial;
 import games.cubi.raycastedantiesp.core.chunks.BlockChunkData;
 import games.cubi.raycastedantiesp.core.chunks.OccludingChunkData;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 
 import java.util.Collection;
 import java.util.UUID;
@@ -29,6 +29,10 @@ public interface BlockView extends Clearable {
     boolean isBlockOccluding(BlockLocatable location);
 
     boolean isBlockOccluding(int x, int y, int z);
+
+    default games.cubi.raycastedantiesp.core.chunks.ChunkOcclusionView getChunkOcclusionView(int chunkX, int chunkY, int chunkZ) {
+        return null;
+    }
 
     /** Returns whether authoritative tracked block state classifies this position as managed, non-managed, or unknown. */
     default BlockEntityStatus getBlockEntityStatus(UUID world, BlockSpatial position) {
@@ -109,7 +113,7 @@ public interface BlockView extends Clearable {
 
     @FunctionalInterface
     interface TransitionConsumer {
-        void accept(BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity,
+        void accept(TransitionType.Tile type, TrackedTileEntity<?> tileEntity,
                     long modeToken, int worldEpoch);
     }
 

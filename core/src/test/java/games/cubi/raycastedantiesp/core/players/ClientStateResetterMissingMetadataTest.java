@@ -2,7 +2,7 @@ package games.cubi.raycastedantiesp.core.players;
 
 import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
@@ -32,7 +32,7 @@ class ClientStateResetterMissingMetadataTest {
 
     @AfterEach
     void resetRegistries() {
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         ViewRegistry.reset();
     }
 
@@ -40,7 +40,7 @@ class ClientStateResetterMissingMetadataTest {
     void missingWorldMetadataStillInvalidatesThePreRespawnGeneration() {
         UUID playerUUID = UUID.randomUUID();
         UUID oldWorldUUID = UUID.randomUUID();
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData playerData = PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID, 0, 1, EntityStub::createSelf);
 
         playerData.beginWorldTransition();
@@ -60,7 +60,7 @@ class ClientStateResetterMissingMetadataTest {
         assertEquals(-32, playerData.nettyData().getCurrentWorldMinHeight());
         assertEquals(PlayerData.INVALID_WORLD_EPOCH,
                 playerData.tryAcquireWorldEpochFor(oldWorldUUID));
-        assertSame(playerData, PlayerRegistry.getInstance().getPlayerData(playerUUID));
+        assertSame(playerData, PlayerRegistry.get().getPlayerData(playerUUID));
         assertTrue(playerData.isConnected());
 
         staleWork.run();
@@ -96,7 +96,7 @@ class ClientStateResetterMissingMetadataTest {
 
     private static final class EntityStub extends NettyEntity<Clearable> {
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID) {
-            super(owningPlayer, entityID, entityUUID);
+            super(owningPlayer, entityID, entityUUID, () -> {});
         }
 
         private static EntityStub createSelf(

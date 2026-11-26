@@ -1,13 +1,17 @@
 package games.cubi.raycastedantiesp.core.tracked;
 
 import games.cubi.locatables.api.ImmutableBlockSpatial;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 
 public interface TrackedTileEntity<T> extends ImmutableBlockSpatial, Clearable {
     int NEVER_CHECKED = Integer.MIN_VALUE;
 
     boolean visible();
     TrackedTileEntity<T> setVisible(boolean visible);
+
+    /** Last successfully transmitted tile visibility, owned by the packet thread. */
+    boolean clientVisible();
+    TrackedTileEntity<T> setClientVisible(boolean visible);
 
     /** Whether a target-location exemption currently overrides normal hiding for this tile entity. */
     boolean visibilityExempt();

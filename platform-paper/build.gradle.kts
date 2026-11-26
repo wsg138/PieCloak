@@ -7,6 +7,7 @@
  */
 
 import java.time.Instant
+import org.gradle.api.file.FileCollection
 import org.gradle.jvm.toolchain.JavaToolchainService
 
 plugins {
@@ -15,6 +16,8 @@ plugins {
     id("xyz.jpenilla.run-paper") version "3.0.2"
     id("com.gradleup.shadow") version "9.4.0"
 }
+
+val patchedConfigurateYaml = rootProject.extra["patchedConfigurateYaml"] as FileCollection
 
 repositories {
     mavenCentral()
@@ -33,14 +36,14 @@ dependencies {
     paperweight.paperDevBundle(paperDevBundleVersionProvider.get())
     compileOnly("com.github.retrooper:packetevents-spigot:2.12.0")
     compileOnly("org.spongepowered:configurate-core:4.2.0")
-    compileOnly("org.spongepowered:configurate-yaml:4.2.0")
+    implementation(patchedConfigurateYaml)
 
     compileOnly("de.oliver:FancyHolograms:2.9.1")
     compileOnly("de.oliver:FancyNpcs:2.9.2")
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.16")
 
-    compileOnly("net.strokkur.commands:annotations-paper:2.1.2")
-    annotationProcessor("net.strokkur.commands:processor-paper:2.1.2")
+    compileOnly("net.strokkur.commands:annotations-paper:2.3.0")
+    annotationProcessor("net.strokkur.commands:processor-paper:2.3.0")
 
     implementation("org.jetbrains:annotations:24.0.1")
     implementation("org.bstats:bstats-bukkit:3.2.1")
@@ -70,7 +73,7 @@ val javaToolchainService = project.extensions.getByType(JavaToolchainService::cl
 
 group = "games.cubi.raycastedantiesp.paper"
 
-val platformPaperVersion: String = "0.10.0-SNAPSHOT"
+val platformPaperVersion: String = "0.10.2-SNAPSHOT"
 val coreVersion = project(":core").version.toString()
 
 val commitShort = providers.exec {
@@ -164,6 +167,10 @@ tasks.shadowJar {
     relocate(
         "org.bstats",
         "games.cubi.libs.raycastedantiesp.bstats"
+    )
+    relocate(
+        "org.spongepowered.configurate.yaml",
+        "games.cubi.libs.raycastedantiesp.configurate.yaml"
     )
     minimize {} // get rid of leafpile bloat
     archiveBaseName.set("RaycastedAntiESP")

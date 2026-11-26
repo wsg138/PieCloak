@@ -1,8 +1,8 @@
 package games.cubi.raycastedantiesp.core.players;
 
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.BaseEntitySpawnTask;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.raycastedantiesp.core.tracked.BaseEntitySpawnTask;
+import games.cubi.utils.Clearable;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -158,7 +158,7 @@ class NettyDataPostSpawnQueueTest {
 
     private static final class SelfEntity extends NettyEntity<Clearable> {
         private SelfEntity() {
-            super(null, 0, 0, 0, 1, UUID.randomUUID(), true, 0, true);
+            super(null, new InitialPosition(0, 0, 0), 1, UUID.randomUUID(), true, 0, true, () -> {});
         }
     }
 

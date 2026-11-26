@@ -3,7 +3,8 @@ package games.cubi.raycastedantiesp.paper.packets;
 import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
-import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
+import games.cubi.raycastedantiesp.core.config.LegacyPacketEventsOverrides;
+import games.cubi.raycastedantiesp.paper.config.PaperBlockSelectorMatcher;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.Material;
@@ -31,7 +32,17 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
         occlusionArray = result[0];
         rawTileEntityArray = result[1];
         tileEntityArray = Arrays.copyOf(rawTileEntityArray, rawTileEntityArray.length);
-        PacketEventsBlockProcessorConfig config = RaycastedAntiESP.getConfigManager().getExtensionConfig(PacketEventsBlockProcessorConfig.class);
+        var settings = RaycastedAntiESP.getConfigManager();
+        var selectors = new PaperBlockSelectorMatcher(settings.getTileEntityConfig().excludedBlocks());
+        for (int id = 0; id < tileEntityArray.length; id++) {
+            if (tileEntityArray[id]) {
+                BlockData data = SpigotConversionUtil.toBukkitBlockData(WrappedBlockState.getByGlobalId(id));
+                if (data != null && selectors.test(data)) {
+                    tileEntityArray[id] = false;
+                }
+            }
+        }
+        LegacyPacketEventsOverrides config = settings.getBlockProcessorConfig().packetEventsOverrides();
         if (config != null) {
             for (int blockStateId : config.tileEntityExemptedIds()) {
                 if (blockStateId >= 0 && blockStateId < tileEntityArray.length) {
@@ -79,7 +90,7 @@ public class PacketEventsPaperBlockInfoResolver implements BlockInfoResolver {
                 }
             }
 
-            occlusion.put(iterator, blockData.getMaterial().isOccluding());
+            occlusion.put(iterator, blockData.getMaterial() != Material.BARRIER && blockData.getMaterial().isOccluding());
             try {
                 // Paper treats MOVING_PISTON as an optional block entity: an unplaced BlockData snapshot may not
                 // materialize as TileState even though real moving pistons legitimately carry piston block-entity data.

@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import games.cubi.locatables.implementations.ImmutableBlockSpatialImpl;
@@ -5,6 +13,7 @@ import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.BlockView;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
 import org.junit.jupiter.api.Test;
 
@@ -62,6 +71,7 @@ class PacketEventsBlockViewControllerTest {
 
         assertSame(original, transitionEntity.get());
         assertTrue(((NettyTileEntity<?>) original).isRemoved());
+        assertTrue(original.clientVisible());
         original.setLastChecked(42);
         assertTrue(((NettyTileEntity<?>) original).isRemoved());
         assertNull(PacketEventsBlockViewController.resolveCurrentTransitionState(transitionEntity.get(), 2, 2));
@@ -82,6 +92,18 @@ class PacketEventsBlockViewControllerTest {
         view.drainTransitions((type, queuedTileEntity, modeToken, worldEpoch) -> transitionEntity.set(queuedTileEntity));
 
         assertSame(transitionEntity.get(), PacketEventsBlockViewController.resolveCurrentTransitionState(transitionEntity.get(), 2, 2));
+    }
+
+    @Test
+    void staleVisibilityTransitionsAreIgnored() {
+        assertFalse(PacketEventsBlockViewController.transitionMatchesCurrentVisibility(
+                TransitionType.Tile.SHOW, false));
+        assertFalse(PacketEventsBlockViewController.transitionMatchesCurrentVisibility(
+                TransitionType.Tile.HIDE, true));
+        assertTrue(PacketEventsBlockViewController.transitionMatchesCurrentVisibility(
+                TransitionType.Tile.SHOW, true));
+        assertTrue(PacketEventsBlockViewController.transitionMatchesCurrentVisibility(
+                TransitionType.Tile.HIDE, false));
     }
 
     @Test

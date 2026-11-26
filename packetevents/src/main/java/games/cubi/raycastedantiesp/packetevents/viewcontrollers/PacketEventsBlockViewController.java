@@ -27,7 +27,7 @@ import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.BlockView;
-import games.cubi.raycastedantiesp.core.view.BlockViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsTileEntityReplayData;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.BlockTransitionRetryQueue.Operation;
@@ -114,7 +114,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             hideOnSpawnDistanceSquared = tileEntityConfig.hideOnSpawnDistance() * tileEntityConfig.hideOnSpawnDistance();
         }
 
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(viewerUUID);
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(viewerUUID);
         if (playerData == null) {
             transitionRetries.clear(viewerUUID);
             return;
@@ -254,8 +254,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         updateTileExemptionState(tileEntity, exempt);
         ensureTileReplayData(tileEntity).setBlockEntityData(packet.getBlockEntityType(), packet.getNBT());
         if (tileChecksEnabled && exempt) {
-            if (!tileEntity.visible()) {
-                blockView.recordOutboundTileEntityVisibility(tileEntity, true);
+            if (!tileEntity.visible() || !tileEntity.clientVisible()) {
+                tileEntity.setVisible(true);
+                tileEntity.setLastChecked(TrackedTileEntity.NEVER_CHECKED);
                 event.setCancelled(true);
                 processInitialTileEntityOperationSafely(playerData, viewer, Operation.SHOW, tileEntity,
                         blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK,
@@ -373,6 +374,9 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 } else if (state != null && !state.visible()) {
                     change.setBlockId(getHiddenBlockId(key.blockY()));
                     event.markForReEncode(true);
+                    state.setClientVisible(false);
+                } else if (state != null) {
+                    state.setClientVisible(true);
                 }
             } else {
                 blockView.removeTileEntity(world, key);
@@ -429,7 +433,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     private void processTileEntityTransitions(User viewer, PlayerData playerData, int currentTick) {
         BlockView blockView = playerData.blockView();
         blockView.drainTransitions((type, tileEntity, modeToken, transitionWorldEpoch) -> {
-            Operation operation = type == BlockViewTransition.Type.HIDE ? Operation.HIDE : Operation.SHOW;
+            Operation operation = type == TransitionType.Tile.HIDE ? Operation.HIDE : Operation.SHOW;
             processInitialTileEntityOperationSafely(playerData, viewer, operation, tileEntity,
                     modeToken, currentTick, Stage.BLOCK, transitionWorldEpoch);
         });
@@ -556,21 +560,26 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         }
     }
 
+    static boolean transitionMatchesCurrentVisibility(TransitionType.Tile transition, boolean visible) {
+        return (transition == TransitionType.Tile.SHOW) == visible;
+    }
+
     private void hideTileEntity(User viewer, BlockView blockView,
             TrackedTileEntity<PacketEventsTileEntityReplayData> state, long modeToken, Stage stage) {
-        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || state.visible()) {
+        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !transitionMatchesCurrentVisibility(TransitionType.Tile.HIDE, state.visible())) {
             return;
         }
         executeTransitionWrites(Operation.HIDE, stage,
                 () -> viewer.writePacketSilently(getBlockChangeWith(
                         state.blockX(), state.blockY(), state.blockZ(), getHiddenBlockId(state.blockY()))),
                 null);
+        state.setClientVisible(false);
     }
 
     private void showTileEntity(User viewer, BlockView blockView,
             TrackedTileEntity<PacketEventsTileEntityReplayData> state, long modeToken,
             Operation operation, Stage stage) {
-        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !state.visible()) {
+        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !transitionMatchesCurrentVisibility(TransitionType.Tile.SHOW, state.visible())) {
             return;
         }
         sendTileEntityFromStage(viewer, state, operation, stage);
@@ -598,6 +607,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 () -> viewer.writePacketSilently(getBlockChangeWith(
                         tileEntity.blockX(), tileEntity.blockY(), tileEntity.blockZ(), tileEntity.blockID())),
                 blockEntityDataWrite);
+        tileEntity.setClientVisible(true);
     }
 
     static void executeTransitionWrites(Operation operation, Stage startingStage,
@@ -650,6 +660,8 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 processInitialTileEntityOperationSafely(playerData, viewer, Operation.HIDE, state,
                         blockView.tileEntityCheckModeToken(), currentTick, Stage.BLOCK,
                         playerData.acquireWorldEpoch());
+            } else if (state != null) {
+                state.setClientVisible(true);
             }
         } else {
             blockView.removeTileEntity(world, location);
@@ -701,12 +713,6 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
                 blockView.getTrackedTileEntity(world, position);
     }
 
-    @SuppressWarnings("unchecked")
-    static @Nullable TrackedTileEntity<PacketEventsTileEntityReplayData> resolveCurrentTransitionState(
-            BlockViewTransition transition, int currentWorldEpoch) {
-        return resolveCurrentTransitionState(
-                transition.tileEntity(), transition.worldEpoch(), currentWorldEpoch);
-    }
 
     @SuppressWarnings("unchecked")
     static @Nullable TrackedTileEntity<PacketEventsTileEntityReplayData> resolveCurrentTransitionState(

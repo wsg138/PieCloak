@@ -11,9 +11,9 @@ import games.cubi.raycastedantiesp.core.logging.CubiLog;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
-import games.cubi.raycastedantiesp.core.utils.InvasivelyLinkedSWMRList;
-import games.cubi.raycastedantiesp.core.utils.VarHandler;
+import games.cubi.utils.Clearable;
+import games.cubi.utils.lists.InvasivelyLinkedSWMRList;
+import games.cubi.utils.VarHandler;
 import games.cubi.raycastedantiesp.core.view.chunks.BlockChunkSectionStore;
 import games.cubi.raycastedantiesp.core.view.chunks.BlockEntitySectionStore;
 import games.cubi.raycastedantiesp.core.view.chunks.ChunkSectionStore;
@@ -70,6 +70,11 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     }
 
     protected abstract T createTrackedTileEntity(BlockSpatial position, char blockID, boolean visible);
+
+    @Override
+    public games.cubi.raycastedantiesp.core.chunks.ChunkOcclusionView getChunkOcclusionView(int chunkX, int chunkY, int chunkZ) {
+        return chunks.getSection(chunkX, chunkY, chunkZ);
+    }
 
     @Override
     public boolean isBlockOccluding(int x, int y, int z) {
@@ -167,8 +172,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
         tileEntity.setVisible(shouldBeVisible);
         tileEntity.setLastChecked(currentTick);
         if (visibilityChanged) {
-            BlockViewTransition.Type type =
-                    shouldBeVisible ? BlockViewTransition.Type.SHOW : BlockViewTransition.Type.HIDE;
+            TransitionType.Tile type =
+                    shouldBeVisible ? TransitionType.Tile.SHOW : TransitionType.Tile.HIDE;
             transitions.add(type, tileEntity, modeToken, expectedWorldEpoch);
         }
     }
@@ -177,6 +182,7 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
     public void recordOutboundTileEntityVisibility(TrackedTileEntity<?> tileEntity, boolean visible) {
         if (tileEntity != null) {
             tileEntity.setVisible(visible);
+            tileEntity.setClientVisible(visible);
             tileEntity.setLastChecked(TrackedTileEntity.NEVER_CHECKED);
         }
     }
@@ -202,6 +208,8 @@ public abstract class AbstractBlockView<R extends Clearable, T extends NettyTile
             if (!tileEntity.visible()) {
                 tileEntity.setVisible(true);
                 tileEntity.setLastChecked(currentTick);
+            }
+            if (!tileEntity.clientVisible()) {
                 try {
                     visibilityRepairConsumer.accept(tileEntity);
                 } catch (RuntimeException exception) {

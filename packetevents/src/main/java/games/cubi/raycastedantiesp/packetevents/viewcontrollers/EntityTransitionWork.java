@@ -1,7 +1,7 @@
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 
 import java.util.Objects;
@@ -23,7 +23,7 @@ final class EntityTransitionWork<P> {
 
     private final UUID viewerId;
     private final EntityView<PacketEventsEntity> entityView;
-    private final EntityViewTransition.Type transitionType;
+    private final TransitionType.Entity transitionType;
     private final PacketEventsEntity targetEntity;
     private final int expectedWorldEpoch;
     private final EntityTransitionPlan<P> plan;
@@ -36,7 +36,7 @@ final class EntityTransitionWork<P> {
     EntityTransitionWork(
             UUID viewerUUID,
             EntityView<PacketEventsEntity> view,
-            EntityViewTransition.Type type,
+            TransitionType.Entity type,
             PacketEventsEntity entity,
             int worldEpoch,
             EntityTransitionPlan<P> plan
@@ -110,7 +110,7 @@ final class EntityTransitionWork<P> {
         return entityView;
     }
 
-    EntityViewTransition.Type type() {
+    TransitionType.Entity type() {
         return transitionType;
     }
 

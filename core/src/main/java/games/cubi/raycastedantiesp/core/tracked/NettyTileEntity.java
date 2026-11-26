@@ -1,15 +1,16 @@
 package games.cubi.raycastedantiesp.core.tracked;
 
 import games.cubi.locatables.api.BlockSpatial;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
-import games.cubi.raycastedantiesp.core.utils.InvasivelyLinkedSWMRList;
-import games.cubi.raycastedantiesp.core.utils.VarHandler;
+import games.cubi.utils.Clearable;
+import games.cubi.utils.lists.InvasivelyLinkedSWMRList;
+import games.cubi.utils.VarHandler;
 
 import java.lang.invoke.VarHandle;
 
 /** Tile visibility and lifecycle are shared with the engine; block and replay data are packet-thread-only. */
 public abstract class NettyTileEntity<PacketReplayData extends Clearable> extends InvasivelyLinkedSWMRList<NettyTileEntity<PacketReplayData>> implements TrackedTileEntity<PacketReplayData> {
     private volatile boolean visible;
+    private boolean clientVisibility;
     private volatile boolean visibilityExemptState;
     private volatile int lastChecked; private static final VarHandle LAST_CHECKED = VarHandler.get(NettyTileEntity.class, "lastChecked", int.class);
     private char blockID;
@@ -25,6 +26,7 @@ public abstract class NettyTileEntity<PacketReplayData extends Clearable> extend
 
         this.blockID = blockID;
         this.visible = visible;
+        this.clientVisibility = visible;
         LAST_CHECKED.set(this, lastChecked);
     }
 
@@ -33,6 +35,7 @@ public abstract class NettyTileEntity<PacketReplayData extends Clearable> extend
         this.y = y;
         this.z = z;
         this.visible = visible;
+        this.clientVisibility = visible;
         this.blockID = blockID;
         LAST_CHECKED.set(this, NEVER_CHECKED);
     }
@@ -45,6 +48,17 @@ public abstract class NettyTileEntity<PacketReplayData extends Clearable> extend
     @Override
     public TrackedTileEntity<PacketReplayData> setVisible(boolean visible) {
         this.visible = visible;
+        return this;
+    }
+
+    @Override
+    public boolean clientVisible() {
+        return clientVisibility;
+    }
+
+    @Override
+    public TrackedTileEntity<PacketReplayData> setClientVisible(boolean visible) {
+        this.clientVisibility = visible;
         return this;
     }
 

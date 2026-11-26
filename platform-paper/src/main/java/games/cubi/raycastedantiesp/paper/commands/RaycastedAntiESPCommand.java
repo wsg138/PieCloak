@@ -8,7 +8,6 @@
 
 package games.cubi.raycastedantiesp.paper.commands;
 
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
 import games.cubi.locatables.api.Locatable;
 import games.cubi.locatables.api.MutableFloatingSpatial;
@@ -22,6 +21,7 @@ import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
 import games.cubi.raycastedantiesp.core.view.AbstractBlockView;
+import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import games.cubi.raycastedantiesp.paper.UpdateChecker;
@@ -32,8 +32,10 @@ import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import net.strokkur.commands.*;
+import net.strokkur.commands.arguments.IntArg;
 import net.strokkur.commands.arguments.StringArg;
 import net.strokkur.commands.arguments.StringArgType;
+import net.strokkur.commands.paper.DefaultToExecutor;
 import net.strokkur.commands.paper.Description;
 import net.strokkur.commands.permission.Permission;
 
@@ -44,6 +46,10 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.management.ManagementFactory;
+import java.util.Arrays;
+import java.util.OptionalInt;
+import java.util.SplittableRandom;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -137,7 +143,7 @@ public class RaycastedAntiESPCommand {
         long visibleBlockEntities = 0;
         int currentTick = RaycastedAntiESP.getCurrentTick();
 
-        for (PlayerData playerData : PlayerRegistry.getInstance().getAllPlayerData()) {
+        for (PlayerData playerData : PlayerRegistry.get().getAllPlayerData()) {
             EntityView<?> entityView = playerData.entityView();
             managedEntities += entityView.size();
             for (UUID entityUUID : entityView.getKnownEntities()) {
@@ -175,7 +181,7 @@ public class RaycastedAntiESPCommand {
             sender.sendRichMessage("<red>Player not found: <white>" + playerName);
             return;
         }
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(target.getUniqueId());
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(target.getUniqueId());
         if (playerData == null) {
             sender.sendRichMessage("<red>No PieCloak player data is registered for <white>" + target.getName());
             return;
@@ -207,7 +213,7 @@ public class RaycastedAntiESPCommand {
         }
         int clampedRadius = Math.max(1, Math.min(radius, 512));
         int clampedSamples = Math.max(1, Math.min(samples, 100_000));
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
         Locatable origin = playerData == null ? null : playerData.ownLocation();
         if (origin == null || origin.world() == null) {
             player.sendRichMessage("<red>No PieCloak player data is available yet.");
@@ -259,6 +265,8 @@ public class RaycastedAntiESPCommand {
         sender.sendRichMessage("<white>" + action + " <green>" + value + "<white> for <green>" + key);
         if (result.restartRequired()) {
             sender.sendRichMessage("<yellow>This change was saved but requires a restart: <white>" + result.message());
+        } else if (result.repaired()) {
+            sender.sendRichMessage("<yellow>" + result.message());
         }
     }
 
@@ -274,7 +282,7 @@ public class RaycastedAntiESPCommand {
             assert Attribution.class == Attribution.class;
             assert Attribution.READ_COMMENTS_BEFORE_EDITING_OR_DELETING_CLASS_OR_FACE_LEGAL_ACTION == 0; //Using constant from Attribution class to ensure that it cannot be deleted without the developer noticing that they are obligated to replace it with an equivalent notice.
             Player player = (Player) sender;
-            PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+            PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
             Entity closestEntity = player.getNearbyEntities(10,10,10).getFirst();
             if (closestEntity == null) return;
             player.sendRichMessage("Closest entity is "+closestEntity.getName());
@@ -290,52 +298,184 @@ public class RaycastedAntiESPCommand {
             sender.sendRichMessage("Drift is X: "+driftX+" Z: "+driftZ);
         }
 
-        @Executes("benchmark")
-        void debugCommand(Player player) throws CommandSyntaxException {
-            //benchmark raycast speed by generating 1000 locatables normally distributed approx 50 blocks around the player and raycasting to them, then printing the average time taken
+        @Subcommand("benchmark")
+        static class BenchmarkCommand {
+            private static final int BENCHMARK_CORPUS_SIZE = 8192;
+            private static final int BENCHMARK_CORPUS_MASK = BENCHMARK_CORPUS_SIZE - 1;
+            private static final int BENCHMARK_BATCH_SIZE = 2048;
+            private static final int BENCHMARK_WARMUP_BATCHES = 1250;
+            private static final int BENCHMARK_MEASUREMENT_BATCHES = 512;
+            private static final int BENCHMARK_ROUNDS = 5;
+            private static final int DEFAULT_RAYCAST_DISTANCE = 50;
+            private static final long BENCHMARK_SEED = 0x6a09e667f3bcc909L;
+            private static volatile long benchmarkSink;
 
-            Locatable[] locatables = new Locatable[10000];
-            PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
-            Locatable playerLocatable = playerData.ownLocation();
-            MutableFloatingSpatial unitDirection = new MutableSpatialImpl(0, 0, 0);
-            for (int i = 0; i < locatables.length; i++) {
-                unitDirection.setX(Math.random() - 0.5);
-                unitDirection.setY(Math.random() - 0.5);
-                unitDirection.setZ(Math.random() - 0.5);
-                unitDirection.normalise();
-                unitDirection.scalarMultiply(50);
-                locatables[i] = new MutableLocatableImpl(playerLocatable.world(), playerLocatable.x(), playerLocatable.y(), playerLocatable.z()).add(unitDirection);
-            }
-            RaycastUtil.Settings raycastSettings = new RaycastUtil.Settings(
-                    3, 0, 100, false, playerData.blockView(), null);
-            Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), (ignored) -> {
-                int successfulRays = 0;
-                long startTime = System.nanoTime();
-                for (Locatable locatable : locatables) {
-                    if (RaycastUtil.raycast(playerLocatable, locatable, raycastSettings)) successfulRays++;
+            @DefaultExecutes
+            void benchmark(@DefaultToExecutor Player player, @IntArg(min = 1, max = 512) OptionalInt overrideRaycastDistance, @IntArg(min = 0, max = 1250) OptionalInt overrideWarmup, @IntArg(min = 1, max = 512) OptionalInt overrideBatches) {
+                int raycastDistance = overrideRaycastDistance.orElse(DEFAULT_RAYCAST_DISTANCE);
+                PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
+                if (playerData == null || playerData.ownLocation().world() == null) {
+                    player.sendRichMessage("<red>No PieCloak player data is available yet.");
+                    return;
                 }
-                long endTime = System.nanoTime();
-                long duration = endTime - startTime;
-                double averageTime = duration / (double) locatables.length;
-                final int successfulRaysFinal = successfulRays;
-                PaperScheduler.runForAudience(RaycastedAntiESP.get(), player, () -> {
-                    player.sendRichMessage("Average raycast time: " + averageTime + " nanoseconds");
-                    player.sendRichMessage("Total raycast time: " + duration + " nanoseconds");
-                    player.sendRichMessage("Successful rays: " + successfulRaysFinal + "/" + locatables.length);
-                });
-            });
+                Locatable current = playerData.ownLocation();
+                Locatable origin = new MutableLocatableImpl(current.world(), current.x(), current.y(), current.z());
+                Locatable[] targets = createCorpus(origin, raycastDistance);
+                RaycastUtil.Settings settings = new RaycastUtil.Settings(3, 0, Math.max(100, raycastDistance + 1), false, playerData.blockView(), null);
+                BenchmarkInput input = new BenchmarkInput(origin, targets, settings,
+                        overrideWarmup.orElse(BENCHMARK_WARMUP_BATCHES), overrideBatches.orElse(BENCHMARK_MEASUREMENT_BATCHES));
+                player.sendRichMessage("Running deterministic raycast benchmark at distance " + raycastDistance + "...");
+                Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> runBenchmark(player, input));
+            }
+
+            private static Locatable[] createCorpus(Locatable origin, int raycastDistance) {
+                Locatable[] targets = new Locatable[BENCHMARK_CORPUS_SIZE];
+                MutableFloatingSpatial direction = new MutableSpatialImpl(0, 0, 0);
+                SplittableRandom random = new SplittableRandom(BENCHMARK_SEED);
+                for (int i = 0; i < targets.length; i++) {
+                    direction.setX(random.nextDouble(-0.5, 0.5));
+                    direction.setY(random.nextDouble(-0.5, 0.5));
+                    direction.setZ(random.nextDouble(-0.5, 0.5));
+                    direction.normalise();
+                    direction.scalarMultiply(raycastDistance);
+                    targets[i] = new MutableLocatableImpl(origin.world(), origin.x(), origin.y(), origin.z()).add(direction);
+                }
+                return targets;
+            }
+
+            private static com.sun.management.ThreadMXBean allocationBean() {
+                java.lang.management.ThreadMXBean bean = ManagementFactory.getThreadMXBean();
+                if (!(bean instanceof com.sun.management.ThreadMXBean allocation) || !allocation.isThreadAllocatedMemorySupported()) {
+                    return null;
+                }
+                try {
+                    if (!allocation.isThreadAllocatedMemoryEnabled()) {
+                        allocation.setThreadAllocatedMemoryEnabled(true);
+                    }
+                    return allocation.isThreadAllocatedMemoryEnabled() ? allocation : null;
+                } catch (SecurityException | UnsupportedOperationException ignored) {
+                    return null;
+                }
+            }
+
+            private static void runBenchmark(Player player, BenchmarkInput input) {
+                long warmupChecksum = 0;
+                int corpusIndex = 0;
+                for (int batch = 0; batch < input.warmup(); batch++) {
+                    warmupChecksum += runRaycastBatch(input.origin(), input.targets(), corpusIndex, input.settings());
+                    corpusIndex = (corpusIndex + BENCHMARK_BATCH_SIZE) & BENCHMARK_CORPUS_MASK;
+                }
+                benchmarkSink = warmupChecksum;
+
+                var bean = allocationBean();
+                long threadId = Thread.currentThread().threadId();
+                double[] times = new double[BENCHMARK_ROUNDS];
+                double[] bytes = new double[BENCHMARK_ROUNDS];
+                long[] checksums = new long[BENCHMARK_ROUNDS];
+                double[] batchTimes = new double[BENCHMARK_ROUNDS * input.batches()];
+                for (int round = 0; round < BENCHMARK_ROUNDS; round++) {
+                    RoundResult result = measureRound(input, batchTimes, round, bean, threadId);
+                    times[round] = result.time();
+                    bytes[round] = result.bytes();
+                    checksums[round] = result.checksum();
+                }
+                BenchmarkResult result = new BenchmarkResult(times, bytes, checksums, batchTimes,
+                        Thread.currentThread().getName() + " (id " + threadId + ")", input.warmup());
+                PaperScheduler.runForAudience(RaycastedAntiESP.get(), player, () -> reportBenchmark(player, result));
+            }
+
+            private static RoundResult measureRound(BenchmarkInput input, double[] batchTimes, int round,
+                                                    com.sun.management.ThreadMXBean bean, long threadId) {
+                long allocatedBefore = bean == null ? -1 : bean.getThreadAllocatedBytes(threadId);
+                long startTime = System.nanoTime();
+                long checksum = 0;
+                int corpusIndex = 0;
+                for (int batch = 0; batch < input.batches(); batch++) {
+                    long batchStartTime = System.nanoTime();
+                    checksum += runRaycastBatch(input.origin(), input.targets(), corpusIndex, input.settings());
+                    batchTimes[round * input.batches() + batch] = (System.nanoTime() - batchStartTime) / (double) BENCHMARK_BATCH_SIZE;
+                    corpusIndex = (corpusIndex + BENCHMARK_BATCH_SIZE) & BENCHMARK_CORPUS_MASK;
+                }
+                long duration = System.nanoTime() - startTime;
+                long allocatedAfter = bean == null ? -1 : bean.getThreadAllocatedBytes(threadId);
+                benchmarkSink = checksum;
+                int count = BENCHMARK_BATCH_SIZE * input.batches();
+                double bytes = allocatedBefore >= 0 && allocatedAfter >= allocatedBefore
+                        ? (allocatedAfter - allocatedBefore) / (double) count : Double.NaN;
+                return new RoundResult(duration / (double) count, bytes, checksum);
+            }
+
+            private static void reportBenchmark(Player player, BenchmarkResult result) {
+                player.sendRichMessage("Benchmark thread: " + result.thread());
+                player.sendRichMessage("Warmup rays: " + (BENCHMARK_BATCH_SIZE * result.warmup()));
+                for (int round = 0; round < BENCHMARK_ROUNDS; round++) {
+                    String allocation = Double.isNaN(result.bytes()[round]) ? "allocation unavailable"
+                            : String.format(Locale.ROOT, "%.3f B/ray", result.bytes()[round]);
+                    player.sendRichMessage(String.format(Locale.ROOT, "Round %d: %.3f ns/ray, %s, checksum %d",
+                            round + 1, result.times()[round], allocation, result.checksums()[round]));
+                }
+                double[] sorted = result.times().clone();
+                Arrays.sort(sorted);
+                double average = mean(result.times());
+                double deviation = standardDeviation(result.times(), average);
+                player.sendRichMessage(String.format(Locale.ROOT, "Rounds: median %.3f, mean %.3f, min %.3f, max %.3f ns/ray",
+                        sorted[sorted.length / 2], average, sorted[0], sorted[sorted.length - 1]));
+                player.sendRichMessage(String.format(Locale.ROOT, "Round deviation: %.3f ns/ray (CV %.2f%%)", deviation, deviation / average * 100.0));
+                double[] batchTimes = result.batchTimes().clone();
+                Arrays.sort(batchTimes);
+                player.sendRichMessage(String.format(Locale.ROOT, "Batches (%d rays, %d samples): p50 %.3f, p90 %.3f, p95 %.3f, p99 %.3f, max %.3f ns/ray",
+                        BENCHMARK_BATCH_SIZE, batchTimes.length, percentile(batchTimes, 0.50), percentile(batchTimes, 0.90),
+                        percentile(batchTimes, 0.95), percentile(batchTimes, 0.99), batchTimes[batchTimes.length - 1]));
+            }
+
+            private record BenchmarkInput(Locatable origin, Locatable[] targets, RaycastUtil.Settings settings,
+                                          int warmup, int batches) {}
+            private record RoundResult(double time, double bytes, long checksum) {}
+            private record BenchmarkResult(double[] times, double[] bytes, long[] checksums, double[] batchTimes,
+                                           String thread, int warmup) {}
+
+            private static double mean(double[] values) {
+                double total = 0;
+                for (double value : values) total += value;
+                return total / values.length;
+            }
+
+            private static double standardDeviation(double[] values, double mean) {
+                double squaredDifferenceTotal = 0;
+                for (double value : values) {
+                    double difference = value - mean;
+                    squaredDifferenceTotal += difference * difference;
+                }
+                return Math.sqrt(squaredDifferenceTotal / values.length);
+            }
+
+            private static double percentile(double[] sortedValues, double percentile) {
+                double index = (sortedValues.length - 1) * percentile;
+                int lowerIndex = (int) index;
+                int upperIndex = Math.min(lowerIndex + 1, sortedValues.length - 1);
+                double fraction = index - lowerIndex;
+                return sortedValues[lowerIndex] + (sortedValues[upperIndex] - sortedValues[lowerIndex]) * fraction;
+            }
+
+            private static int runRaycastBatch(Locatable start, Locatable[] targets, int startIndex, RaycastUtil.Settings settings) {
+                int successfulRays = 0;
+                for (int offset = 0; offset < BENCHMARK_BATCH_SIZE; offset++) {
+                    if (RaycastUtil.raycast(start, targets[startIndex + offset], settings)) successfulRays++;
+                }
+                return successfulRays;
+            }
         }
 
         @Executes("loaded-chunks")
         void loadedChunksCommand(Player player) {
-            PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+            PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
             AbstractBlockView<?, ?> pbsm = (AbstractBlockView<?, ?>) playerData.blockView();
             player.sendMessage(pbsm.loadedChunkCount() +"chunks loaded");
         }
 
         @Executes("entity-id")
         void getFromEntityID(int entityID, Player player) {
-            PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+            PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
             if (playerData == null) {
                 player.sendRichMessage("<red>No player data is registered for " + describeViewer(player.getUniqueId()) + ".");
                 return;
@@ -359,7 +499,7 @@ public class RaycastedAntiESPCommand {
         void getFromEntityID(int entityID, CommandSender sender) {
             sender.sendRichMessage("<white>Searching all connected player views for entity ID " + entityID + ":");
             int matches = 0;
-            for (PlayerData playerData : PlayerRegistry.getInstance().getAllPlayerData()) {
+            for (PlayerData playerData : PlayerRegistry.get().getAllPlayerData()) {
                 if (!playerData.isConnected()) {
                     continue;
                 }
@@ -378,7 +518,7 @@ public class RaycastedAntiESPCommand {
         }
         void getFromUUID(UUID entityUUID, CommandSender sender) {
             int matches = 0;
-            for (PlayerData playerData : PlayerRegistry.getInstance().getAllPlayerData()) {
+            for (PlayerData playerData : PlayerRegistry.get().getAllPlayerData()) {
                 if (!playerData.isConnected()) {
                     continue;
                 }

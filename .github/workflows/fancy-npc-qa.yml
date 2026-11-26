@@ -5,6 +5,10 @@ on:
     paths:
       - 'platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/Fancy*'
       - 'platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/WeakIdentityRetirementGuard.java'
+      - 'core/**'
+      - 'packetevents/**'
+      - 'platform-paper/**'
+      - 'gradle.properties'
       - '.github/workflows/fancy-npc-qa.yml'
   workflow_dispatch:
 permissions:
@@ -37,7 +41,7 @@ jobs:
           ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:buildSnapshot --no-daemon
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
-          ref: 'e59026ae5dca26c7cf64733d1c3e93f03b2c19d1'
+          ref: '64e007d950113ef0858fb65e0c0338e6ac9338b1'
           path: .fixture-source
           persist-credentials: false
       - name: Copy pinned standalone fixture
@@ -49,6 +53,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: '70ae666f1bfeb880e94e1405a3fcfb782e7d9694'
+          path: .cancel-fixture
+          persist-credentials: false
+      - name: Copy pinned cancellation fixture
+        run: cp -R .cancel-fixture/qa/cancel qa/
       - name: Install isolated protocol clients
         run: |
           npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund mineflayer@4.39.0
@@ -57,6 +68,8 @@ jobs:
           java -version
       - name: Test real FancyNpcs lifecycle and packets
         run: python3 qa/fancy/run.py
+      - name: Test external cancellation and normal reveal
+        run: python3 qa/cancel/run.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
@@ -64,6 +77,8 @@ jobs:
           path: |
             ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
             ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
+            ${{ runner.temp }}/cancel-qa/server.log
+            ${{ runner.temp }}/cancel-qa/clients.jsonl
           if-no-files-found: warn
           retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

@@ -3,10 +3,10 @@ package games.cubi.raycastedantiesp.core.raycast;
 import games.cubi.locatables.api.BlockSpatial;
 import games.cubi.locatables.api.Locatable;
 import games.cubi.locatables.api.Spatial;
-import games.cubi.locatables.implementations.ImmutableSpatialImpl;
 import games.cubi.locatables.implementations.ImmutableLocatableImpl;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.view.BlockView;
+import games.cubi.raycastedantiesp.core.chunks.ChunkOcclusionView;
 
 public final class RaycastUtil {
     private static final double AXIS_TIE_EPSILON = 1.0E-12;
@@ -85,8 +85,7 @@ public final class RaycastUtil {
 
     private static void spawnVoxelParticle(Locatable start, ParticleSpawner particleSpawner,
             int x, int y, int z, ParticleSpawner.Colour colour) {
-        particleSpawner.spawnParticleAt(start.world(),
-                new ImmutableSpatialImpl(x + 0.5, y + 0.5, z + 0.5), colour);
+        particleSpawner.spawnParticleAt(start.world(), x + 0.5, y + 0.5, z + 0.5, colour);
     }
 
     private record RayGeometry(
@@ -134,6 +133,9 @@ public final class RaycastUtil {
         private double tMaxY;
         private double tMaxZ;
         private int occludingCount;
+        private int chunkX, chunkY, chunkZ;
+        private boolean chunkInitialized;
+        private ChunkOcclusionView chunkView;
 
         private VoxelTraversal(Locatable start, RayGeometry geometry, Settings settings) {
             this.start = start;
@@ -201,7 +203,19 @@ public final class RaycastUtil {
         }
 
         private boolean currentVoxelBlocksLineOfSight() {
-            boolean occluding = blockView.isBlockOccluding(x, y, z);
+            int nextChunkX = x >> 4;
+            int nextChunkY = y >> 4;
+            int nextChunkZ = z >> 4;
+            if (!chunkInitialized || nextChunkX != chunkX || nextChunkY != chunkY || nextChunkZ != chunkZ) {
+                chunkView = blockView.getChunkOcclusionView(nextChunkX, nextChunkY, nextChunkZ);
+                chunkX = nextChunkX;
+                chunkY = nextChunkY;
+                chunkZ = nextChunkZ;
+                chunkInitialized = true;
+            }
+            boolean occluding = chunkView == null
+                    ? blockView.isBlockOccluding(x, y, z)
+                    : chunkView.isOccludingGlobal(x, y, z);
             spawnDebugParticle(occluding);
             if (!occluding) {
                 return false;

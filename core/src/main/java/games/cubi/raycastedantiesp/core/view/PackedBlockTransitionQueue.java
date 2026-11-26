@@ -1,7 +1,7 @@
 package games.cubi.raycastedantiesp.core.view;
 
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.utils.IntrusiveSPSCQueue;
 
 import java.util.Objects;
@@ -20,7 +20,7 @@ public final class PackedBlockTransitionQueue {
     private final IntrusiveSPSCQueue<QueueEntry> publishedEntries = new IntrusiveSPSCQueue<>();
     private final PendingBatch pending = new PendingBatch();
 
-    public void add(BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity,
+    public void add(TransitionType.Tile type, TrackedTileEntity<?> tileEntity,
             long modeToken, int worldEpoch) {
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(tileEntity, "tileEntity");
@@ -95,7 +95,7 @@ public final class PackedBlockTransitionQueue {
     }
 
     private static RuntimeException accept(BlockView.TransitionConsumer consumer,
-            BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity,
+            TransitionType.Tile type, TrackedTileEntity<?> tileEntity,
             long modeToken, int worldEpoch, RuntimeException firstFailure) {
         try {
             consumer.accept(type, tileEntity, modeToken, worldEpoch);
@@ -116,12 +116,12 @@ public final class PackedBlockTransitionQueue {
     }
 
     private static final class SingleEntry extends QueueEntry {
-        private final BlockViewTransition.Type type;
+        private final TransitionType.Tile type;
         private final TrackedTileEntity<?> tileEntity;
         private final long modeToken;
         private final int worldEpoch;
 
-        private SingleEntry(BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity,
+        private SingleEntry(TransitionType.Tile type, TrackedTileEntity<?> tileEntity,
                 long modeToken, int worldEpoch) {
             this.type = type;
             this.tileEntity = tileEntity;
@@ -137,14 +137,14 @@ public final class PackedBlockTransitionQueue {
     }
 
     private static final class PendingBatch implements Clearable {
-        private BlockViewTransition.Type t1;
-        private BlockViewTransition.Type t2;
-        private BlockViewTransition.Type t3;
-        private BlockViewTransition.Type t4;
-        private BlockViewTransition.Type t5;
-        private BlockViewTransition.Type t6;
-        private BlockViewTransition.Type t7;
-        private BlockViewTransition.Type t8;
+        private TransitionType.Tile t1;
+        private TransitionType.Tile t2;
+        private TransitionType.Tile t3;
+        private TransitionType.Tile t4;
+        private TransitionType.Tile t5;
+        private TransitionType.Tile t6;
+        private TransitionType.Tile t7;
+        private TransitionType.Tile t8;
         private TrackedTileEntity<?> e1;
         private TrackedTileEntity<?> e2;
         private TrackedTileEntity<?> e3;
@@ -157,7 +157,7 @@ public final class PackedBlockTransitionQueue {
         private int worldEpoch;
         private int count;
 
-        private void add(BlockViewTransition.Type type, TrackedTileEntity<?> tileEntity) {
+        private void add(TransitionType.Tile type, TrackedTileEntity<?> tileEntity) {
             switch (++count) {
                 case 1 -> {
                     t1 = type;
@@ -220,14 +220,14 @@ public final class PackedBlockTransitionQueue {
     }
 
     private static final class BatchEntry extends QueueEntry {
-        private final BlockViewTransition.Type t1;
-        private final BlockViewTransition.Type t2;
-        private final BlockViewTransition.Type t3;
-        private final BlockViewTransition.Type t4;
-        private final BlockViewTransition.Type t5;
-        private final BlockViewTransition.Type t6;
-        private final BlockViewTransition.Type t7;
-        private final BlockViewTransition.Type t8;
+        private final TransitionType.Tile t1;
+        private final TransitionType.Tile t2;
+        private final TransitionType.Tile t3;
+        private final TransitionType.Tile t4;
+        private final TransitionType.Tile t5;
+        private final TransitionType.Tile t6;
+        private final TransitionType.Tile t7;
+        private final TransitionType.Tile t8;
         private final TrackedTileEntity<?> e1;
         private final TrackedTileEntity<?> e2;
         private final TrackedTileEntity<?> e3;

@@ -3,7 +3,7 @@ package games.cubi.raycastedantiesp.core.players;
 import games.cubi.raycastedantiesp.core.testsupport.TestEntityViewProxy;
 import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
@@ -38,7 +38,7 @@ class ClientStateResetterTest {
 
     @AfterEach
     void resetRegistries() {
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         ViewRegistry.reset();
     }
 
@@ -116,13 +116,26 @@ class ClientStateResetterTest {
         PlayerData oldGeneration = register(playerUUID);
         PlayerData newGeneration = register(playerUUID);
 
-        assertFalse(PlayerRegistry.getInstance().unregisterPlayer(playerUUID, oldGeneration));
-        assertSame(newGeneration, PlayerRegistry.getInstance().getPlayerData(playerUUID));
+        assertFalse(PlayerRegistry.get().unregisterPlayer(playerUUID, oldGeneration));
+        assertSame(newGeneration, PlayerRegistry.get().getPlayerData(playerUUID));
         assertTrue(newGeneration.isConnected());
+        assertEquals(1, PlayerRegistry.get().getPlayerDataArray().length);
+        assertSame(newGeneration, PlayerRegistry.get().getPlayerDataArray()[0]);
+        assertTrue(PlayerRegistry.get().unregisterPlayer(playerUUID, newGeneration));
+        assertEquals(0, PlayerRegistry.get().getPlayerDataArray().length);
+    }
+
+    @Test
+    void registryClearPublishesEmptySnapshot() {
+        register(UUID.randomUUID());
+        register(UUID.randomUUID());
+        assertEquals(2, PlayerRegistry.get().getPlayerDataArray().length);
+        PlayerRegistry.get().clear();
+        assertEquals(0, PlayerRegistry.get().getPlayerDataArray().length);
     }
 
     private PlayerData register(UUID playerUUID) {
-        return PlayerRegistry.getInstance().registerAndGetPlayer(
+        return PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID, 0, 1, EntityStub::createSelf);
     }
 
@@ -159,11 +172,11 @@ class ClientStateResetterTest {
 
     private static final class EntityStub extends NettyEntity<Clearable> {
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID) {
-            super(owningPlayer, entityID, entityUUID);
+            super(owningPlayer, entityID, entityUUID, () -> {});
         }
 
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID, boolean visible) {
-            super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible);
+            super(owningPlayer, new InitialPosition(0, 0, 0), entityID, entityUUID, false, 0, visible, () -> {});
         }
 
         private static EntityStub createSelf(PlayerData owningPlayer, int entityID, UUID playerUUID) {

@@ -4,14 +4,13 @@ import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.spongepowered.configurate.BasicConfigurationNode;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
@@ -35,7 +34,7 @@ class BoatPassengerVisibilityTest {
 
     @AfterEach
     void releaseState() {
-        PlayerRegistry.getInstance().unregisterPlayer(viewerUUID);
+        PlayerRegistry.get().unregisterPlayer(viewerUUID);
         ViewRegistry.reset();
         EntityBypassRegistry.reset();
     }
@@ -43,7 +42,7 @@ class BoatPassengerVisibilityTest {
     @Test
     void movedPassengerAndSupportBoatPublishShowThenHideTransitions() throws Exception {
         UUID world = UUID.randomUUID();
-        PlayerData player = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData player = PlayerRegistry.get().registerAndGetPlayer(
                 viewerUUID, 0, 1, PacketEventsEntity::createSelfEntity);
         player.beginWorldTransition();
         player.completeWorldTransition(world);
@@ -75,7 +74,7 @@ class BoatPassengerVisibilityTest {
         assertEquals(10, passenger.x());
         assertTrue(passenger.visible());
         assertTrue(boat.visible());
-        assertEquals(Map.of(2, EntityViewTransition.Type.SHOW, 20, EntityViewTransition.Type.SHOW),
+        assertEquals(Map.of(2, TransitionType.Entity.SHOW, 20, TransitionType.Entity.SHOW),
                 drainTransitions(view, epoch));
 
         boat.setPosition(120, 70, 5);
@@ -83,13 +82,13 @@ class BoatPassengerVisibilityTest {
                 false, 39, epoch, TickTimingBatchNoOp.INSTANCE);
         assertFalse(passenger.visible());
         assertFalse(boat.visible());
-        assertEquals(Map.of(2, EntityViewTransition.Type.HIDE, 20, EntityViewTransition.Type.HIDE),
+        assertEquals(Map.of(2, TransitionType.Entity.HIDE, 20, TransitionType.Entity.HIDE),
                 drainTransitions(view, epoch));
     }
 
-    private static Map<Integer, EntityViewTransition.Type> drainTransitions(
+    private static Map<Integer, TransitionType.Entity> drainTransitions(
             PacketEventsEntityView view, int epoch) {
-        Map<Integer, EntityViewTransition.Type> transitions = new ConcurrentHashMap<>();
+        Map<Integer, TransitionType.Entity> transitions = new ConcurrentHashMap<>();
         view.flushPendingTransitions();
         view.drainTransitions((type, entity, actualEpoch) -> {
             assertEquals(epoch, actualEpoch);
@@ -100,16 +99,6 @@ class BoatPassengerVisibilityTest {
     }
 
     private static EntityConfig entityConfig() throws Exception {
-        BasicConfigurationNode node = BasicConfigurationNode.root();
-        node.node("enabled").set(true);
-        node.node("hide-sounds-when-hidden").set(false);
-        node.node("max-occluding-count").set(3);
-        node.node("always-show-radius").set(24);
-        node.node("raycast-radius").set(48);
-        node.node("hide-on-spawn-distance").set(0);
-        node.node("visible-recheck-interval-ticks").set(10);
-        node.node("keep-client-entity-when-hidden").set(false);
-        node.node("excluded-types").set(List.of());
-        return EntityConfig.load(node, "checks.entity");
+        return new EntityConfig(new games.cubi.raycastedantiesp.core.config.raycast.RaycastSettings(true, (byte) 3, (short) 24, (short) 48, (short) 0, (short) 10), false, false, java.util.Set.of());
     }
 }

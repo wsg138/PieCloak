@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.core.view.chunks;
 
 import games.cubi.locatables.api.BlockLocatable;
@@ -12,10 +20,10 @@ import games.cubi.raycastedantiesp.core.chunks.OccludingChunkDataImpl;
 import games.cubi.raycastedantiesp.core.chunks.blocks.CharArrayBlockChunkData;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.AbstractBlockView;
 import games.cubi.raycastedantiesp.core.view.BlockView;
-import games.cubi.raycastedantiesp.core.view.BlockViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -286,7 +294,30 @@ class ChunkSectionStoreTest {
         assertEquals(1, visibilityRepairs.size());
         assertSame(tileEntity, visibilityRepairs.getFirst());
         assertTrue(tileEntity.visible());
+        assertFalse(tileEntity.clientVisible());
         assertFalse(view.hasPendingTransitions());
+    }
+
+    @Test
+    void disablingTileChecksRepairsClientHiddenEngineVisibleTiles() {
+        TestBlockView view = new TestBlockView(ODD_OCCLUDING, false);
+        UUID world = UUID.randomUUID();
+        ImmutableBlockSpatialImpl position = new ImmutableBlockSpatialImpl(1, 64, 2);
+        ArrayList<TrackedTileEntity<?>> visibilityRepairs = new ArrayList<>();
+
+        view.applyTileEntityCheckMode(true, 0, unused -> {});
+        TestTileEntity tileEntity = view.updateOrInsertTileEntity(world, position, 99, true);
+        tileEntity.setClientVisible(false);
+
+        view.applyTileEntityCheckMode(false, 1, tile -> {
+            visibilityRepairs.add(tile);
+            tile.setClientVisible(true);
+        });
+
+        assertEquals(1, visibilityRepairs.size());
+        assertSame(tileEntity, visibilityRepairs.getFirst());
+        assertTrue(tileEntity.visible());
+        assertTrue(tileEntity.clientVisible());
     }
 
     @Test
@@ -366,7 +397,7 @@ class ChunkSectionStoreTest {
                 }
             });
 
-            AtomicReference<BlockViewTransition.Type> transitionType = new AtomicReference<>();
+            AtomicReference<TransitionType.Tile> transitionType = new AtomicReference<>();
             AtomicReference<TrackedTileEntity<?>> transitionTileEntity = new AtomicReference<>();
             boolean[] drained = {false};
             for (int tick = 1; tick <= transitions; tick++) {
@@ -380,7 +411,7 @@ class ChunkSectionStoreTest {
                 } while (!drained[0]);
 
                 boolean expectedVisible = (tick & 1) == 0;
-                assertEquals(expectedVisible ? BlockViewTransition.Type.SHOW : BlockViewTransition.Type.HIDE, transitionType.get());
+                assertEquals(expectedVisible ? TransitionType.Tile.SHOW : TransitionType.Tile.HIDE, transitionType.get());
                 assertSame(tileEntity, transitionTileEntity.get());
                 assertEquals(expectedVisible, tileEntity.visible());
                 assertEquals(tick, tileEntity.lastChecked());

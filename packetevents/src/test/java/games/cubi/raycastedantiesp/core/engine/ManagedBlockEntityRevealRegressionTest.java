@@ -7,7 +7,7 @@ import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.BlockView;
-import games.cubi.raycastedantiesp.core.view.BlockViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +52,7 @@ class ManagedBlockEntityRevealRegressionTest {
         assertTrue(target.visible(), "the first async block recheck must reveal a nearby hidden managed block");
 
         view.flushPendingTransitions();
-        AtomicReference<BlockViewTransition.Type> transitionType = new AtomicReference<>();
+        AtomicReference<TransitionType.Tile> transitionType = new AtomicReference<>();
         AtomicReference<TrackedTileEntity<?>> transitionedTile = new AtomicReference<>();
         AtomicLong transitionModeToken = new AtomicLong();
         AtomicInteger transitionEpoch = new AtomicInteger();
@@ -63,7 +63,7 @@ class ManagedBlockEntityRevealRegressionTest {
             transitionEpoch.set(queuedWorldEpoch);
         });
 
-        assertEquals(BlockViewTransition.Type.SHOW, transitionType.get());
+        assertEquals(TransitionType.Tile.SHOW, transitionType.get());
         assertSame(target, transitionedTile.get());
         assertEquals(modeToken, transitionModeToken.get());
         assertEquals(worldEpoch, transitionEpoch.get());

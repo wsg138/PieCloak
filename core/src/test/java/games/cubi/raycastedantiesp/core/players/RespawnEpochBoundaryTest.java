@@ -3,7 +3,7 @@ package games.cubi.raycastedantiesp.core.players;
 import games.cubi.raycastedantiesp.core.testsupport.TestEntityViewProxy;
 import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
@@ -39,7 +39,7 @@ class RespawnEpochBoundaryTest {
 
     @AfterEach
     void resetRegistries() {
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         ViewRegistry.reset();
     }
 
@@ -47,7 +47,7 @@ class RespawnEpochBoundaryTest {
     void preRespawnShowRelationshipAndBlockCallbacksCannotCrossSameWorldBoundary() {
         UUID playerUUID = UUID.randomUUID();
         UUID worldUUID = UUID.randomUUID();
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData playerData = PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID, 0, 1, EntityStub::createSelf);
         establishWorld(playerData, "world", worldUUID);
 
@@ -129,12 +129,12 @@ class RespawnEpochBoundaryTest {
 
     private static final class EntityStub extends NettyEntity<Clearable> {
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID) {
-            super(owningPlayer, entityID, entityUUID);
+            super(owningPlayer, entityID, entityUUID, () -> {});
         }
 
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID,
                 boolean visible) {
-            super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible);
+            super(owningPlayer, new InitialPosition(0, 0, 0), entityID, entityUUID, false, 0, visible, () -> {});
         }
 
         private static EntityStub createSelf(PlayerData owningPlayer, int entityID,

@@ -1,22 +1,23 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-only
  * Copyright © 2026 Cubicake.
- * This file is part of RaycastedAntiESP.
- * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
- * See README.md for warranty disclaimer and further information.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
  */
 
 package games.cubi.raycastedantiesp.core.tracked;
 
 import games.cubi.locatables.api.MutableFloatingSpatial;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
-import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
-import games.cubi.raycastedantiesp.core.utils.IntArrayListMarker;
-import games.cubi.raycastedantiesp.core.utils.VarHandler;
+import games.cubi.utils.Clearable;
+import games.cubi.utils.lists.PrimitiveIntArrayList;
+import games.cubi.utils.lists.IntArrayListMarker;
+import games.cubi.utils.VarHandler;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.invoke.VarHandle;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -61,7 +62,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
 
 
     private int entityData;
-    private PacketReplayData packetReplayData; // For use storing the packets we can't be bothered to directly store, with all cached packets being sent back out to the client when entity is visible again.
+    private final PacketReplayData replayData;
 
     // Mutable by the engine and packet threads.
     private volatile int lastChecked; private static final VarHandle LAST_CHECKED = VarHandler.get(NettyEntity.class, "lastChecked", int.class);
@@ -76,8 +77,12 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     public static final int NO_LEASHER = -2;
     public static final int SELF_ENTITY_TYPE = -29;
 
-    public NettyEntity(PlayerData owningPlayer, double x, double y, double z, int entityID, UUID entityUUID, boolean isSelfEntity, int entityType, boolean visible) {
-        X.set(this, x); Y.set(this, y); Z.set(this, z);
+    protected record InitialPosition(double x, double y, double z) {
+        public InitialPosition {}
+    }
+
+    protected NettyEntity(PlayerData owningPlayer, InitialPosition position, int entityID, UUID entityUUID, boolean isSelfEntity, int entityType, boolean visible, PacketReplayData packetReplayData) {
+        X.set(this, position.x()); Y.set(this, position.y()); Z.set(this, position.z());
 
         this.entityID = entityID;
         this.entityUUID = entityUUID;
@@ -87,16 +92,18 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
         this.visible = visible;
 
         this.owningPlayer = owningPlayer;
+        this.replayData = Objects.requireNonNull(packetReplayData, "packetReplayData");
     }
 
     // For creating the self entity, where we don't have access to its position. Always visible.
-    protected NettyEntity(PlayerData selfData, int selfPlayerID, UUID ownUUID) {
+    protected NettyEntity(PlayerData selfData, int selfPlayerID, UUID ownUUID, PacketReplayData packetReplayData) {
         entityID = selfPlayerID;
         entityUUID = ownUUID;
         owningPlayer = selfData;
         isSelfEntity = true;
         entityType = SELF_ENTITY_TYPE;
         visible = true;
+        this.replayData = Objects.requireNonNull(packetReplayData, "packetReplayData");
     }
 
     @Override
@@ -290,10 +297,25 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
         return this;
     }
 
+    /**
+     * @return a clone of the passenger ID array, which may be null
+     */
     @Override
     public int[] passengerIDs() {
         int[] current = passengerIDsAcquire();
         return current == null ? null : current.clone();
+    }
+
+    /**
+     * Do not mutate this.
+     * <p></p>
+     * This method is not considered public api.
+     * <p>
+     *     Returned array may be null
+     * </p>
+     */
+    public int[] passengerIDsNoAlloc() {
+        return passengerIDsAcquire();
     }
 
     @Override
@@ -342,6 +364,17 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
         return PrimitiveIntArrayList.getCopyOrNull(leashedIDs);
     }
 
+    /**
+     * Returns internal Netty-thread leash state without copying it.
+     * Callers must not mutate the returned array.
+     * <p>
+     *     This is not considered public API.
+     * </p>
+     */
+    public int@Nullable[] leashedEntityIDsOrNullNoAlloc() {
+        return leashedIDs;
+    }
+
     @Override
     public int leashingEntity() {
         return (int) LEASHER_ID.getOpaque(this);
@@ -354,13 +387,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
 
     @Override
     public PacketReplayData packetReplayData() {
-        return packetReplayData;
-    }
-
-    @Override
-    public TrackedEntity<?> setPacketReplayData(PacketReplayData packetReplayData) {
-        this.packetReplayData = packetReplayData;
-        return this;
+        return replayData;
     }
 
     @Override
@@ -440,8 +467,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
 
     @Override
     public void clear() {
-        if (packetReplayData != null) packetReplayData.clear();
-        packetReplayData = null;
+        replayData.clear();
 
         TRACKED_FLAGS.setOpaque(this, (byte) 0);
         VEHICLE_ID.setOpaque(this, NO_VEHICLE);
@@ -467,9 +493,9 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
                 ", velocityY=" + velocityY() +
                 ", velocityZ=" + velocityZ() +
                 ", onGround=" + onGround() +
-                ", leashedIDs=" + nullableArrayToString(leashedIDs) +
+                ", leashedIDs=" + PrimitiveIntArrayList.toString(leashedIDs) +
                 ", leasherID=" + leashingEntity() +
-                ", passengerIDs=" + nullableArrayToString(passengerIDsAcquire()) +
+                ", passengerIDs=" + PrimitiveIntArrayList.toString(passengerIDsAcquire()) +
                 ", vehicleID=" + vehicleID() +
                 ", entityData=" + entityData() +
                 '}';
@@ -478,9 +504,4 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     private int[] passengerIDsAcquire() {
         return (int[]) PASSENGER_IDS.getAcquire(this);
     }
-
-    private static String nullableArrayToString(int[] values) {
-        return values == null ? null : PrimitiveIntArrayList.toString(values);
-    }
-
 }

@@ -10,7 +10,7 @@ import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
 import games.cubi.locatables.implementations.ImmutableLocatableImpl;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
@@ -19,7 +19,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.spongepowered.configurate.BasicConfigurationNode;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -74,7 +73,7 @@ class PacketEntityViewControllerTest {
     @AfterEach
     void unregisterPlayers() {
         for (UUID player : registeredPlayers) {
-            PlayerRegistry.getInstance().unregisterPlayer(player);
+            PlayerRegistry.get().unregisterPlayer(player);
         }
         registeredPlayers.clear();
         EntityBypassRegistry.reset();
@@ -321,20 +320,8 @@ class PacketEntityViewControllerTest {
     }
 
     private void configureChecks(boolean playersEnabled, boolean entitiesEnabled) throws Exception {
-        BasicConfigurationNode node = BasicConfigurationNode.root();
-        node.node("enabled").set(playersEnabled);
-        node.node("hide-sounds-when-hidden").set(false);
-        node.node("max-occluding-count").set(3);
-        node.node("always-show-radius").set(24);
-        node.node("raycast-radius").set(48);
-        node.node("hide-on-spawn-distance").set(0);
-        node.node("visible-recheck-interval-ticks").set(10);
-        node.node("keep-client-entity-when-hidden").set(false);
-        node.node("only-check-sneaking").set(false);
-        CONTROLLER.playerConfig = PlayerConfig.load(node, "checks.player");
-        node.node("enabled").set(entitiesEnabled);
-        node.node("excluded-types").set(List.of());
-        CONTROLLER.entityConfig = EntityConfig.load(node, "checks.entity");
+        CONTROLLER.playerConfig = new PlayerConfig(new games.cubi.raycastedantiesp.core.config.raycast.RaycastSettings(playersEnabled, (byte) 3, (short) 24, (short) 48, (short) 0, (short) 10), false, false, false);
+        CONTROLLER.entityConfig = new EntityConfig(new games.cubi.raycastedantiesp.core.config.raycast.RaycastSettings(entitiesEnabled, (byte) 3, (short) 24, (short) 48, (short) 0, (short) 10), false, false, java.util.Set.of());
     }
 
     @Test
@@ -391,7 +378,7 @@ class PacketEntityViewControllerTest {
     private PlayerData registerPlayer(UUID world) {
         UUID playerUUID = UUID.randomUUID();
         registeredPlayers.add(playerUUID);
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData playerData = PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID,
                 0,
                 1,
@@ -640,11 +627,11 @@ class PacketEntityViewControllerTest {
 
     private static final class HarnessEntity extends NettyEntity<Clearable> {
         private HarnessEntity(PlayerData owningPlayer, int entityID, UUID entityUUID) {
-            super(owningPlayer, entityID, entityUUID);
+            super(owningPlayer, entityID, entityUUID, () -> {});
         }
 
         private HarnessEntity(PlayerData owningPlayer, int entityID, UUID entityUUID, boolean visible) {
-            super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible);
+            super(owningPlayer, new InitialPosition(0, 0, 0), entityID, entityUUID, false, 0, visible, () -> {});
         }
 
         private static HarnessEntity createSelf(PlayerData owningPlayer, int entityID, UUID playerUUID) {

@@ -19,7 +19,7 @@ import games.cubi.raycastedantiesp.core.players.NettyData;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
-import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
+import games.cubi.utils.lists.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.utils.Packet;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -65,7 +65,7 @@ public abstract class PacketEntityViewController<P> {
     }
 
     protected void handleWorldStatePacket(UUID player, String world, UUID worldUUID, int minWorldHeight, int currentTick) {
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player);
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(player);
         if (playerData == null) {
             Logger.error("Received world state packet for unknown player, uuid=" + player, 2, PacketEntityViewController.class);
             return;
@@ -102,7 +102,7 @@ public abstract class PacketEntityViewController<P> {
     }
 
     protected PlayerData handlePlayPhaseLoginPacket(int entityID, UUID playerUUID, int currentTick) {
-        return PlayerRegistry.getInstance().registerAndGetPlayer(playerUUID, currentTick, entityID, this::createSelfEntity);
+        return PlayerRegistry.get().registerAndGetPlayer(playerUUID, currentTick, entityID, this::createSelfEntity);
     }
 
     protected abstract NettyEntity<?> createSelfEntity(PlayerData ownData, int entityID, UUID playerUUID);
@@ -117,7 +117,7 @@ public abstract class PacketEntityViewController<P> {
         if (player == null) {
             return;
         }
-        PlayerRegistry.getInstance().unregisterPlayer(player);
+        PlayerRegistry.get().unregisterPlayer(player);
     }
     /**
      * @return Whether or not to cancel the packet event. <code>true</code> to cancel, <code>false</code> to do nothing.

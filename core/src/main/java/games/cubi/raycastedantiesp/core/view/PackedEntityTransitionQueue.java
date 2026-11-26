@@ -1,6 +1,14 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.core.view;
 
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.utils.IntrusiveSPSCQueue;
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 
@@ -16,11 +24,12 @@ import java.util.Objects;
 public final class PackedEntityTransitionQueue { //todo: potentially merge this with PackedBlockTransitionQueue, and add a mode token to entities
     private static final int BATCH_MIN_SIZE = 3;
     private static final int BATCH_SIZE = 8;
+    private static final int HALF_BATCH_SIZE = BATCH_SIZE / 2;
 
     private final IntrusiveSPSCQueue<QueueEntry> publishedEntries = new IntrusiveSPSCQueue<>();
     private final PendingBatch pending = new PendingBatch();
 
-    public void add(EntityViewTransition.Type type, TrackedEntity<?> entity, int worldEpoch) {
+    public void add(TransitionType.Entity type, TrackedEntity<?> entity, int worldEpoch) {
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(entity, "entity");
 
@@ -87,11 +96,11 @@ public final class PackedEntityTransitionQueue { //todo: potentially merge this 
     }
 
     private static final class SingleEntry extends QueueEntry {
-        private final EntityViewTransition.Type type;
+        private final TransitionType.Entity type;
         private final TrackedEntity<?> entity;
         private final int worldEpoch;
 
-        private SingleEntry(EntityViewTransition.Type type, TrackedEntity<?> entity, int worldEpoch) {
+        private SingleEntry(TransitionType.Entity type, TrackedEntity<?> entity, int worldEpoch) {
             this.type = type;
             this.entity = entity;
             this.worldEpoch = worldEpoch;
@@ -104,31 +113,33 @@ public final class PackedEntityTransitionQueue { //todo: potentially merge this 
     }
 
     private static final class PendingBatch implements Clearable {
-        private EntityViewTransition.Type t1;
-        private EntityViewTransition.Type t2;
-        private EntityViewTransition.Type t3;
-        private EntityViewTransition.Type t4;
-        private EntityViewTransition.Type t5;
-        private EntityViewTransition.Type t6;
-        private EntityViewTransition.Type t7;
-        private EntityViewTransition.Type t8;
-        private TrackedEntity<?> e1;
-        private TrackedEntity<?> e2;
-        private TrackedEntity<?> e3;
-        private TrackedEntity<?> e4;
-        private TrackedEntity<?> e5;
-        private TrackedEntity<?> e6;
-        private TrackedEntity<?> e7;
-        private TrackedEntity<?> e8;
+        private TransitionType.Entity t1, t2, t3, t4, t5, t6, t7, t8;
+        private TrackedEntity<?> e1, e2, e3, e4, e5, e6, e7, e8;
         private int worldEpoch;
         private int count;
 
-        private void add(EntityViewTransition.Type type, TrackedEntity<?> entity) {
-            switch (++count) {
+        // Eight fixed slots avoid per-transition allocations in the packet hot path.
+        private void add(TransitionType.Entity type, TrackedEntity<?> entity) {
+            count++;
+            if (count <= HALF_BATCH_SIZE) {
+                addFirst(type, entity);
+            } else {
+                addLast(type, entity);
+            }
+        }
+
+        private void addFirst(TransitionType.Entity type, TrackedEntity<?> entity) {
+            switch (count) {
                 case 1 -> { t1 = type; e1 = entity; }
                 case 2 -> { t2 = type; e2 = entity; }
                 case 3 -> { t3 = type; e3 = entity; }
                 case 4 -> { t4 = type; e4 = entity; }
+                default -> throw new IllegalStateException("Invalid first-half batch index");
+            }
+        }
+
+        private void addLast(TransitionType.Entity type, TrackedEntity<?> entity) {
+            switch (count) {
                 case 5 -> { t5 = type; e5 = entity; }
                 case 6 -> { t6 = type; e6 = entity; }
                 case 7 -> { t7 = type; e7 = entity; }
@@ -137,65 +148,35 @@ public final class PackedEntityTransitionQueue { //todo: potentially merge this 
             }
         }
 
+        @SuppressWarnings("PMD.NullAssignment") // Release references to consumed entities.
         public void clear() {
-            t1 = null;
-            t2 = null;
-            t3 = null;
-            t4 = null;
-            t5 = null;
-            t6 = null;
-            t7 = null;
-            t8 = null;
-            e1 = null;
-            e2 = null;
-            e3 = null;
-            e4 = null;
-            e5 = null;
-            e6 = null;
-            e7 = null;
-            e8 = null;
+            t1 = null; t2 = null; t3 = null; t4 = null;
+            t5 = null; t6 = null; t7 = null; t8 = null;
+
+            e1 = null; e2 = null; e3 = null; e4 = null;
+            e5 = null; e6 = null; e7 = null; e8 = null;
+
             worldEpoch = 0;
             count = 0;
         }
     }
 
     private static final class BatchEntry extends QueueEntry {
-        private final EntityViewTransition.Type t1;
-        private final EntityViewTransition.Type t2;
-        private final EntityViewTransition.Type t3;
-        private final EntityViewTransition.Type t4;
-        private final EntityViewTransition.Type t5;
-        private final EntityViewTransition.Type t6;
-        private final EntityViewTransition.Type t7;
-        private final EntityViewTransition.Type t8;
-        private final TrackedEntity<?> e1;
-        private final TrackedEntity<?> e2;
-        private final TrackedEntity<?> e3;
-        private final TrackedEntity<?> e4;
-        private final TrackedEntity<?> e5;
-        private final TrackedEntity<?> e6;
-        private final TrackedEntity<?> e7;
-        private final TrackedEntity<?> e8;
+        private final TransitionType.Entity t1, t2, t3, t4, t5, t6, t7, t8;
+        private final TrackedEntity<?> e1, e2, e3, e4, e5, e6, e7, e8;
         private final int worldEpoch;
         private final int count;
 
         private BatchEntry(PendingBatch pending) {
-            t1 = pending.t1;
-            t2 = pending.t2;
-            t3 = pending.t3;
-            t4 = pending.t4;
-            t5 = pending.t5;
-            t6 = pending.t6;
-            t7 = pending.t7;
-            t8 = pending.t8;
-            e1 = pending.e1;
-            e2 = pending.e2;
-            e3 = pending.e3;
-            e4 = pending.e4;
-            e5 = pending.e5;
-            e6 = pending.e6;
-            e7 = pending.e7;
-            e8 = pending.e8;
+            t1 = pending.t1; t2 = pending.t2;
+            t3 = pending.t3; t4 = pending.t4;
+            t5 = pending.t5; t6 = pending.t6;
+            t7 = pending.t7; t8 = pending.t8;
+
+            e1 = pending.e1; e2 = pending.e2;
+            e3 = pending.e3; e4 = pending.e4;
+            e5 = pending.e5; e6 = pending.e6;
+            e7 = pending.e7; e8 = pending.e8;
             worldEpoch = pending.worldEpoch;
             count = pending.count;
         }

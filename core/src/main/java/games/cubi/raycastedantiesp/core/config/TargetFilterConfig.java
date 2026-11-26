@@ -6,7 +6,7 @@
 
 package games.cubi.raycastedantiesp.core.config;
 
-import org.spongepowered.configurate.ConfigurationNode;
+import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 
 import java.util.List;
 import java.util.Locale;
@@ -14,6 +14,7 @@ import java.util.Locale;
 /**
  * PieCloak's allowlist of packet-visible targets managed by the anti-ESP engine.
  */
+@ConfigSerializable
 public record TargetFilterConfig(
         boolean enabled,
         Mode mode,
@@ -21,39 +22,18 @@ public record TargetFilterConfig(
         List<String> blockEntities,
         List<String> blockEntityGroups
 ) implements Config {
-    public static final ConfigExtension<TargetFilterConfig> EXTENSION = new ConfigExtension<>() {
-        @Override
-        public Class<TargetFilterConfig> type() {
-            return TargetFilterConfig.class;
-        }
-
-        @Override
-        public TargetFilterConfig load(ConfigurationNode config, BlockProcessorConfig blockProcessorConfig) {
-            return TargetFilterConfig.load(config);
-        }
-
-        @Override
-        public boolean requiresRestart(TargetFilterConfig startupConfig, TargetFilterConfig nextConfig) {
-            return !startupConfig.equals(nextConfig);
-        }
-    };
+    public static final TargetFilterConfig DEFAULT = new TargetFilterConfig(true, Mode.ALLOWLIST,
+            List.of("minecraft:villager", "minecraft:copper_golem", "minecraft:armadillo", "minecraft:wolf",
+                    "minecraft:cat", "minecraft:ocelot", "minecraft:allay", "minecraft:bee", "minecraft:iron_golem",
+                    "minecraft:snow_golem", "minecraft:item_frame", "minecraft:glow_item_frame", "minecraft:armor_stand", "minecraft:painting"),
+            List.of("minecraft:campfire", "minecraft:soul_campfire", "minecraft:decorated_pot", "minecraft:bell",
+                    "minecraft:jukebox", "minecraft:conduit", "minecraft:beacon", "minecraft:moving_piston"),
+            List.of("shulker_boxes", "signs", "hanging_signs", "banners", "wall_banners", "beds", "heads_and_skulls"));
 
     public TargetFilterConfig {
         entities = List.copyOf(entities);
         blockEntities = List.copyOf(blockEntities);
         blockEntityGroups = List.copyOf(blockEntityGroups);
-    }
-
-    public static TargetFilterConfig load(ConfigurationNode root) {
-        ConfigurationNode filter = ConfigReader.node(root, "target-filter");
-        Mode mode = Mode.fromConfigName(ConfigReader.string(ConfigReader.node(filter, "mode"), "target-filter.mode"));
-        return new TargetFilterConfig(
-                ConfigReader.bool(ConfigReader.node(filter, "enabled"), "target-filter.enabled"),
-                mode,
-                ConfigReader.stringList(ConfigReader.node(filter, "entities"), "target-filter.entities"),
-                ConfigReader.stringList(ConfigReader.node(filter, "block-entities"), "target-filter.block-entities"),
-                ConfigReader.stringList(ConfigReader.node(filter, "block-entity-groups"), "target-filter.block-entity-groups")
-        );
     }
 
     public static String normalizeKey(String raw) {

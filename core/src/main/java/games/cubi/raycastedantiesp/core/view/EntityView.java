@@ -1,9 +1,17 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.core.view;
 
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.locatables.api.Spatial;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 
 import java.util.Collection;
 import java.util.UUID;
@@ -36,9 +44,6 @@ public interface EntityView<T extends TrackedEntity<?>>  extends Clearable {
      * This operation is safe to call from threads other than the structural writer.
      */
     int size();
-
-    @Deprecated
-    boolean isVisible(UUID entityUUID, int currentTick);
 
     boolean isVisible(UUID entityUUID);
 
@@ -78,7 +83,7 @@ public interface EntityView<T extends TrackedEntity<?>>  extends Clearable {
 
     @FunctionalInterface
     interface TransitionConsumer {
-        void accept(EntityViewTransition.Type type, TrackedEntity<?> entity, int worldEpoch);
+        void accept(TransitionType.Entity type, TrackedEntity<?> entity, int worldEpoch);
     }
 
     void drainTransitions(TransitionConsumer consumer);

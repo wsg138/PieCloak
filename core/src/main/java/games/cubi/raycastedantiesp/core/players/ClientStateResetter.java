@@ -29,7 +29,7 @@ public final class ClientStateResetter {
         String committedWorldName = committedWorldName(worldName, worldUUID, playerUUID);
         UUID committedWorldUUID = worldUUID;
 
-        PlayerRegistry registry = PlayerRegistry.getInstance();
+        PlayerRegistry registry = PlayerRegistry.get();
         boolean completed = false;
         try {
             playerData.beginWorldTransition();

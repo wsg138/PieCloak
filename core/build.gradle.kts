@@ -1,16 +1,19 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-only
  * Copyright © 2026 Cubicake.
- * This file is part of RaycastedAntiESP.
- * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
- * See README.md for warranty disclaimer and further information.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
  */
 
 import java.time.Instant
+import org.gradle.api.file.FileCollection
 
 plugins {
     id("java-library")
 }
+
+val patchedConfigurateYaml = rootProject.extra["patchedConfigurateYaml"] as FileCollection
 
 repositories {
     mavenCentral()
@@ -20,7 +23,7 @@ repositories {
 
 dependencies {
     compileOnly("org.spongepowered:configurate-core:4.2.0")
-    compileOnly("org.spongepowered:configurate-yaml:4.2.0")
+    compileOnly(patchedConfigurateYaml)
     compileOnly("it.unimi.dsi:fastutil:8.5.18")
 
     implementation(project(":locatables"))
@@ -33,12 +36,13 @@ dependencies {
     testImplementation(project(":leafpile"))
     testImplementation(project(":logging"))
     testImplementation("org.spongepowered:configurate-core:4.2.0")
+    testImplementation(patchedConfigurateYaml)
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("it.unimi.dsi:fastutil:8.5.18")
 }
 
-val coreVersion = "0.7.0-SNAPSHOT"
+val coreVersion = "0.7.2-SNAPSHOT"
 
 val isRelease = gradle.startParameter.taskNames.any {
     it.contains("buildRelease")

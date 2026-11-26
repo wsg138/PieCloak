@@ -2,7 +2,7 @@ package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import games.cubi.raycastedantiesp.packetevents.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import org.junit.jupiter.api.Test;
 
@@ -170,8 +170,8 @@ class EntityTransitionWorkTest {
                 UUID.randomUUID(),
                 view(),
                 plan.steps().size() == 1 && plan.steps().getFirst().stage() == EntityTransitionPlan.Stage.DESTROY
-                        ? EntityViewTransition.Type.HIDE
-                        : EntityViewTransition.Type.SHOW,
+                        ? TransitionType.Entity.HIDE
+                        : TransitionType.Entity.SHOW,
                 entity,
                 2,
                 plan

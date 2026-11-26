@@ -18,7 +18,6 @@ import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import games.cubi.raycastedantiesp.core.lifecycle.LifecycleScope;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
-import games.cubi.raycastedantiesp.packetevents.config.PacketEventsBlockProcessorConfig;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsEntityView;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.PacketEventsCommonViewController;
@@ -275,18 +274,15 @@ public final class RaycastedAntiESP extends JavaPlugin implements CommandExecuto
 
     private void initialiseConfigIfNeeded() {
         if (config == null) {
-            config = ConfigManager.initialiseConfigManager(
-                    () -> getResource("config.yml"),
-                    getDataFolder().toPath(),
-                    List.of(PacketEventsBlockProcessorConfig.EXTENSION, TargetFilterConfig.EXTENSION)
-            );
+            config = ConfigManager.initialiseConfigManager(getDataFolder().toPath());
+            config.completeInitialLoad();
         }
     }
 
     @SuppressWarnings("PMD.NullAssignment") // Re-enable safety requires releasing every lifecycle-owned static reference.
     private static void resetSharedState() {
         PacketEventsCommonViewController.reset(commonController);
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         EntityBypassRegistry.reset();
         ViewRegistry.reset();
         EntityTypeExclusions.reset();
