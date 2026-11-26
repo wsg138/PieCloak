@@ -12,7 +12,7 @@ import org.gradle.jvm.toolchain.JavaToolchainService
 
 plugins {
     id("java-library")
-    id("io.papermc.paperweight.userdev") version "2.0.0-beta.21"
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.24"
     id("xyz.jpenilla.run-paper") version "3.0.2"
     id("com.gradleup.shadow") version "9.4.0"
 }
@@ -31,10 +31,11 @@ repositories {
 val minecraftVersionProvider = providers.gradleProperty("minecraftVersion")
 val paperDevBundleVersionProvider = providers.gradleProperty("paperDevBundleVersion")
 val javaVersionProvider = providers.gradleProperty("javaVersion").map { it.toInt() }
+val packetEventsVersion = providers.gradleProperty("packetEventsVersion").get()
 
 dependencies {
     paperweight.paperDevBundle(paperDevBundleVersionProvider.get())
-    compileOnly("com.github.retrooper:packetevents-spigot:2.12.0")
+    compileOnly("com.github.retrooper:packetevents-spigot:$packetEventsVersion")
     compileOnly("org.spongepowered:configurate-core:4.2.0")
     implementation(patchedConfigurateYaml)
 
@@ -56,7 +57,7 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:5.10.2"))
     testImplementation("org.junit.jupiter:junit-jupiter-api")
-    testRuntimeOnly("com.github.retrooper:packetevents-spigot:2.12.0")
+    testRuntimeOnly("com.github.retrooper:packetevents-spigot:$packetEventsVersion")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

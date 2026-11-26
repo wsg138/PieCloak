@@ -19,6 +19,8 @@ repositories {
     maven { url = uri("https://repo.codemc.io/repository/maven-snapshots/") }
 }
 
+val packetEventsVersion = providers.gradleProperty("packetEventsVersion").get()
+
 dependencies {
     implementation(project(":locatables"))
     implementation(project(":logging"))
@@ -26,7 +28,7 @@ dependencies {
 
     compileOnly(project(":leafpile"))
 
-    compileOnly("com.github.retrooper:packetevents-api:2.12.0")
+    compileOnly("com.github.retrooper:packetevents-api:$packetEventsVersion")
     compileOnly("it.unimi.dsi:fastutil:8.5.18")
     compileOnly("org.jetbrains:annotations:24.0.1")
 
@@ -35,7 +37,7 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(project(":leafpile"))
-    testImplementation("com.github.retrooper:packetevents-api:2.12.0")
+    testImplementation("com.github.retrooper:packetevents-api:$packetEventsVersion")
     testImplementation("org.spongepowered:configurate-core:4.2.0")
     testImplementation("net.kyori:adventure-api:4.25.0")
 }

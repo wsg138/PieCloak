@@ -1,0 +1,57 @@
+name: Explicit Paper 26.3 build profile
+on:
+  push:
+    branches: [integration/paper-26.3-build]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - minecraft: '1.21.11'
+            java: '21'
+            paper: '1.21.11-R0.1-SNAPSHOT'
+            packets: '2.12.0'
+          - minecraft: '26.3'
+            java: '25'
+            paper: '26.3.build.262-stable'
+            packets: '2.14.0'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: gradle
+      - name: Compile explicit profile and run all regressions
+        env:
+          MC_VERSION: ${{ matrix.minecraft }}
+          JAVA_VERSION: ${{ matrix.java }}
+          PAPER_VERSION: ${{ matrix.paper }}
+          PACKETS_VERSION: ${{ matrix.packets }}
+        run: |
+          set -euo pipefail
+          cd leafpile/templates
+          javac --release "$JAVA_VERSION" GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon -PminecraftVersion="$MC_VERSION" -PjavaVersion="$JAVA_VERSION" -PpaperDevBundleVersion="$PAPER_VERSION" -PpacketEventsVersion="$PACKETS_VERSION"
+          shopt -s nullglob
+          jars=(platform-paper/build/libs/RaycastedAntiESP-*.jar)
+          test "${#jars[@]}" = 1
+          unzip -p "${jars[0]}" plugin.yml | grep -Fx "api-version: '$MC_VERSION'"
+          unzip -p "${jars[0]}" build-properties/platform.yml | grep -Fx "java-version: $JAVA_VERSION"
+          sha256sum "${jars[0]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: PieCloak-explicit-${{ matrix.minecraft }}
+          path: platform-paper/build/libs/RaycastedAntiESP-*.jar
+          if-no-files-found: error
+          retention-days: 14
