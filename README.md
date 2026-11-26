@@ -21,7 +21,7 @@ It keeps the upstream packet, async-engine, chunk-processing, compatibility, and
 
 **[Download the published release candidate (.jar)](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-26-upstream-373343e/PieCloak-1.21.11-2026-11-26-upstream-373343e.jar)** · [Release notes and SHA-256](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-26-upstream-373343e)
 
-The November 26 upstream integration build contains RaycastedAntiESP through `373343e` plus PieCloak-specific fixes. Its exact merged JAR passed compilation, unit tests, legacy configuration migration, and the two-client Paper runtime matrix before publication. [Build and runtime evidence](https://github.com/wsg138/PieCloak/actions/runs/45778483197). The release is marked prerelease pending broader platform and live-production qualification.
+The November 26 upstream integration build supports the tested Paper 1.21.11 and 26.3 configurations below. It contains RaycastedAntiESP through `373343e` plus PieCloak-specific fixes. Its exact merged JAR passed compilation, unit tests, legacy configuration migration, and the two-client Paper runtime matrix before publication. [Build and runtime evidence](https://github.com/wsg138/PieCloak/actions/runs/45778483197). The release is marked prerelease pending broader platform and live-production qualification.
 
 1. Install a compatible [PacketEvents](https://modrinth.com/plugin/packetevents) JAR.
 2. Stop the server and back up your existing PieCloak configuration.
@@ -34,13 +34,15 @@ Use a full server restart when updating PieCloak or Fancy integrations.
 
 | Component | Supported baseline / verification |
 | --- | --- |
-| Minecraft / Paper | 1.21.11; hosted lifecycle tests on Paper build 132 |
-| Java | 21 build target; expanded hosted runtime tests used Java 25 |
-| PacketEvents | Required; 2.12.0 tested |
+| Minecraft / Paper | **1.21.11 (build 132) and 26.3 (build 263)** — both verified with the published JAR |
+| Java | JAR compiled for Java 21; **Java 25+ required by Paper 26.3** |
+| PacketEvents | Required; 2.12.0 on 1.21.11, 2.14.0 on 26.3 |
 | FancyNpcs | Optional; 2.12.1 tested for spawning, deletion, type changes, interaction, movement, visibility range and saved NPCs after restart |
 | FancyHolograms | Optional; 2.12.0 installed alongside FancyNpcs during the same tests |
 | Leaf / Folia / Geyser | Existing integrations retained; this candidate's full platform-specific acceptance remains pending |
 | Hot disable / re-enable | Not a supported FancyNpcs upgrade path; use a full process restart |
+
+**Minecraft 26.3:** the exact published JAR (SHA-256 `6b4da6a272d287fd89f62ca1b9643a960dbcb290b146257815a26d720045c6d3`) passed native 26.3 two-client Fancy lifecycle, restart, migration, and synthetic/native cancellation tests ([runtime results](https://github.com/wsg138/PieCloak/actions/runs/45876384597)). The real [entity and block visibility test](https://github.com/wsg138/PieCloak/actions/runs/45876752065) verified hidden managed villager/shulker box, unaffected cow/chest, and legitimate reveal. Review legacy numeric block-state overrides when changing Minecraft versions; named selectors are portable. ViaBackwards-translated clients and other server platforms are not implied by these results.
 
 The published FancyNpcs fix from [PR #35](https://github.com/wsg138/PieCloak/pull/35) is retained in the upstream integration. [Exact release runtime results](https://github.com/wsg138/PieCloak/actions/runs/45778483197) cover the configurations above, not every platform or optional integration.
 
