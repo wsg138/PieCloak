@@ -66,8 +66,9 @@ final class FancyNpcsCompatibility extends PaperListener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onNpcRemove(NpcRemoveEvent event) {
-        Npc npc = event.getNpc();
-        retiredNpcs.retireOwnerIncarnations(npc, nativeEntityId(npc));
+        // A deleted object must not claim a new incarnation through an
+        // already queued async spawn. No native handle is needed to retire it.
+        retiredNpcs.retireOwner(event.getNpc());
     }
     private void add(Npc npc) {
         // Remove and spawn callbacks may race across the main and async threads.
@@ -80,7 +81,7 @@ final class FancyNpcsCompatibility extends PaperListener {
 
     private static Integer nativeEntityId(Npc npc) {
         // FancyNpcs v2 adapters dereference their native entity directly.
-        // Modify/remove callbacks and startup backfill can see an NPC before
+        // Modify callbacks and startup backfill can see an NPC before
         // create(); restrict the exception handling to the external accessor.
         try {
             return npc.getEntityId();

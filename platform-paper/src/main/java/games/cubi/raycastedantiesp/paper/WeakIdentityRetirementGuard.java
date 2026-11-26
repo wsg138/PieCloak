@@ -37,7 +37,7 @@ final class WeakIdentityRetirementGuard<T> {
         synchronized (this) {
             discardCollected();
             OwnerState state = getOrCreate(owner);
-            if (state.retiredIds.contains(entityId)) {
+            if (state.permanentlyRetired || state.retiredIds.contains(entityId)) {
                 return false;
             }
             if (!state.activeIds.contains(entityId)) {
@@ -64,7 +64,7 @@ final class WeakIdentityRetirementGuard<T> {
         synchronized (this) {
             discardCollected();
             OwnerState state = getOrCreate(owner);
-            if (!state.retiredIds.add(entityId)) {
+            if (state.permanentlyRetired || !state.retiredIds.add(entityId)) {
                 return;
             }
             if (state.activeIds.remove(entityId)) {
@@ -77,20 +77,20 @@ final class WeakIdentityRetirementGuard<T> {
      * Permanent NPC removal may follow a native entity replacement before the
      * new incarnation has ever spawned for a viewer. Release all recorded
      * incarnations of this owner, not another owner's claims on the same IDs.
-     * A null current ID means the optional plugin has no native handle yet.
+     * A permanent removal fences even previously unseen IDs from delayed
+     * callbacks on the deleted object. This tombstone is identity-scoped and
+     * weakly held, so replacement NPC objects and other integrations are unaffected.
      */
-    synchronized void retireOwnerIncarnations(T owner, Integer currentId) {
+    synchronized void retireOwner(T owner) {
         Objects.requireNonNull(owner, "owner");
         discardCollected();
         OwnerState state = getOrCreate(owner);
-        if (currentId != null) {
-            state.retiredIds.add(currentId);
-        }
+        state.permanentlyRetired = true;
         for (int activeId : state.activeIds) {
-            state.retiredIds.add(activeId);
             releaseOwner(activeId);
         }
         state.activeIds.clear();
+        state.retiredIds.clear();
     }
 
     // The queue must also be polled during quiet periods: without a scheduled
@@ -134,6 +134,7 @@ final class WeakIdentityRetirementGuard<T> {
     private static final class OwnerState {
         final Set<Integer> activeIds = new HashSet<>();
         final Set<Integer> retiredIds = new HashSet<>();
+        boolean permanentlyRetired;
     }
 
     private static final class IdentityReference<T> extends WeakReference<T> {

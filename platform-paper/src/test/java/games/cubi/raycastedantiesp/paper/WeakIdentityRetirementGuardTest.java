@@ -202,7 +202,7 @@ class WeakIdentityRetirementGuardTest {
         assertTrue(guard.registerIfActive(owner, 810));
         assertTrue(guard.registerIfActive(other, 810));
         // A type change constructed ID 811, but no viewer spawned it yet.
-        guard.retireOwnerIncarnations(owner, 811);
+        guard.retireOwner(owner);
         assertFalse(guard.registerIfActive(owner, 810));
         assertFalse(guard.registerIfActive(owner, 811));
         assertFalse(EntityBypassRegistry.isBypassed(811));
@@ -216,10 +216,92 @@ class WeakIdentityRetirementGuardTest {
         var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
         Object owner = new Object();
         assertTrue(guard.registerIfActive(owner, 812));
-        guard.retireOwnerIncarnations(owner, null);
+        guard.retireOwner(owner);
         assertFalse(EntityBypassRegistry.isBypassed(812));
         assertFalse(guard.registerIfActive(owner, 812));
-        guard.retireOwnerIncarnations(new Object(), null);
+        guard.retireOwner(new Object());
         assertTrue(guard.registerIfActive(new Object(), 812));
+    }
+
+    @Test
+    void deletionBeforeAnySpawnFencesAllFutureIdsForOnlyThatObject() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object deleted = new Object();
+        guard.retireOwner(deleted);
+        for (int id = 900; id < 920; id++) {
+            assertFalse(guard.registerIfActive(deleted, id));
+            assertFalse(EntityBypassRegistry.isBypassed(id));
+        }
+        Object replacement = new Object();
+        assertTrue(guard.registerIfActive(replacement, 900));
+        guard.retireOwner(deleted); // duplicate event
+        assertTrue(EntityBypassRegistry.isBypassed(900));
+    }
+
+    @Test
+    void permanentRetirementPreservesIndependentBypassReasons() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        var holograms = EntityBypassRegistry.openFancyHologramScope();
+        Object owner = new Object();
+        assertTrue(guard.registerIfActive(owner, 930));
+        holograms.addEntity(930);
+        EntityBypassRegistry.addEntity(931);
+        assertTrue(guard.registerIfActive(owner, 931));
+        guard.retireOwner(owner);
+        assertTrue(EntityBypassRegistry.isBypassed(930));
+        assertTrue(EntityBypassRegistry.isBypassed(931));
+        holograms.close();
+        assertFalse(EntityBypassRegistry.isBypassed(930));
+        assertTrue(EntityBypassRegistry.isBypassed(931));
+    }
+
+    @Test
+    void permanentlyRetiredOwnerCannotRaceUnknownIdsBackIntoScope() throws Exception {
+        for (int attempt = 0; attempt < 100; attempt++) {
+            var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+            Object owner = new Object();
+            assertTrue(guard.registerIfActive(owner, 1000));
+            var start = new CountDownLatch(1);
+            var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+            try {
+                var spawn = executor.submit(() -> {
+                    start.await();
+                    for (int id = 1001; id < 1060; id++) {
+                        guard.registerIfActive(owner, id);
+                    }
+                    return null;
+                });
+                var remove = executor.submit(() -> {
+                    start.await();
+                    guard.retireOwner(owner);
+                    return null;
+                });
+                start.countDown();
+                spawn.get(5, TimeUnit.SECONDS);
+                remove.get(5, TimeUnit.SECONDS);
+                for (int id = 1000; id < 1060; id++) {
+                    assertFalse(guard.registerIfActive(owner, id));
+                    assertFalse(EntityBypassRegistry.isBypassed(id));
+                }
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    void disabledIntegrationCallbacksCannotAffectReplacementScope() {
+        var oldScope = EntityBypassRegistry.openFancyNpcScope();
+        var old = new WeakIdentityRetirementGuard<Object>(oldScope);
+        Object oldOwner = new Object();
+        assertTrue(old.registerIfActive(oldOwner, 1100));
+        oldScope.close();
+        var next = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object nextOwner = new Object();
+        assertTrue(next.registerIfActive(nextOwner, 1100));
+        old.retireOwner(oldOwner);
+        assertFalse(old.registerIfActive(oldOwner, 1101));
+        assertTrue(EntityBypassRegistry.isBypassed(1100));
+        assertFalse(EntityBypassRegistry.isBypassed(1101));
     }
 }
