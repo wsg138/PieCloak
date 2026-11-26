@@ -1,0 +1,123 @@
+name: Publish verified FancyNpcs maintenance candidate
+on:
+  push:
+    branches: [maintenance/publish-fancy-20261126]
+    paths: ['.github/workflows/publish-fancy-maintenance.yml']
+permissions:
+  contents: read
+concurrency:
+  group: publish-fancy-20261126
+  cancel-in-progress: false
+env:
+  SOURCE_SHA: '6566f9e74b8e4d30cb8ff2e53c852abbfec56054'
+  RELEASE_TAG: 'piecloak-1.21.11-2026-11-26-6566f9e'
+  ASSET: 'PieCloak-1.21.11-2026-11-26-6566f9e.jar'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: '6566f9e74b8e4d30cb8ff2e53c852abbfec56054'
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Compile and test merged production source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 'e59026ae5dca26c7cf64733d1c3e93f03b2c19d1'
+          path: .fixture-source
+          persist-credentials: false
+      - name: Copy only pinned test fixture
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          cp -R .fixture-source/qa/fancy qa/
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install isolated protocol clients
+        run: |
+          npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund mineflayer@4.39.0
+          echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
+      - name: Run real Paper lifecycle matrix on exact release candidate
+        run: python3 qa/fancy/run.py
+      - name: Package tested JAR
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          jars=(platform-paper/build/libs/RaycastedAntiESP-*.jar)
+          test "${#jars[@]}" = 1
+          jar_path="${jars[0]}"
+          unzip -p "$jar_path" plugin.yml | grep -Fx 'name: PieCloak'
+          unzip -p "$jar_path" plugin.yml | grep -Fx "api-version: '1.21.11'"
+          unzip -p "$jar_path" build-properties/platform.yml | grep -Fx 'java-version: 21'
+          mkdir -p release-package
+          cp "$jar_path" "release-package/$ASSET"
+          cd release-package
+          sha256sum "$ASSET" | tee "$ASSET.sha256"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: fancy-release-runtime-logs
+          path: |
+            ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
+            ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-release-package
+          path: release-package/
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Publish only the verified merged candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/branches/main" --jq .commit.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GH_REPO/pulls/35" --jq .merged)" = true
+          test "$(gh api "repos/$GH_REPO/pulls/35" --jq .merge_commit_sha)" = "$SOURCE_SHA"
+          gh run download "$GITHUB_RUN_ID" --name verified-release-package --dir release-package
+          cd release-package
+          sha256sum -c "$ASSET.sha256"
+          cat > notes.md <<'EOF'
+          ## FancyNpcs maintenance candidate
+
+          Fixes stale native entity ID bypasses when NPCs are permanently deleted, including asynchronous callbacks, type replacement with no viewers, and uninitialized native handles. Preserves independent bypass ownership.
+
+          **Verified:** full Gradle compile/test/build, Codacy, Semgrep and Trivy on PR #35; exact merged candidate runtime tested on Paper 1.21.11 with two protocol clients, FancyNpcs 2.12.1 and PacketEvents 2.12.0, with and without FancyHolograms 2.12.0. Includes actual interaction, movement, visibility reentry and saved NPC restart cases.
+
+          Java 21 compile target; hosted runtime tests use Java 25. PacketEvents is required. Stop your server before replacing the old JAR. Use a full process restart rather than hot-reloading FancyNpcs.
+
+          This is a scoped maintenance prerelease, not the complete upstream migration. Issues #21–23, external hot-reload investigations #30–31, and broader platform validation remain open. No production deployment performed.
+
+          Source: https://github.com/wsg138/PieCloak/commit/6566f9e74b8e4d30cb8ff2e53c852abbfec56054
+          EOF
+          printf '\nRuntime and build evidence: https://github.com/%s/actions/runs/%s\n' "$GH_REPO" "$GITHUB_RUN_ID" >> notes.md
+          gh release create "$RELEASE_TAG" "$ASSET" "$ASSET.sha256" --target "$SOURCE_SHA" --prerelease --title 'PieCloak 1.21.11 — FancyNpcs maintenance candidate (2026-11-26)' --notes-file notes.md
