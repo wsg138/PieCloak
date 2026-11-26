@@ -2,6 +2,9 @@ import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.plugins.quality.Pmd
 import org.gradle.api.plugins.quality.PmdExtension
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.testing.Test
+import org.gradle.jvm.toolchain.JavaToolchainService
+import org.gradle.jvm.toolchain.JavaLanguageVersion
 
 val javaVersionProvider = providers.gradleProperty("javaVersion").map { it.toInt() }
 val minecraftVersionProvider = providers.gradleProperty("minecraftVersion")
@@ -39,8 +42,16 @@ subprojects {
             targetCompatibility = javaVersion
         }
 
+        // Submodules declare their own default Java toolchains. Explicitly select
+        // the profile compiler and test launcher for all Java tasks.
+        val toolchains = extensions.getByType<JavaToolchainService>()
+        val profileLanguage = javaVersionProvider.map { JavaLanguageVersion.of(it) }
         tasks.withType<JavaCompile>().configureEach {
+            javaCompiler.set(toolchains.compilerFor { languageVersion.set(profileLanguage) })
             options.release.set(javaVersionProvider)
+        }
+        tasks.withType<Test>().configureEach {
+            javaLauncher.set(toolchains.launcherFor { languageVersion.set(profileLanguage) })
         }
 
         extensions.configure<PmdExtension> {
