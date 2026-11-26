@@ -84,6 +84,8 @@ final class WeakIdentityRetirementGuard<T> {
         }
     }
 
+    // Manager ownership is object identity, not logical equality of NPC data.
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
     private boolean checkMembership(T owner, OwnerState state,
                                     Function<? super T, ? extends T> managerLookup) {
         T current = managerLookup.apply(owner);
