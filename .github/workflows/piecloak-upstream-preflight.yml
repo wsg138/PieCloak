@@ -1,0 +1,41 @@
+name: PieCloak upstream preflight
+on:
+  push:
+    branches: [maintenance/2026-11-upstream-preflight]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compare pinned fork and upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          fork=bd6f034424dfdf6ad0975db1a220017dc69ef08d
+          base=853fa1531acbbb1458f776bbe2dc637fd0d40b7c
+          upstream=373343e96706885c057bb00613dd113d68ec9f33
+          git fetch --no-tags https://github.com/Cubicake/RaycastedAntiESP.git main
+          git cat-file -e "$upstream^{commit}"
+          git cat-file -e "$fork^{commit}"
+          mkdir -p preflight
+          git merge-base "$fork" "$upstream" | tee preflight/merge-base.txt
+          git log --format='%h %s' "$base..$upstream" > preflight/upstream-commits.txt
+          git diff --name-status "$base" "$upstream" > preflight/upstream-files.txt
+          git diff --name-status "$base" "$fork" > preflight/fork-files.txt
+          rc=0
+          git merge-tree --write-tree --name-only "$fork" "$upstream" > preflight/merge-tree.txt 2>&1 || rc=$?
+          echo "Merge-tree exit: $rc" | tee preflight/status.txt
+          cat preflight/merge-tree.txt
+          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upstream-preflight
+          path: preflight/
+          retention-days: 7
