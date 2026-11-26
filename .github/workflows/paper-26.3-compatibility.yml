@@ -1,7 +1,7 @@
-name: Paper 26.3 native protocol compatibility
+name: Paper 26.3 managed visibility acceptance
 on:
   push:
-    branches: [qa/paper-26.3-native-client]
+    branches: [qa/paper-26.3-visibility]
 permissions:
   contents: read
 jobs:
@@ -34,18 +34,14 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund @wp2508/mineflayer@4.42.9
           echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
-      - name: Test latest stable Paper with existing release and native 26.3 clients
-        run: python3 qa/fancy/run.py
-      - name: Test native server entities and synthetic cancellation on latest Paper
-        run: python3 qa/cancel/run.py
+      - name: Test real occluded managed entity and block with native clients
+        run: python3 qa/visibility/run.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: paper-26.3-native-logs
+          name: paper-26.3-visibility-logs
           path: |
-            ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
-            ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
-            ${{ runner.temp }}/cancel-qa/server.log
-            ${{ runner.temp }}/cancel-qa/clients.jsonl
+            ${{ runner.temp }}/visibility-qa/server.log
+            ${{ runner.temp }}/visibility-qa/clients.jsonl
           if-no-files-found: warn
           retention-days: 14
