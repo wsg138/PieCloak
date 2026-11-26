@@ -1,7 +1,9 @@
-name: Explicit Paper 26.3 build profile
+name: Paper version build matrix
 on:
+  pull_request:
   push:
-    branches: [integration/paper-26.3-build]
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

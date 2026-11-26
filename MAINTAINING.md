@@ -41,9 +41,9 @@ The November 26 integration reconciles upstream `373343e96706885c057bb00613dd113
 
 ## Current Platform Baseline
 
-The active production target is Minecraft 1.21.11 on Java 21 with Paper development bundle `1.21.11-R0.1-SNAPSHOT`. `gradle.properties` is the build source of truth for those values. The root `verifyCurrentPlatformBaseline` task is an intentional guard against accidental target drift.
+The default build target is Minecraft 1.21.11, Java 21, Paper bundle `1.21.11-R0.1-SNAPSHOT`, and PacketEvents 2.12.0. The explicit latest-version build target is Minecraft 26.3, Java 25, Paper bundle `26.3.build.262-stable`, and PacketEvents 2.14.0. Native runtime acceptance used Paper 26.3 build 263. The default properties and `verifyCurrentPlatformBaseline` guard protect against unsupported combinations. WorldGuard compile dependencies are selected per profile (7.0.16 and 7.0.21); runtime qualification is separate.
 
-A future Paper 26.2-or-newer migration is a separate upgrade. Change the centralized properties and the guard deliberately, then review the Paper adapter, paperweight boundary, PacketEvents wrappers, generated plugin metadata, and required Java version. Do not remove the 1.21.11 guard or claim 26.2 support until a stable selected build compiles and passes direct server validation.
+Review legacy numeric block-state overrides when migrating Minecraft versions; named selectors avoid dependence on numeric registry IDs. Future platform updates must deliberately update the build guard and pass the compile and runtime matrices.
 
 ## Required Validation
 
@@ -58,10 +58,16 @@ cd ../..
 ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
 ```
 
+For Minecraft 26.3, use JDK 25, generate LeafPile sources with `javac --release 25`, and run:
+
+```bash
+./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon -PminecraftVersion=26.3 -PjavaVersion=25 -PpaperDevBundleVersion=26.3.build.262-stable -PpacketEventsVersion=2.14.0
+```
+
 Inspect the shaded JAR after the build:
 
-- `plugin.yml` names `PieCloak` and declares API version `1.21.11`
-- `build-properties/platform.yml` records Minecraft `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, Java `21`, and the exact Git revision
+- `plugin.yml` names `PieCloak` and declares the selected API version (`1.21.11` or `26.3`)
+- `build-properties/platform.yml` records the selected Minecraft version, Paper bundle, Java release, and exact Git revision
 - the JAR contains the expected shaded project modules and plugin resources
 
 Then test on a server before production use:

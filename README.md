@@ -19,9 +19,14 @@ It keeps the upstream packet, async-engine, chunk-processing, compatibility, and
 
 ## Download & installation
 
-**[Download the published release candidate (.jar)](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-26-upstream-373343e/PieCloak-1.21.11-2026-11-26-upstream-373343e.jar)** · [Release notes and SHA-256](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-26-upstream-373343e)
+| Server | Download | Requirements |
+| --- | --- | --- |
+| **Paper 26.3** | **[Dedicated 26.3 JAR](https://github.com/wsg138/PieCloak/releases/download/piecloak-26.3-2026-11-26-5895780/PieCloak-26.3-2026-11-26-5895780.jar)** · [Release notes & checksum](https://github.com/wsg138/PieCloak/releases/tag/piecloak-26.3-2026-11-26-5895780) | Java 25+, PacketEvents 2.14.0 |
+| Paper 1.21.11 | [Java 21 JAR](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-26-upstream-373343e/PieCloak-1.21.11-2026-11-26-upstream-373343e.jar) · [Release notes & checksum](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-26-upstream-373343e) | Java 21+, PacketEvents 2.12.0 |
 
-The November 26 upstream integration build supports the tested Paper 1.21.11 and 26.3 configurations below. It contains RaycastedAntiESP through `373343e` plus PieCloak-specific fixes. Its exact merged JAR passed compilation, unit tests, legacy configuration migration, and the two-client Paper runtime matrix before publication. [Build and runtime evidence](https://github.com/wsg138/PieCloak/actions/runs/45778483197). The release is marked prerelease pending broader platform and live-production qualification.
+Install only one PieCloak JAR. The Java 21 JAR was also directly verified on native Paper 26.3; the dedicated Java 25 build is recommended for 26.3.
+
+The November 26 upstream integration build supports the tested Paper 1.21.11 and 26.3 configurations below. It contains RaycastedAntiESP through `373343e` plus PieCloak-specific fixes. Its exact merged JAR passed compilation, unit tests, legacy configuration migration, and the two-client Paper runtime matrix before publication. [Build and runtime evidence](https://github.com/wsg138/PieCloak/actions/runs/45778483197). Both releases are marked prerelease pending broader platform and live-production qualification. The dedicated 26.3 build was merged through [PR #37](https://github.com/wsg138/PieCloak/pull/37).
 
 1. Install a compatible [PacketEvents](https://modrinth.com/plugin/packetevents) JAR.
 2. Stop the server and back up your existing PieCloak configuration.
@@ -35,14 +40,14 @@ Use a full server restart when updating PieCloak or Fancy integrations.
 | Component | Supported baseline / verification |
 | --- | --- |
 | Minecraft / Paper | **1.21.11 (build 132) and 26.3 (build 263)** — both verified with the published JAR |
-| Java | JAR compiled for Java 21; **Java 25+ required by Paper 26.3** |
+| Java | Java 21 legacy build; Java 25 dedicated 26.3 build. **Java 25+ required by Paper 26.3** |
 | PacketEvents | Required; 2.12.0 on 1.21.11, 2.14.0 on 26.3 |
 | FancyNpcs | Optional; 2.12.1 tested for spawning, deletion, type changes, interaction, movement, visibility range and saved NPCs after restart |
 | FancyHolograms | Optional; 2.12.0 installed alongside FancyNpcs during the same tests |
 | Leaf / Folia / Geyser | Existing integrations retained; this candidate's full platform-specific acceptance remains pending |
 | Hot disable / re-enable | Not a supported FancyNpcs upgrade path; use a full process restart |
 
-**Minecraft 26.3:** the exact published JAR (SHA-256 `6b4da6a272d287fd89f62ca1b9643a960dbcb290b146257815a26d720045c6d3`) passed native 26.3 two-client Fancy lifecycle, restart, migration, and synthetic/native cancellation tests ([runtime results](https://github.com/wsg138/PieCloak/actions/runs/45876384597)). The real [entity and block visibility test](https://github.com/wsg138/PieCloak/actions/runs/45876752065) verified hidden managed villager/shulker box, unaffected cow/chest, and legitimate reveal. Review legacy numeric block-state overrides when changing Minecraft versions; named selectors are portable. ViaBackwards-translated clients and other server platforms are not implied by these results.
+**Minecraft 26.3:** the exact published JAR (SHA-256 `6b4da6a272d287fd89f62ca1b9643a960dbcb290b146257815a26d720045c6d3`) passed native 26.3 two-client Fancy lifecycle, restart, migration, and synthetic/native cancellation tests ([runtime results](https://github.com/wsg138/PieCloak/actions/runs/45876384597)). The real [entity and block visibility test](https://github.com/wsg138/PieCloak/actions/runs/45876752065) verified hidden managed villager/shulker box, unaffected cow/chest, and legitimate reveal. Review legacy numeric block-state overrides when changing Minecraft versions; named selectors are portable. The dedicated 26.3 JAR (SHA-256 `c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038`) passed the [compile/test matrix](https://github.com/wsg138/PieCloak/actions/runs/45876151727), [Fancy lifecycle and cancellation checks](https://github.com/wsg138/PieCloak/actions/runs/45876482741), and [corrected exact-artifact visibility test](https://github.com/wsg138/PieCloak/actions/runs/45876783247). The initial combined visibility fixture failed on an invalid cross-thread probe read; the corrected standalone fixture passed on the identical artifact. ViaBackwards-translated 1.21.11 test clients disconnected with invalid movement packets, also reproduced [without PieCloak](https://github.com/wsg138/PieCloak/actions/runs/45877318207). Translated clients, WorldGuard runtime behavior on 26.3, and other server platforms are not certified by these results.
 
 The published FancyNpcs fix from [PR #35](https://github.com/wsg138/PieCloak/pull/35) is retained in the upstream integration. [Exact release runtime results](https://github.com/wsg138/PieCloak/actions/runs/45778483197) cover the configurations above, not every platform or optional integration.
 
@@ -177,7 +182,7 @@ Public source and attribution commands:
 
 ## Build
 
-The checked-in production baseline is Minecraft 1.21.11, Paper development bundle `1.21.11-R0.1-SNAPSHOT`, and Java 21. Those values are centralized in `gradle.properties`; `verifyCurrentPlatformBaseline` prevents an accidental target change.
+The default build profile remains Minecraft 1.21.11, Paper development bundle `1.21.11-R0.1-SNAPSHOT`, and Java 21. A separate explicit Minecraft 26.3 / Java 25 profile is also supported. Those values are centralized in `gradle.properties`; `verifyCurrentPlatformBaseline` prevents an accidental target change.
 
 Initialize the submodules, generate the LeafPile sources, and run the same clean build used by CI:
 
@@ -190,9 +195,17 @@ cd ../..
 ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
 ```
 
+For the dedicated 26.3 build, use JDK 25 and generate LeafPile sources with `javac --release 25` instead of 21. Then run:
+
+```bash
+./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon -PminecraftVersion=26.3 -PjavaVersion=25 -PpaperDevBundleVersion=26.3.build.262-stable -PpacketEventsVersion=2.14.0
+```
+
+Both profiles run in the GitHub Actions build matrix.
+
 The shaded plugin JAR is written to `platform-paper/build/libs` with a `RaycastedAntiESP-` filename. Its generated `plugin.yml` and `build-properties/platform.yml` record the Minecraft, Paper bundle, Java, Git, and build-time baseline used for that artifact.
 
-The `runServer` and `runPaper` tasks use Minecraft 1.21.11 on Java 21. They are development conveniences and do not constitute Leaf, Geyser, or production validation.
+The `runServer` and `runPaper` tasks default to Minecraft 1.21.11 on Java 21. They are development conveniences and do not constitute Leaf, Geyser, or production validation.
 
 ## Testing and upstream maintenance
 

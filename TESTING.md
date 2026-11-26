@@ -5,11 +5,11 @@ Use a normal client plus a pie-chart/base-finding client or packet capture where
 ## Build Baseline
 
 - Initialize all Git submodules recursively.
-- Generate LeafPile sources with Java 21 before the Gradle build.
+- Generate LeafPile sources with the selected profile's JDK (21 or 25) before the Gradle build.
 - Run `./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon`.
 - Confirm the shaded JAR is named `RaycastedAntiESP-*.jar`, not `Incorrectly-Compiled-Without-ShadowJar`.
-- Confirm generated `plugin.yml` names `PieCloak` and declares API version `1.21.11`.
-- Confirm `build-properties/platform.yml` records Minecraft `1.21.11`, Paper bundle `1.21.11-R0.1-SNAPSHOT`, Java `21`, and the exact Git revision.
+- Confirm generated `plugin.yml` names `PieCloak` and declares the selected API version (`1.21.11` or `26.3`).
+- Confirm `build-properties/platform.yml` records the selected Minecraft version, Paper bundle, Java release, and exact Git revision.
 - Treat `runPaper`/`runServer` as a local Paper 1.21.11 smoke-test convenience, not proof of Leaf, Geyser, or production compatibility.
 
 ## Server Behavior
@@ -114,3 +114,11 @@ These observations apply to the pinned versions tested and do not establish the 
 - [Exact-release CI evidence](https://github.com/wsg138/PieCloak/actions/runs/45772052384): full Gradle suite and four successful isolated server instances (Paper 1.21.11 build 132, FancyNpcs 2.12.1, PacketEvents 2.12.0, Java 25; with/without FancyHolograms 2.12.0; fresh boot and persisted restart). Two independent clients verified spawn, destroy, movement, interaction and range reentry. Synthetic late callback and zero-viewer deletion tests passed.
 - The [standalone runtime fixture](https://github.com/wsg138/PieCloak/tree/e59026ae5dca26c7cf64733d1c3e93f03b2c19d1/qa/fancy) is pinned by immutable commit and is **not part of the production source tree or release JAR**. Its separate test-tooling Codacy review remains open in [#33](https://github.com/wsg138/PieCloak/issues/33). The hosted acceptance job uses read-only permissions and runs the fixture in an isolated loopback server. No repository-wide quality checks are disabled. This is an explicit scope separation, not a claim that all fixture lint findings were resolved.
 - Full upstream migration, #21–23, hot disable/re-enable (#30–31), natural numeric ID reuse, and additional platform validation remain open.
+
+## November 26 upstream and Minecraft 26.3 release acceptance
+
+- Upstream integrated through `373343e` ([PR #36](https://github.com/wsg138/PieCloak/pull/36)); dedicated 26.3 build profile merged in [PR #37](https://github.com/wsg138/PieCloak/pull/37). Both Gradle profiles passed [the build matrix](https://github.com/wsg138/PieCloak/actions/runs/45876151727) and the [legacy runtime regression](https://github.com/wsg138/PieCloak/actions/runs/45876536856).
+- [Dedicated Java 25 artifact](https://github.com/wsg138/PieCloak/releases/tag/piecloak-26.3-2026-11-26-5895780), SHA-256 `c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038`. Exact-artifact Fancy lifecycle, migration, restart and native/synthetic cancellation checks passed on Paper 26.3 build 263 with PacketEvents 2.14.0 ([combined run](https://github.com/wsg138/PieCloak/actions/runs/45876482741)). Its visibility step used an invalid cross-thread fixture read; the [corrected standalone test](https://github.com/wsg138/PieCloak/actions/runs/45876783247) passed against the identical JAR, verifying managed villager/shulker hiding, ordinary cow/chest visibility and legitimate reveal.
+- The earlier Java 21 artifact also passed [native 26.3 lifecycle and cancellation](https://github.com/wsg138/PieCloak/actions/runs/45876384597) and [visibility checks](https://github.com/wsg138/PieCloak/actions/runs/45876752065).
+- ViaBackwards translated clients disconnected with invalid movement packets; [the control without PieCloak](https://github.com/wsg138/PieCloak/actions/runs/45877318207) reproduced both disconnects. Translated clients remain unqualified. WorldGuard runtime, Leaf, Folia, Geyser and production deployment are not certified by these fixtures.
+- Issue #23 is fixed and closed; #30/#31 were closed as independently reproduced external limitations. Issue #22 remains open pending original production packet provenance, despite passing the synthetic expiry-burst regression. Issue #33 tracks remaining evidence.
