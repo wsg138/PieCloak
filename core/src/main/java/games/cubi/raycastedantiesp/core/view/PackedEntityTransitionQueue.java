@@ -118,13 +118,26 @@ public final class PackedEntityTransitionQueue { //todo: potentially merge this 
         private int count;
 
         // Eight fixed slots avoid per-transition allocations in the packet hot path.
-        @SuppressWarnings("PMD.CyclomaticComplexity")
         private void add(TransitionType.Entity type, TrackedEntity<?> entity) {
-            switch (++count) {
+            if (++count <= 4) {
+                addFirst(type, entity);
+            } else {
+                addLast(type, entity);
+            }
+        }
+
+        private void addFirst(TransitionType.Entity type, TrackedEntity<?> entity) {
+            switch (count) {
                 case 1 -> { t1 = type; e1 = entity; }
                 case 2 -> { t2 = type; e2 = entity; }
                 case 3 -> { t3 = type; e3 = entity; }
                 case 4 -> { t4 = type; e4 = entity; }
+                default -> throw new IllegalStateException("Invalid first-half batch index");
+            }
+        }
+
+        private void addLast(TransitionType.Entity type, TrackedEntity<?> entity) {
+            switch (count) {
                 case 5 -> { t5 = type; e5 = entity; }
                 case 6 -> { t6 = type; e6 = entity; }
                 case 7 -> { t7 = type; e7 = entity; }

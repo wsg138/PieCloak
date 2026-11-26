@@ -30,6 +30,7 @@ final class PECacheablePacketReconciliationTask extends BaseEntitySpawnTask {
     }
 
     @Override
+    @SuppressWarnings("PMD.GuardLogStatement") // LeafPile Logger applies its own configured log filtering.
     public void run() {
         NettyEntity<?> entity = playerData.entityFromID(entityID);
         if (entity == null) {

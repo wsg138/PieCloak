@@ -255,6 +255,7 @@ final class ConfigCandidate {
     }
 
     // The temporary map is confined to the current configuration transaction.
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Only this transaction owns the temporary map.
     private boolean mergeListComments(ConfigurationNode defaults, ConfigurationNode target) {
         Map<String, ConfigurationNode> commentedDefaults = new LinkedHashMap<>();
         for (ConfigurationNode child : defaults.childrenList()) {

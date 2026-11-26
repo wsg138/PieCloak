@@ -313,102 +313,126 @@ public class RaycastedAntiESPCommand {
             @DefaultExecutes
             void benchmark(@DefaultToExecutor Player player, @IntArg(min = 1, max = 512) OptionalInt overrideRaycastDistance, @IntArg(min = 0, max = 1250) OptionalInt overrideWarmup, @IntArg(min = 1, max = 512) OptionalInt overrideBatches) {
                 int raycastDistance = overrideRaycastDistance.orElse(DEFAULT_RAYCAST_DISTANCE);
-                Locatable[] locatables = new Locatable[BENCHMARK_CORPUS_SIZE];
                 PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
                 if (playerData == null || playerData.ownLocation().world() == null) {
                     player.sendRichMessage("<red>No PieCloak player data is available yet.");
                     return;
                 }
-                Locatable currentPlayerLocation = playerData.ownLocation();
-                Locatable playerLocatable = new MutableLocatableImpl(currentPlayerLocation.world(), currentPlayerLocation.x(), currentPlayerLocation.y(), currentPlayerLocation.z());
-                MutableFloatingSpatial unitDirection = new MutableSpatialImpl(0, 0, 0);
-                SplittableRandom random = new SplittableRandom(BENCHMARK_SEED);
-                for (int i = 0; i < locatables.length; i++) {
-                    unitDirection.setX(random.nextDouble(-0.5, 0.5));
-                    unitDirection.setY(random.nextDouble(-0.5, 0.5));
-                    unitDirection.setZ(random.nextDouble(-0.5, 0.5));
-                    unitDirection.normalise();
-                    unitDirection.scalarMultiply(raycastDistance);
-                    locatables[i] = new MutableLocatableImpl(playerLocatable.world(), playerLocatable.x(), playerLocatable.y(), playerLocatable.z()).add(unitDirection);
-                }
-                BlockView blockView = playerData.blockView();
-                int maxRaycastRadius = Math.max(100, raycastDistance + 1);
-                RaycastUtil.Settings settings = new RaycastUtil.Settings(3, 0, maxRaycastRadius, false, blockView, null);
+                Locatable current = playerData.ownLocation();
+                Locatable origin = new MutableLocatableImpl(current.world(), current.x(), current.y(), current.z());
+                Locatable[] targets = createCorpus(origin, raycastDistance);
+                RaycastUtil.Settings settings = new RaycastUtil.Settings(3, 0, Math.max(100, raycastDistance + 1), false, playerData.blockView(), null);
+                BenchmarkInput input = new BenchmarkInput(origin, targets, settings,
+                        overrideWarmup.orElse(BENCHMARK_WARMUP_BATCHES), overrideBatches.orElse(BENCHMARK_MEASUREMENT_BATCHES));
                 player.sendRichMessage("Running deterministic raycast benchmark at distance " + raycastDistance + "...");
-                Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), (ignored) -> {
-                    java.lang.management.ThreadMXBean managementBean = ManagementFactory.getThreadMXBean();
-                    com.sun.management.ThreadMXBean allocationBean = managementBean instanceof com.sun.management.ThreadMXBean bean ? bean : null;
-                    if (allocationBean != null && allocationBean.isThreadAllocatedMemorySupported() && !allocationBean.isThreadAllocatedMemoryEnabled()) {
-                        allocationBean.setThreadAllocatedMemoryEnabled(true);
-                    }
-                    long threadId = Thread.currentThread().threadId();
-                    boolean measureAllocations = allocationBean != null && allocationBean.isThreadAllocatedMemoryEnabled();
-
-                    long warmupChecksum = 0;
-                    int corpusIndex = 0;
-                    int warmup = overrideWarmup.orElse(BENCHMARK_WARMUP_BATCHES);
-                    for (int batch = 0; batch < warmup; batch++) {
-                        warmupChecksum += runRaycastBatch(playerLocatable, locatables, corpusIndex, settings);
-                        corpusIndex = (corpusIndex + BENCHMARK_BATCH_SIZE) & BENCHMARK_CORPUS_MASK;
-                    }
-                    benchmarkSink = warmupChecksum;
-
-                    double[] nanosecondsPerRay = new double[BENCHMARK_ROUNDS];
-                    double[] bytesPerRay = new double[BENCHMARK_ROUNDS];
-                    long[] checksums = new long[BENCHMARK_ROUNDS];
-                    int batches = overrideBatches.orElse(BENCHMARK_MEASUREMENT_BATCHES);
-                    double[] batchNanosecondsPerRay = new double[BENCHMARK_ROUNDS * batches];
-                    int invocationsPerRound = BENCHMARK_BATCH_SIZE * batches;
-                    int batchSampleIndex = 0;
-                    for (int round = 0; round < BENCHMARK_ROUNDS; round++) {
-                        long allocatedBefore = measureAllocations ? allocationBean.getThreadAllocatedBytes(threadId) : 0;
-                        long startTime = System.nanoTime();
-                        long checksum = 0;
-                        corpusIndex = 0;
-                        for (int batch = 0; batch < batches; batch++) {
-                            long batchStartTime = System.nanoTime();
-                            int batchChecksum = runRaycastBatch(playerLocatable, locatables, corpusIndex, settings);
-                            long batchDuration = System.nanoTime() - batchStartTime;
-                            checksum += batchChecksum;
-                            batchNanosecondsPerRay[batchSampleIndex++] = batchDuration / (double) BENCHMARK_BATCH_SIZE;
-                            corpusIndex = (corpusIndex + BENCHMARK_BATCH_SIZE) & BENCHMARK_CORPUS_MASK;
-                        }
-                        long duration = System.nanoTime() - startTime;
-                        long allocated = measureAllocations ? allocationBean.getThreadAllocatedBytes(threadId) - allocatedBefore : 0;
-                        benchmarkSink = checksum;
-                        nanosecondsPerRay[round] = duration / (double) invocationsPerRound;
-                        bytesPerRay[round] = measureAllocations ? allocated / (double) invocationsPerRound : Double.NaN;
-                        checksums[round] = checksum;
-                    }
-
-                    double[] sortedTimes = nanosecondsPerRay.clone();
-                    Arrays.sort(sortedTimes);
-                    double medianTime = sortedTimes[sortedTimes.length / 2];
-                    double meanTime = mean(nanosecondsPerRay);
-                    double standardDeviation = standardDeviation(nanosecondsPerRay, meanTime);
-                    double coefficientOfVariation = standardDeviation / meanTime * 100.0;
-                    double[] sortedBatchTimes = batchNanosecondsPerRay.clone();
-                    Arrays.sort(sortedBatchTimes);
-                    double batchP50 = percentile(sortedBatchTimes, 0.50);
-                    double batchP90 = percentile(sortedBatchTimes, 0.90);
-                    double batchP95 = percentile(sortedBatchTimes, 0.95);
-                    double batchP99 = percentile(sortedBatchTimes, 0.99);
-                    double batchMax = sortedBatchTimes[sortedBatchTimes.length - 1];
-                    String benchmarkThread = Thread.currentThread().getName() + " (id " + threadId + ")";
-                    PaperScheduler.runForAudience(RaycastedAntiESP.get(), player, () -> {
-                        player.sendRichMessage("Benchmark thread: " + benchmarkThread);
-                        player.sendRichMessage("Warmup rays: " + (BENCHMARK_BATCH_SIZE * warmup));
-                        for (int round = 0; round < BENCHMARK_ROUNDS; round++) {
-                            String allocationResult = measureAllocations ? String.format(Locale.ROOT, "%.3f B/ray", bytesPerRay[round]) : "allocation unavailable";
-                            player.sendRichMessage(String.format(Locale.ROOT, "Round %d: %.3f ns/ray, %s, checksum %d", round + 1, nanosecondsPerRay[round], allocationResult, checksums[round]));
-                        }
-                        player.sendRichMessage(String.format(Locale.ROOT, "Rounds: median %.3f, mean %.3f, min %.3f, max %.3f ns/ray", medianTime, meanTime, sortedTimes[0], sortedTimes[sortedTimes.length - 1]));
-                        player.sendRichMessage(String.format(Locale.ROOT, "Round deviation: %.3f ns/ray (CV %.2f%%)", standardDeviation, coefficientOfVariation));
-                        player.sendRichMessage(String.format(Locale.ROOT, "Batches (%d rays, %d samples): p50 %.3f, p90 %.3f, p95 %.3f, p99 %.3f, max %.3f ns/ray",
-                                BENCHMARK_BATCH_SIZE, sortedBatchTimes.length, batchP50, batchP90, batchP95, batchP99, batchMax));
-                    });
-                });
+                Bukkit.getAsyncScheduler().runNow(RaycastedAntiESP.get(), ignored -> runBenchmark(player, input));
             }
+
+            private static Locatable[] createCorpus(Locatable origin, int raycastDistance) {
+                Locatable[] targets = new Locatable[BENCHMARK_CORPUS_SIZE];
+                MutableFloatingSpatial direction = new MutableSpatialImpl(0, 0, 0);
+                SplittableRandom random = new SplittableRandom(BENCHMARK_SEED);
+                for (int i = 0; i < targets.length; i++) {
+                    direction.setX(random.nextDouble(-0.5, 0.5));
+                    direction.setY(random.nextDouble(-0.5, 0.5));
+                    direction.setZ(random.nextDouble(-0.5, 0.5));
+                    direction.normalise();
+                    direction.scalarMultiply(raycastDistance);
+                    targets[i] = new MutableLocatableImpl(origin.world(), origin.x(), origin.y(), origin.z()).add(direction);
+                }
+                return targets;
+            }
+
+            private static com.sun.management.ThreadMXBean allocationBean() {
+                java.lang.management.ThreadMXBean bean = ManagementFactory.getThreadMXBean();
+                if (!(bean instanceof com.sun.management.ThreadMXBean allocation) || !allocation.isThreadAllocatedMemorySupported()) {
+                    return null;
+                }
+                try {
+                    if (!allocation.isThreadAllocatedMemoryEnabled()) {
+                        allocation.setThreadAllocatedMemoryEnabled(true);
+                    }
+                    return allocation.isThreadAllocatedMemoryEnabled() ? allocation : null;
+                } catch (SecurityException | UnsupportedOperationException ignored) {
+                    return null;
+                }
+            }
+
+            private static void runBenchmark(Player player, BenchmarkInput input) {
+                long warmupChecksum = 0;
+                int corpusIndex = 0;
+                for (int batch = 0; batch < input.warmup(); batch++) {
+                    warmupChecksum += runRaycastBatch(input.origin(), input.targets(), corpusIndex, input.settings());
+                    corpusIndex = (corpusIndex + BENCHMARK_BATCH_SIZE) & BENCHMARK_CORPUS_MASK;
+                }
+                benchmarkSink = warmupChecksum;
+
+                var bean = allocationBean();
+                long threadId = Thread.currentThread().threadId();
+                double[] times = new double[BENCHMARK_ROUNDS];
+                double[] bytes = new double[BENCHMARK_ROUNDS];
+                long[] checksums = new long[BENCHMARK_ROUNDS];
+                double[] batchTimes = new double[BENCHMARK_ROUNDS * input.batches()];
+                for (int round = 0; round < BENCHMARK_ROUNDS; round++) {
+                    RoundResult result = measureRound(input, batchTimes, round, bean, threadId);
+                    times[round] = result.time();
+                    bytes[round] = result.bytes();
+                    checksums[round] = result.checksum();
+                }
+                BenchmarkResult result = new BenchmarkResult(times, bytes, checksums, batchTimes,
+                        Thread.currentThread().getName() + " (id " + threadId + ")", input.warmup());
+                PaperScheduler.runForAudience(RaycastedAntiESP.get(), player, () -> reportBenchmark(player, result));
+            }
+
+            private static RoundResult measureRound(BenchmarkInput input, double[] batchTimes, int round,
+                                                    com.sun.management.ThreadMXBean bean, long threadId) {
+                long allocatedBefore = bean == null ? -1 : bean.getThreadAllocatedBytes(threadId);
+                long startTime = System.nanoTime();
+                long checksum = 0;
+                int corpusIndex = 0;
+                for (int batch = 0; batch < input.batches(); batch++) {
+                    long batchStartTime = System.nanoTime();
+                    checksum += runRaycastBatch(input.origin(), input.targets(), corpusIndex, input.settings());
+                    batchTimes[round * input.batches() + batch] = (System.nanoTime() - batchStartTime) / (double) BENCHMARK_BATCH_SIZE;
+                    corpusIndex = (corpusIndex + BENCHMARK_BATCH_SIZE) & BENCHMARK_CORPUS_MASK;
+                }
+                long duration = System.nanoTime() - startTime;
+                long allocatedAfter = bean == null ? -1 : bean.getThreadAllocatedBytes(threadId);
+                benchmarkSink = checksum;
+                int count = BENCHMARK_BATCH_SIZE * input.batches();
+                double bytes = allocatedBefore >= 0 && allocatedAfter >= allocatedBefore
+                        ? (allocatedAfter - allocatedBefore) / (double) count : Double.NaN;
+                return new RoundResult(duration / (double) count, bytes, checksum);
+            }
+
+            private static void reportBenchmark(Player player, BenchmarkResult result) {
+                player.sendRichMessage("Benchmark thread: " + result.thread());
+                player.sendRichMessage("Warmup rays: " + (BENCHMARK_BATCH_SIZE * result.warmup()));
+                for (int round = 0; round < BENCHMARK_ROUNDS; round++) {
+                    String allocation = Double.isNaN(result.bytes()[round]) ? "allocation unavailable"
+                            : String.format(Locale.ROOT, "%.3f B/ray", result.bytes()[round]);
+                    player.sendRichMessage(String.format(Locale.ROOT, "Round %d: %.3f ns/ray, %s, checksum %d",
+                            round + 1, result.times()[round], allocation, result.checksums()[round]));
+                }
+                double[] sorted = result.times().clone();
+                Arrays.sort(sorted);
+                double average = mean(result.times());
+                double deviation = standardDeviation(result.times(), average);
+                player.sendRichMessage(String.format(Locale.ROOT, "Rounds: median %.3f, mean %.3f, min %.3f, max %.3f ns/ray",
+                        sorted[sorted.length / 2], average, sorted[0], sorted[sorted.length - 1]));
+                player.sendRichMessage(String.format(Locale.ROOT, "Round deviation: %.3f ns/ray (CV %.2f%%)", deviation, deviation / average * 100.0));
+                double[] batchTimes = result.batchTimes().clone();
+                Arrays.sort(batchTimes);
+                player.sendRichMessage(String.format(Locale.ROOT, "Batches (%d rays, %d samples): p50 %.3f, p90 %.3f, p95 %.3f, p99 %.3f, max %.3f ns/ray",
+                        BENCHMARK_BATCH_SIZE, batchTimes.length, percentile(batchTimes, 0.50), percentile(batchTimes, 0.90),
+                        percentile(batchTimes, 0.95), percentile(batchTimes, 0.99), batchTimes[batchTimes.length - 1]));
+            }
+
+            private record BenchmarkInput(Locatable origin, Locatable[] targets, RaycastUtil.Settings settings,
+                                          int warmup, int batches) {}
+            private record RoundResult(double time, double bytes, long checksum) {}
+            private record BenchmarkResult(double[] times, double[] bytes, long[] checksums, double[] batchTimes,
+                                           String thread, int warmup) {}
 
             private static double mean(double[] values) {
                 double total = 0;

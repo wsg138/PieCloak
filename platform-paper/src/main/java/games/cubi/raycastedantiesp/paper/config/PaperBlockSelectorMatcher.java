@@ -46,6 +46,7 @@ public final class PaperBlockSelectorMatcher implements Predicate<BlockData> {
         return false;
     }
 
+    @SuppressWarnings("PMD.GuardLogStatement") // LeafPile Logger applies its own configured log filtering.
     private void warnUnresolved(BlockSelector selector) {
         Logger.warning("Unknown block selector '" + selector + "' in checks.tile-entity.excluded-blocks; ignoring it on this server.", 4,
                 PaperBlockSelectorMatcher.class);

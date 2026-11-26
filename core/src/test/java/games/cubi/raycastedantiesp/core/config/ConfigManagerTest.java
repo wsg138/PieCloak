@@ -24,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigManagerTest {
+    private static final String PLAYER = "player";
+    private static final String EXCLUDED_TYPES = "excluded-types";
+    private static final String TILE_ENTITY = "tile-entity";
     private static final String INVALID = "invalid";
     private static final String UPDATES = "updates";
     private static final String CHECKS = "checks";
@@ -74,7 +77,7 @@ class ConfigManagerTest {
         boolean particles = !RootConfig.DEFAULT.debugConfig().particles();
         node.node("logging").raw(INVALID);
         node.node(UPDATES).raw(List.of(INVALID));
-        node.node(CHECKS, "player").comment("User-authored comment").raw(INVALID);
+        node.node(CHECKS, PLAYER).comment("User-authored comment").raw(INVALID);
         node.node(DEBUG, "particles").raw(particles);
         saveNode(node);
 
@@ -85,7 +88,7 @@ class ConfigManagerTest {
         assertEquals(UpdateConfig.DEFAULT, manager.getUpdateConfig());
         assertEquals(RootConfig.DEFAULT.checksConfig().playerConfig(), manager.getPlayerConfig());
         assertEquals(particles, manager.getDebugConfig().particles());
-        assertEquals("User-authored comment", loadNode().node(CHECKS, "player").comment());
+        assertEquals("User-authored comment", loadNode().node(CHECKS, PLAYER).comment());
     }
 
     @Test
@@ -130,8 +133,8 @@ class ConfigManagerTest {
         ConfigManager manager = earlyManager();
         CommentedConfigurationNode node = loadNode();
         boolean onlyCheckSneaking = !RootConfig.DEFAULT.checksConfig().playerConfig().onlyCheckSneaking();
-        node.node(CHECKS, ENTITY, "excluded-types").raw(List.of(1));
-        node.node(CHECKS, "player", "only-check-sneaking").raw(onlyCheckSneaking);
+        node.node(CHECKS, ENTITY, EXCLUDED_TYPES).raw(List.of(1));
+        node.node(CHECKS, PLAYER, "only-check-sneaking").raw(onlyCheckSneaking);
         saveNode(node);
 
         manager.completeInitialLoad();
@@ -145,8 +148,8 @@ class ConfigManagerTest {
         ConfigManager manager = earlyManager();
         CommentedConfigurationNode node = loadNode();
         boolean onlyCheckSneaking = !RootConfig.DEFAULT.checksConfig().playerConfig().onlyCheckSneaking();
-        node.node(CHECKS, "tile-entity", EXCLUDED_BLOCKS).raw(List.of("minecraft:chest[]"));
-        node.node(CHECKS, "player", "only-check-sneaking").raw(onlyCheckSneaking);
+        node.node(CHECKS, TILE_ENTITY, EXCLUDED_BLOCKS).raw(List.of("minecraft:chest[]"));
+        node.node(CHECKS, PLAYER, "only-check-sneaking").raw(onlyCheckSneaking);
         saveNode(node);
 
         manager.completeInitialLoad();
@@ -166,7 +169,7 @@ class ConfigManagerTest {
         assertTrue(result.success());
         assertTrue(result.restartRequired());
         assertEquals(RootConfig.DEFAULT.checksConfig().tileEntityConfig().excludedBlocks(), manager.getTileEntityConfig().excludedBlocks());
-        assertTrue(loadNode().node(CHECKS, "tile-entity", EXCLUDED_BLOCKS).getList(String.class).contains(added.toString()));
+        assertTrue(loadNode().node(CHECKS, TILE_ENTITY, EXCLUDED_BLOCKS).getList(String.class).contains(added.toString()));
     }
 
     @Test
@@ -180,7 +183,7 @@ class ConfigManagerTest {
         node.node("logging", "info", "level").raw(destinationLevel);
         node.node(DEBUG, "info-level").raw(legacyLevel);
         node.node(CHECKS, "sound-effects", ENABLED).raw(soundEnabled);
-        node.node(CHECKS, "tile-entity", EXCLUDED_BLOCKS).raw(null);
+        node.node(CHECKS, TILE_ENTITY, EXCLUDED_BLOCKS).raw(null);
         node.node("unknown-setting").raw(unknownValue);
         node.node(BLOCK_PROCESSOR, "packetevents", "tile-entity-exempted-ids").raw(List.of(1));
         saveNode(node);
@@ -197,7 +200,7 @@ class ConfigManagerTest {
         assertTrue(Files.isRegularFile(configPath().resolveSibling("config.yml.pre-2.1.bak")));
         assertEquals(
                 RootConfig.DEFAULT.checksConfig().tileEntityConfig().excludedBlocks().stream().map(BlockSelector::toString).toList(),
-                migrated.node(CHECKS, "tile-entity", EXCLUDED_BLOCKS).getList(String.class)
+                migrated.node(CHECKS, TILE_ENTITY, EXCLUDED_BLOCKS).getList(String.class)
         );
         assertEquals(unknownValue, migrated.node("unknown-setting").getString());
 
@@ -214,7 +217,7 @@ class ConfigManagerTest {
         node.node(TARGET_FILTER, "entities").raw(List.of());
         node.node(TARGET_FILTER, "block-entities").raw(List.of("minecraft:bell"));
         node.node(TARGET_FILTER, "block-entity-groups").raw(List.of());
-        node.node(CHECKS, "player", ENABLED).raw(false);
+        node.node(CHECKS, PLAYER, ENABLED).raw(false);
         saveNode(node);
         byte[] original = Files.readAllBytes(configPath());
 
@@ -351,8 +354,8 @@ class ConfigManagerTest {
     void freshConfigWritesGuidanceAboveIndividualEntries() throws IOException {
         ConfigManager manager = earlyManager();
         manager.completeInitialLoad();
-        CommentedConfigurationNode defaults = defaultNode().node(CHECKS, ENTITY, "excluded-types");
-        CommentedConfigurationNode saved = loadNode().node(CHECKS, ENTITY, "excluded-types");
+        CommentedConfigurationNode defaults = defaultNode().node(CHECKS, ENTITY, EXCLUDED_TYPES);
+        CommentedConfigurationNode saved = loadNode().node(CHECKS, ENTITY, EXCLUDED_TYPES);
         List<String> lines = Files.readAllLines(configPath()).stream().map(String::strip).toList();
 
         assertEquals(defaults.raw(), saved.raw());
@@ -371,7 +374,7 @@ class ConfigManagerTest {
     @Test
     void missingEntryCommentsArePersistedWithoutOtherChanges() throws IOException {
         CommentedConfigurationNode node = defaultNode();
-        CommentedConfigurationNode list = node.node(CHECKS, ENTITY, "excluded-types");
+        CommentedConfigurationNode list = node.node(CHECKS, ENTITY, EXCLUDED_TYPES);
         for (CommentedConfigurationNode child : list.childrenList()) {
             child.comment(null);
         }
@@ -379,8 +382,8 @@ class ConfigManagerTest {
 
         ConfigManager manager = earlyManager();
         manager.completeInitialLoad();
-        CommentedConfigurationNode defaults = defaultNode().node(CHECKS, ENTITY, "excluded-types");
-        CommentedConfigurationNode saved = loadNode().node(CHECKS, ENTITY, "excluded-types");
+        CommentedConfigurationNode defaults = defaultNode().node(CHECKS, ENTITY, EXCLUDED_TYPES);
+        CommentedConfigurationNode saved = loadNode().node(CHECKS, ENTITY, EXCLUDED_TYPES);
 
         assertEquals(defaults.raw(), saved.raw());
         for (int index = 0; index < defaults.childrenList().size(); index++) {
@@ -398,7 +401,7 @@ class ConfigManagerTest {
     @Test
     void entryCommentMergePreservesReorderedSubsetAndUserComments() throws IOException {
         CommentedConfigurationNode node = defaultNode();
-        CommentedConfigurationNode list = node.node(CHECKS, ENTITY, "excluded-types");
+        CommentedConfigurationNode list = node.node(CHECKS, ENTITY, EXCLUDED_TYPES);
         List<String> values = List.of("minecraft:block_display", "minecraft:arrow", "example:custom", "minecraft:potion", "minecraft:wither");
         list.raw(values);
         clearComments(list);
@@ -409,8 +412,8 @@ class ConfigManagerTest {
 
         ConfigManager manager = earlyManager();
         manager.completeInitialLoad();
-        CommentedConfigurationNode saved = loadNode().node(CHECKS, ENTITY, "excluded-types");
-        CommentedConfigurationNode defaults = defaultNode().node(CHECKS, ENTITY, "excluded-types");
+        CommentedConfigurationNode saved = loadNode().node(CHECKS, ENTITY, EXCLUDED_TYPES);
+        CommentedConfigurationNode defaults = defaultNode().node(CHECKS, ENTITY, EXCLUDED_TYPES);
 
         assertEquals(values, saved.getList(String.class));
         assertEquals("Existing consolidated guidance", saved.comment());

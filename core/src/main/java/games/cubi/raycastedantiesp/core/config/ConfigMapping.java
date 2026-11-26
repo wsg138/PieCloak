@@ -62,12 +62,7 @@ final class ConfigMapping {
                     }
                     return (value, node) -> {
                         for (ConfigurationNode child : node.childrenList()) {
-                            if (child.rawScalar() instanceof String entry && child instanceof CommentedConfigurationNode commented) {
-                                String comment = comments.get(entry);
-                                if (comment != null) {
-                                    commented.commentIfAbsent(comment);
-                                }
-                            }
+                            applyEntryComment(child, comments);
                         }
                     };
                 })
@@ -81,6 +76,15 @@ final class ConfigMapping {
                     }
                 })
                 .build();
+    }
+
+    private static void applyEntryComment(ConfigurationNode child, Map<String, String> comments) {
+        if (child.rawScalar() instanceof String entry && child instanceof CommentedConfigurationNode commented) {
+            String comment = comments.get(entry);
+            if (comment != null) {
+                commented.commentIfAbsent(comment);
+            }
+        }
     }
 
     private static ConfigurationOptions createOptions() {
