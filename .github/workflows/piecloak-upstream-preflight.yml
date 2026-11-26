@@ -2,6 +2,9 @@ name: PieCloak upstream preflight
 on:
   push:
     branches: [maintenance/2026-11-upstream-preflight]
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/piecloak-upstream-preflight.yml']
   workflow_dispatch:
 permissions:
   contents: read
