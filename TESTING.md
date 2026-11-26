@@ -106,3 +106,11 @@ These observations apply to the pinned versions tested and do not establish the 
 - Repeat after full process restart; verify unaffected entities remain unaffected and normal visibility resumes after removal.
 - Test optional integrations absent, separately present, and jointly present. Distinguish natural numeric ID reuse from synthetic event replay in the report.
 - Treat hot-disable/re-enable as a separate diagnostic, not evidence of supported operation; if it still fails without PieCloak, record that external limitation. Any new failure with PieCloak alone remains a release blocker.
+
+### November 26 verified maintenance candidate
+
+- Merged production source: [6566f9e](https://github.com/wsg138/PieCloak/commit/6566f9e74b8e4d30cb8ff2e53c852abbfec56054), [PR #35](https://github.com/wsg138/PieCloak/pull/35).
+- [Published JAR and checksum](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-26-6566f9e); JAR SHA-256: `672facfefb09475ccea3f1491c6669997f9cf80b8879cf3348856f4ea7c1f4c3`.
+- [Exact-release CI evidence](https://github.com/wsg138/PieCloak/actions/runs/45772052384): full Gradle suite and four successful isolated server instances (Paper 1.21.11 build 132, FancyNpcs 2.12.1, PacketEvents 2.12.0, Java 25; with/without FancyHolograms 2.12.0; fresh boot and persisted restart). Two independent clients verified spawn, destroy, movement, interaction and range reentry. Synthetic late callback and zero-viewer deletion tests passed.
+- The [standalone runtime fixture](https://github.com/wsg138/PieCloak/tree/e59026ae5dca26c7cf64733d1c3e93f03b2c19d1/qa/fancy) is pinned by immutable commit and is **not part of the production source tree or release JAR**. Its separate test-tooling Codacy review remains open in [#33](https://github.com/wsg138/PieCloak/issues/33). The hosted acceptance job uses read-only permissions and runs the fixture in an isolated loopback server. No repository-wide quality checks are disabled. This is an explicit scope separation, not a claim that all fixture lint findings were resolved.
+- Full upstream migration, #21–23, hot disable/re-enable (#30–31), natural numeric ID reuse, and additional platform validation remain open.

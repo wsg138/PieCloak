@@ -3,7 +3,6 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'qa/fancy/**'
       - 'platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/Fancy*'
       - 'platform-paper/src/main/java/games/cubi/raycastedantiesp/paper/WeakIdentityRetirementGuard.java'
       - '.github/workflows/fancy-npc-qa.yml'
@@ -36,6 +35,16 @@ jobs:
           java GenerateSources . ..
           cd ../..
           ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:buildSnapshot --no-daemon
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 'e59026ae5dca26c7cf64733d1c3e93f03b2c19d1'
+          path: .fixture-source
+          persist-credentials: false
+      - name: Copy pinned standalone fixture
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          cp -R .fixture-source/qa/fancy qa/
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
         with:
           distribution: temurin
