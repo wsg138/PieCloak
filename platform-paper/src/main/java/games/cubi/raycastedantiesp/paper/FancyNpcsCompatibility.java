@@ -34,13 +34,8 @@ final class FancyNpcsCompatibility extends PaperListener {
                 // dereferences a null internal entity. Skip that NPC now;
                 // its create/spawn callback will register the live ID later.
                 for (var npc : plugin.getNpcManager().getAllNpcs()) {
-                    if (npc == null) {
-                        continue;
-                    }
-                    try {
+                    if (npc != null) {
                         add(npc);
-                    } catch (NullPointerException notYetCreated) {
-                        continue;
                     }
                 }
             }
@@ -71,14 +66,27 @@ final class FancyNpcsCompatibility extends PaperListener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onNpcRemove(NpcRemoveEvent event) {
-        int entityId = event.getNpc().getEntityId();
-        retiredNpcs.retire(event.getNpc(), entityId);
+        Npc npc = event.getNpc();
+        retiredNpcs.retireOwnerIncarnations(npc, nativeEntityId(npc));
     }
     private void add(Npc npc) {
         // Remove and spawn callbacks may race across the main and async threads.
         // The owner-specific guard and its retirement are one atomic decision.
-        int entityId = npc.getEntityId();
-        retiredNpcs.registerIfActive(npc, entityId);
+        Integer entityId = nativeEntityId(npc);
+        if (entityId != null) {
+            retiredNpcs.registerIfActive(npc, entityId);
+        }
+    }
+
+    private static Integer nativeEntityId(Npc npc) {
+        // FancyNpcs v2 adapters dereference their native entity directly.
+        // Modify/remove callbacks and startup backfill can see an NPC before
+        // create(); restrict the exception handling to the external accessor.
+        try {
+            return npc.getEntityId();
+        } catch (NullPointerException notYetCreated) {
+            return null;
+        }
     }
     @Override
     public void close() {
