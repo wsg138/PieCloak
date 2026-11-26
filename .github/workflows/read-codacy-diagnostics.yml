@@ -1,0 +1,20 @@
+name: Read-only Codacy diagnostics
+on:
+  push:
+    branches: [maintenance/codacy-diagnostics]
+permissions:
+  checks: read
+  contents: read
+jobs:
+  annotations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read published check annotations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/check-runs/139737002801/annotations" --paginate --jq '.[] | {path,start_line,title,message,annotation_level}'
