@@ -1,0 +1,70 @@
+name: Exact 26.3 build runtime acceptance
+on:
+  push:
+    branches: [qa/paper-26.3-exact-built-candidate]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Download exact independently compiled candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh run download 45876151727 --name PieCloak-explicit-26.3 --dir "$RUNNER_TEMP/candidate"
+          shopt -s nullglob
+          jars=("$RUNNER_TEMP/candidate"/RaycastedAntiESP-*.jar)
+          test "${#jars[@]}" = 1
+          echo "c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038  ${jars[0]}" | sha256sum -c -
+          echo "PIECLOAK_CANDIDATE=${jars[0]}" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Prepare probe compile dependencies
+        run: |
+          set -euo pipefail
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew verifyCurrentPlatformBaseline :platform-paper:compileJava --no-daemon
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install pinned isolated native protocol clients
+        run: |
+          npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund @wp2508/mineflayer@4.42.9
+          echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
+      - name: Fancy integrations and legacy migration
+        run: python3 qa/fancy/run.py
+      - name: Native and synthetic cancellation
+        if: always() && env.PIECLOAK_CANDIDATE != ''
+        run: python3 qa/cancel/run.py
+      - name: Actual managed entity and block occlusion
+        if: always() && env.PIECLOAK_CANDIDATE != ''
+        run: python3 qa/visibility/run.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: exact-paper-26.3-runtime-logs
+          path: |
+            ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
+            ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
+            ${{ runner.temp }}/cancel-qa/server.log
+            ${{ runner.temp }}/cancel-qa/clients.jsonl
+            ${{ runner.temp }}/visibility-qa/server.log
+            ${{ runner.temp }}/visibility-qa/clients.jsonl
+          if-no-files-found: warn
+          retention-days: 14

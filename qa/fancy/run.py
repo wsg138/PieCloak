@@ -207,8 +207,8 @@ def scenario(label, paper, candidate, fancy, packets, holograms, probe):
 
 def main():
     candidate = OUT / "PieCloak-release.jar"
-    download("https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-26-upstream-373343e/PieCloak-1.21.11-2026-11-26-upstream-373343e.jar", candidate,
-             "6b4da6a272d287fd89f62ca1b9643a960dbcb290b146257815a26d720045c6d3")
+    shutil.copy2(Path(os.environ["PIECLOAK_CANDIDATE"]),candidate)
+    assert hashlib.sha256(candidate.read_bytes()).hexdigest() == "c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038", "candidate checksum mismatch"
     print(f"Candidate {candidate.name} SHA256 {hashlib.sha256(candidate.read_bytes()).hexdigest()}", flush=True)
     versions = metadata(f"https://fill.papermc.io/v3/projects/paper/versions/{VERSION}/builds")
     stable = max((v for v in versions if v["channel"] == "STABLE"), key=lambda v: v["id"])

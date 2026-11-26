@@ -58,7 +58,7 @@ def stop(proc, command=False):
         proc.wait(timeout=10)
 
 candidate = FANCY_OUT / "PieCloak-release.jar"
-assert hashlib.sha256(candidate.read_bytes()).hexdigest() == "6b4da6a272d287fd89f62ca1b9643a960dbcb290b146257815a26d720045c6d3"
+assert hashlib.sha256(candidate.read_bytes()).hexdigest() == "c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038"
 shutil.copy2(FANCY_OUT / "paper.jar", OUT / "paper.jar")
 packets = FANCY_OUT / "PacketEvents.jar"
 classes = OUT / "probe-classes"
