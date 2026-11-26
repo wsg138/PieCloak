@@ -73,6 +73,26 @@ final class WeakIdentityRetirementGuard<T> {
         }
     }
 
+    /**
+     * Permanent NPC removal may follow a native entity replacement before the
+     * new incarnation has ever spawned for a viewer. Release all recorded
+     * incarnations of this owner, not another owner's claims on the same IDs.
+     * A null current ID means the optional plugin has no native handle yet.
+     */
+    synchronized void retireOwnerIncarnations(T owner, Integer currentId) {
+        Objects.requireNonNull(owner, "owner");
+        discardCollected();
+        OwnerState state = getOrCreate(owner);
+        if (currentId != null) {
+            state.retiredIds.add(currentId);
+        }
+        for (int activeId : state.activeIds) {
+            state.retiredIds.add(activeId);
+            releaseOwner(activeId);
+        }
+        state.activeIds.clear();
+    }
+
     // The queue must also be polled during quiet periods: without a scheduled
     // sweep, collected owners can leave stale numeric exemptions indefinitely.
     synchronized void sweepCollected() {
