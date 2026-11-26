@@ -53,7 +53,14 @@ jobs:
         with:
           name: fancy-runtime-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: |
-            ${{ runner.temp }}/piecloak-fancy-qa/*/server.log
-            ${{ runner.temp }}/piecloak-fancy-qa/*/clients.jsonl
+            ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
+            ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
           if-no-files-found: warn
           retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: success()
+        with:
+          name: fancy-runtime-tested-candidate-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: platform-paper/build/libs/RaycastedAntiESP-*.jar
+          if-no-files-found: error
+          retention-days: 14

@@ -103,6 +103,68 @@ def stop(process, command=False):
         process.kill()
         process.wait(timeout=10)
 
+def run_instance(folder, label, restart=False):
+    server = clients = None
+    suffix = "-restart" if restart else ""
+    slog, clog = folder / f"server{suffix}.log", folder / f"clients{suffix}.jsonl"
+    try:
+        with slog.open("wb") as server_log, clog.open("wb") as client_log:
+            server = subprocess.Popen(["java", "-Xms512M", "-Xmx2G", "-jar", "paper.jar", "nogui"],
+                                      cwd=folder, stdin=subprocess.PIPE,
+                                      stdout=server_log, stderr=subprocess.STDOUT)
+            ready = "FANCY_QA RESTART_READY" if restart else "FANCY_QA READY"
+            await_marker(server, slog, ready, 300)
+            clients = subprocess.Popen(["node", str(ROOT / "qa/fancy/clients.cjs"), str(PORT)],
+                                       stdin=subprocess.PIPE, stdout=client_log, stderr=subprocess.STDOUT)
+            if not restart:
+                content = await_marker(server, slog, "FANCY_QA INTERACT ", 120)
+                old = int(re.search(r"FANCY_QA INTERACT (\d+)", content).group(1))
+                clients.stdin.write(f"interact {old}\n".encode())
+                clients.stdin.flush()
+            done = "FANCY_QA RESTART_PASS" if restart else "FANCY_QA PASS"
+            content = await_marker(server, slog, done, 180)
+            time.sleep(3)
+            if clients.poll() is not None:
+                raise RuntimeError("Both clients must remain connected")
+            events = []
+            for line in log_text(clog).splitlines():
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+            if restart:
+                saved_id = int(re.search(r"FANCY_QA RESTART_ID (\d+)", content).group(1))
+                expected = {("joined", True), ("spawn", saved_id), ("destroy", saved_id)}
+            else:
+                new = int(re.search(r"FANCY_QA LIVE_NEW (\d+)", content).group(1))
+                player = int(re.search(r"FANCY_QA LIVE_PLAYER (\d+)", content).group(1))
+                moved = re.search(r"FANCY_QA MOVED (\w+)", content).group(1)
+                expected = {("joined", True), ("spawn", old), ("destroy", old), ("move", old),
+                            ("spawn", new), ("destroy", new), ("spawn", player), ("destroy", player)}
+            for name in ("FancyQaA", "FancyQaB"):
+                actual = [(e.get("event"), e.get("value")) for e in events
+                          if e.get("username") == name]
+                if not expected <= set(actual):
+                    raise AssertionError(f"{name}: missing {expected-set(actual)}")
+                if not restart and name == moved:
+                    if actual.count(("spawn", old)) < 2 or actual.count(("destroy", old)) < 2:
+                        raise AssertionError(f"{name}: missing exit/reentry packet cycles")
+                print(f"{label}{suffix} {name}: real packet assertions PASS", flush=True)
+            bad = ("FANCY_QA FAIL", "Unable to initialize optional Fancy",
+                   "Error occurred while enabling PieCloak", "Could not pass event Npc",
+                   "Could not pass event Hologram")
+            for token in bad:
+                if token in content:
+                    raise AssertionError(f"Server log contains {token}")
+    finally:
+        stop(clients)
+        stop(server, command=True)
+        print(log_text(slog)[-15000:], flush=True)
+        print(log_text(clog)[-4000:], flush=True)
+    if server is None or server.returncode != 0:
+        raise RuntimeError(f"{label}{suffix}: server did not exit cleanly")
+    print(f"{label}{suffix} PASS", flush=True)
+
 def scenario(label, paper, candidate, fancy, packets, holograms, probe):
     folder = OUT / label
     folder.mkdir()
@@ -117,48 +179,8 @@ def scenario(label, paper, candidate, fancy, packets, holograms, probe):
         "enforce-secure-profile=false\nlevel-type=minecraft:flat\n"
         "view-distance=3\nsimulation-distance=3\nmax-players=2\nspawn-protection=0\n"
         "spawn-monsters=false\n")
-    server = clients = None
-    slog, clog = folder / "server.log", folder / "clients.jsonl"
-    try:
-        with slog.open("wb") as server_log, clog.open("wb") as client_log:
-            server = subprocess.Popen(["java", "-Xms512M", "-Xmx2G", "-jar", "paper.jar", "nogui"],
-                                      cwd=folder, stdin=subprocess.PIPE,
-                                      stdout=server_log, stderr=subprocess.STDOUT)
-            await_marker(server, slog, "FANCY_QA READY", 300)
-            clients = subprocess.Popen(["node", str(ROOT / "qa/fancy/clients.cjs"), str(PORT)],
-                                       stdout=client_log, stderr=subprocess.STDOUT)
-            content = await_marker(server, slog, "FANCY_QA PASS", 180)
-            time.sleep(3)
-            if clients.poll() is not None:
-                raise RuntimeError("Both clients must remain connected")
-            old = int(re.search(r"FANCY_QA LIVE_OLD (\d+)", content).group(1))
-            new = int(re.search(r"FANCY_QA LIVE_NEW (\d+)", content).group(1))
-            events = []
-            for line in log_text(clog).splitlines():
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-            for name in ("FancyQaA", "FancyQaB"):
-                actual = {(e.get("event"), e.get("value")) for e in events
-                          if e.get("username") == name}
-                expected = {("joined", True), ("spawn", old), ("destroy", old),
-                            ("spawn", new), ("destroy", new)}
-                if not expected <= actual:
-                    raise AssertionError(f"{name}: missing {expected-actual}")
-                print(f"{label} {name}: both real spawn and destroy cycles PASS", flush=True)
-            bad = ("FANCY_QA FAIL", "Unable to initialize optional Fancy",
-                   "Error occurred while enabling PieCloak", "Could not pass event Npc",
-                   "Could not pass event Hologram")
-            for token in bad:
-                if token in content:
-                    raise AssertionError(f"Server log contains {token}")
-    finally:
-        stop(clients)
-        stop(server, command=True)
-        print(log_text(slog)[-15000:], flush=True)
-        print(log_text(clog)[-4000:], flush=True)
-    print(f"{label} PASS", flush=True)
+    run_instance(folder, label)
+    run_instance(folder, label, restart=True)
 
 def main():
     candidates = sorted((ROOT / "platform-paper/build/libs").glob("RaycastedAntiESP-*.jar"))

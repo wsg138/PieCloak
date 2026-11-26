@@ -3,6 +3,7 @@ package qa.fancy;
 import de.oliver.fancynpcs.api.FancyNpcsPlugin;
 import de.oliver.fancynpcs.api.Npc;
 import de.oliver.fancynpcs.api.NpcData;
+import de.oliver.fancynpcs.api.events.NpcInteractEvent;
 import de.oliver.fancynpcs.api.events.NpcModifyEvent;
 import de.oliver.fancynpcs.api.events.NpcRemoveEvent;
 import de.oliver.fancynpcs.api.events.NpcSpawnEvent;
@@ -19,11 +20,15 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Test-only plugin. Never package or deploy with PieCloak. */
 public final class FancyNpcProbe extends JavaPlugin implements Listener {
     private Npc cancelOwner;
-    private boolean failed;
+    private volatile boolean failed;
+    private volatile Npc liveNpc;
+    private final Set<String> interacted = ConcurrentHashMap.newKeySet();
 
     @Override
     public void onEnable() {
@@ -38,9 +43,15 @@ public final class FancyNpcProbe extends JavaPlugin implements Listener {
                     cancel();
                     require(Bukkit.getPluginManager().isPluginEnabled("PieCloak"), "PieCloak enabled");
                     require(Bukkit.getOnlinePlayers().isEmpty(), "zero-viewer control");
-                    zeroViewer();
-                    marker("READY");
-                    waitForViewers();
+                    Npc persisted = FancyNpcsPlugin.get().getNpcManager().getNpc("qa_restart");
+                    if (persisted != null) {
+                        marker("RESTART_READY");
+                        waitForViewers(persisted);
+                    } else {
+                        zeroViewer();
+                        marker("READY");
+                        waitForViewers(null);
+                    }
                 });
             }
         }.runTaskTimer(this, 20L, 20L);
@@ -91,7 +102,14 @@ public final class FancyNpcProbe extends JavaPlugin implements Listener {
         }
     }
 
-    private void waitForViewers() {
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onInteraction(NpcInteractEvent event) {
+        if (event.getNpc() == liveNpc) {
+            interacted.add(event.getPlayer().getName());
+        }
+    }
+
+    private void waitForViewers(Npc persisted) {
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -103,7 +121,13 @@ public final class FancyNpcProbe extends JavaPlugin implements Listener {
                     List<? extends Player> players = List.copyOf(Bukkit.getOnlinePlayers());
                     Location location = players.getFirst().getLocation();
                     players.get(1).teleport(location);
-                    later(40L, () -> beginLive(players, location.clone().add(0, 0, 2)));
+                    later(40L, () -> {
+                        if (persisted == null) {
+                            beginLive(players, location.clone().add(0, 0, 2));
+                        } else {
+                            restartLive(players, persisted);
+                        }
+                    });
                 });
             }
         }.runTaskTimer(this, 10L, 10L);
@@ -111,15 +135,52 @@ public final class FancyNpcProbe extends JavaPlugin implements Listener {
 
     private void beginLive(List<? extends Player> players, Location loc) {
         Npc npc = uncreated("qa_live", loc, EntityType.VILLAGER);
+        npc.getData().setVisibilityDistance(12);
         npc.create();
         FancyNpcsPlugin.get().getNpcManager().registerNpc(npc);
+        liveNpc = npc;
         int oldId = npc.getEntityId();
         npc.spawnForAll();
         later(80L, () -> {
             require(bypassed(oldId), "real spawn callback registered old ID");
             marker("LIVE_OLD " + oldId);
-            require(Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "npc type qa_live iron_golem"), "type command accepted");
-            later(120L, () -> checkReplacement(players, npc, oldId));
+            marker("INTERACT " + oldId);
+            later(120L, () -> {
+                for (Player player : players) {
+                    require(interacted.contains(player.getName()), "actual NPC click from " + player.getName());
+                }
+                marker("INTERACT_PASS");
+                moveAndReenter(players, npc, oldId);
+            });
+        });
+    }
+
+    private void moveAndReenter(List<? extends Player> players, Npc npc, int oldId) {
+        Location next = npc.getData().getLocation().clone().add(1, 0, 0);
+        npc.getData().setLocation(next);
+        FancyNpcsPlugin.get().getNpcThread().submit(() -> {
+            for (Player player : players) {
+                npc.move(player);
+            }
+        });
+        later(40L, () -> {
+            Player moving = players.getFirst();
+            Player witness = players.get(1);
+            marker("MOVED " + moving.getName());
+            moving.teleport(next.clone().add(40, 0, 0));
+            later(100L, () -> {
+                require(!npc.getIsVisibleForPlayer().getOrDefault(moving.getUniqueId(), false), "out-of-range viewer hidden");
+                require(npc.getIsVisibleForPlayer().getOrDefault(witness.getUniqueId(), false), "nearby witness unaffected");
+                require(bypassed(oldId), "shared bypass survives one viewer leaving");
+                moving.teleport(next.clone().add(0, 0, -2));
+                later(100L, () -> {
+                    require(npc.getIsVisibleForPlayer().getOrDefault(moving.getUniqueId(), false), "returning viewer sees NPC again");
+                    require(bypassed(oldId), "reentry preserves NPC bypass");
+                    marker("RANGE_PASS");
+                    require(Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "npc type qa_live iron_golem"), "type command accepted");
+                    later(120L, () -> checkReplacement(players, npc, oldId));
+                });
+            });
         });
     }
 
@@ -140,8 +201,49 @@ public final class FancyNpcProbe extends JavaPlugin implements Listener {
                 new NpcSpawnEvent(npc, players.getFirst()).callEvent();
                 require(!bypassed(delayedId), "async late spawn cannot reactivate deleted owner");
                 marker("LIVE_LATE " + delayedId);
-                marker("PASS");
+                later(1L, () -> newOwnerAndPersist(players, npc));
             }));
+        });
+    }
+
+    private void newOwnerAndPersist(List<? extends Player> players, Npc retired) {
+        Npc replacement = uncreated("qa_live", retired.getData().getLocation(), EntityType.PLAYER);
+        replacement.create();
+        FancyNpcsPlugin.get().getNpcManager().registerNpc(replacement);
+        int id = replacement.getEntityId();
+        replacement.spawnForAll();
+        later(80L, () -> {
+            require(bypassed(id), "new player-type NPC can reuse deleted name");
+            marker("LIVE_PLAYER " + id);
+            require(Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "npc remove qa_live"), "player NPC remove command");
+            later(60L, () -> {
+                require(!bypassed(id), "player NPC deletion clears bypass");
+                Npc saved = uncreated("qa_restart", players.getFirst().getLocation().clone().add(0, 0, 2), EntityType.VILLAGER);
+                saved.create();
+                saved.setSaveToFile(true);
+                FancyNpcsPlugin.get().getNpcManager().registerNpc(saved);
+                FancyNpcsPlugin.get().getNpcManager().saveNpcs(true);
+                marker("PERSISTED");
+                marker("PASS");
+            });
+        });
+    }
+
+    private void restartLive(List<? extends Player> players, Npc npc) {
+        Location location = npc.getData().getLocation().clone().add(0, 0, -2);
+        for (Player player : players) {
+            player.teleport(location);
+        }
+        int id = npc.getEntityId();
+        later(40L, npc::spawnForAll);
+        later(120L, () -> {
+            require(bypassed(id), "persisted NPC registered after full JVM restart");
+            marker("RESTART_ID " + id);
+            require(Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "npc remove qa_restart"), "persisted NPC remove command");
+            later(60L, () -> {
+                require(!bypassed(id), "persisted NPC deletion clears bypass");
+                marker("RESTART_PASS");
+            });
         });
     }
 
