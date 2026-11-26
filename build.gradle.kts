@@ -2,19 +2,29 @@ import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.plugins.quality.Pmd
 import org.gradle.api.plugins.quality.PmdExtension
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.testing.Test
+import org.gradle.jvm.toolchain.JavaToolchainService
+import org.gradle.jvm.toolchain.JavaLanguageVersion
 
 val javaVersionProvider = providers.gradleProperty("javaVersion").map { it.toInt() }
 val minecraftVersionProvider = providers.gradleProperty("minecraftVersion")
 val paperDevBundleVersionProvider = providers.gradleProperty("paperDevBundleVersion")
 
-check(javaVersionProvider.get() == 21) {
-    "The current 1.21.11 production baseline requires Java 21."
+val packetEventsVersionProvider = providers.gradleProperty("packetEventsVersion")
+
+// Only these explicitly qualified build profiles are accepted. The older
+// server target remains the default and must not silently drift.
+val supportedPlatform = when (minecraftVersionProvider.get()) {
+    "1.21.11" -> javaVersionProvider.get() == 21 &&
+        paperDevBundleVersionProvider.get() == "1.21.11-R0.1-SNAPSHOT" &&
+        packetEventsVersionProvider.get() == "2.12.0"
+    "26.3" -> javaVersionProvider.get() == 25 &&
+        paperDevBundleVersionProvider.get() == "26.3.build.262-stable" &&
+        packetEventsVersionProvider.get() == "2.14.0"
+    else -> false
 }
-check(minecraftVersionProvider.get() == "1.21.11") {
-    "The current production target must remain Minecraft 1.21.11 until an intentional upgrade package changes it."
-}
-check(paperDevBundleVersionProvider.get() == "1.21.11-R0.1-SNAPSHOT") {
-    "The current Paper development bundle must remain 1.21.11-R0.1-SNAPSHOT."
+check(supportedPlatform) {
+    "Unsupported platform profile: Minecraft ${minecraftVersionProvider.get()}, Java ${javaVersionProvider.get()}, Paper ${paperDevBundleVersionProvider.get()}, PacketEvents ${packetEventsVersionProvider.get()}"
 }
 
 tasks.register("verifyCurrentPlatformBaseline") {
@@ -32,8 +42,16 @@ subprojects {
             targetCompatibility = javaVersion
         }
 
+        // Submodules declare their own default Java toolchains. Explicitly select
+        // the profile compiler and test launcher for all Java tasks.
+        val toolchains = extensions.getByType<JavaToolchainService>()
+        val profileLanguage = javaVersionProvider.map { JavaLanguageVersion.of(it) }
         tasks.withType<JavaCompile>().configureEach {
+            javaCompiler.set(toolchains.compilerFor { languageVersion.set(profileLanguage) })
             options.release.set(javaVersionProvider)
+        }
+        tasks.withType<Test>().configureEach {
+            javaLauncher.set(toolchains.launcherFor { languageVersion.set(profileLanguage) })
         }
 
         extensions.configure<PmdExtension> {
