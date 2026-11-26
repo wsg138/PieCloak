@@ -193,4 +193,33 @@ class WeakIdentityRetirementGuardTest {
             assertFalse(EntityBypassRegistry.isBypassed(entityId));
         }
     }
+
+    @Test
+    void permanentRemovalRetiresUnseenReplacementAndOldRegisteredId() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        Object other = new Object();
+        assertTrue(guard.registerIfActive(owner, 810));
+        assertTrue(guard.registerIfActive(other, 810));
+        // A type change constructed ID 811, but no viewer spawned it yet.
+        guard.retireOwnerIncarnations(owner, 811);
+        assertFalse(guard.registerIfActive(owner, 810));
+        assertFalse(guard.registerIfActive(owner, 811));
+        assertFalse(EntityBypassRegistry.isBypassed(811));
+        assertTrue(EntityBypassRegistry.isBypassed(810));
+        guard.retire(other, 810);
+        assertFalse(EntityBypassRegistry.isBypassed(810));
+    }
+
+    @Test
+    void permanentRemovalWithoutNativeHandleReleasesPreviouslyRegisteredId() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        assertTrue(guard.registerIfActive(owner, 812));
+        guard.retireOwnerIncarnations(owner, null);
+        assertFalse(EntityBypassRegistry.isBypassed(812));
+        assertFalse(guard.registerIfActive(owner, 812));
+        guard.retireOwnerIncarnations(new Object(), null);
+        assertTrue(guard.registerIfActive(new Object(), 812));
+    }
 }
