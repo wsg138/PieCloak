@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Tracks optional-integration bypass ownership by object identity and native
@@ -23,6 +24,7 @@ import java.util.Set;
  * Weak keys allow abandoned owners to release their bypasses on queue drain.
  */
 final class WeakIdentityRetirementGuard<T> {
+    private static final String OWNER_PARAM = "owner";
     private final EntityBypassRegistry.BypassScope bypassScope;
     private final ReferenceQueue<T> referenceQueue = new ReferenceQueue<>();
     private final Map<IdentityReference<T>, OwnerState> owners = new HashMap<>();
@@ -32,12 +34,31 @@ final class WeakIdentityRetirementGuard<T> {
         this.bypassScope = Objects.requireNonNull(bypassScope, "bypassScope");
     }
 
-    boolean registerIfActive(T owner, int entityId) {
-        Objects.requireNonNull(owner, "owner");
+    /**
+     * Resolve the native ID under the same monitor as retirement and registration.
+     * Concurrent callbacks cannot publish a previously captured ID after a newer
+     * callback has already registered its replacement.
+     */
+    boolean registerCurrent(T owner, Function<? super T, Integer> resolver) {
+        Objects.requireNonNull(owner, OWNER_PARAM);
+        Objects.requireNonNull(resolver, "resolver");
         synchronized (this) {
             discardCollected();
             OwnerState state = getOrCreate(owner);
-            if (state.retiredIds.contains(entityId)) {
+            if (state.permanentlyRetired) {
+                return false;
+            }
+            Integer entityId = resolver.apply(owner);
+            return entityId != null && registerIfActive(owner, entityId);
+        }
+    }
+
+    boolean registerIfActive(T owner, int entityId) {
+        Objects.requireNonNull(owner, OWNER_PARAM);
+        synchronized (this) {
+            discardCollected();
+            OwnerState state = getOrCreate(owner);
+            if (state.permanentlyRetired || state.retiredIds.contains(entityId)) {
                 return false;
             }
             if (!state.activeIds.contains(entityId)) {
@@ -60,16 +81,38 @@ final class WeakIdentityRetirementGuard<T> {
     }
 
     void retire(T owner, int entityId) {
-        Objects.requireNonNull(owner, "owner");
+        Objects.requireNonNull(owner, OWNER_PARAM);
         synchronized (this) {
             discardCollected();
             OwnerState state = getOrCreate(owner);
-            if (!state.retiredIds.add(entityId)) {
+            if (state.permanentlyRetired || !state.retiredIds.add(entityId)) {
                 return;
             }
             if (state.activeIds.remove(entityId)) {
                 releaseOwner(entityId);
             }
+        }
+    }
+
+    /**
+     * Permanent NPC removal may follow a native entity replacement before the
+     * new incarnation has ever spawned for a viewer. Release all recorded
+     * incarnations of this owner, not another owner's claims on the same IDs.
+     * A permanent removal fences even previously unseen IDs from delayed
+     * callbacks on the deleted object. This tombstone is identity-scoped and
+     * weakly held, so replacement NPC objects and other integrations are unaffected.
+     */
+    void retireOwner(T owner) {
+        Objects.requireNonNull(owner, OWNER_PARAM);
+        synchronized (this) {
+            discardCollected();
+            OwnerState state = getOrCreate(owner);
+            state.permanentlyRetired = true;
+            for (int activeId : state.activeIds) {
+                releaseOwner(activeId);
+            }
+            state.activeIds.clear();
+            state.retiredIds.clear();
         }
     }
 
@@ -114,6 +157,7 @@ final class WeakIdentityRetirementGuard<T> {
     private static final class OwnerState {
         final Set<Integer> activeIds = new HashSet<>();
         final Set<Integer> retiredIds = new HashSet<>();
+        boolean permanentlyRetired;
     }
 
     private static final class IdentityReference<T> extends WeakReference<T> {
