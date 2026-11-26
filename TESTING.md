@@ -91,3 +91,18 @@ For package 03 validation, inject one outbound write failure at a time while rev
 For every stage, verify that a successful spawn or destroy is not sent a second time, later retries resume at the failed stage, and a newer opposite visibility decision cancels the stale repair. Also verify bounded terminal behavior, disconnect cleanup, respawn/world-change cleanup, entity despawn and ID reuse, minecart passenger ordering, bypass convergence, and Java plus Geyser/Floodgate clients.
 
 These injected network-failure and live-client scenarios remain manual unless a handoff records direct server evidence.
+
+## Fancy optional-plugin lifecycle compatibility
+
+The supported operational path for optional Fancy integrations is a complete server restart, not a same-JVM hot reload. The following limitations were independently reproduced **without PieCloak** in disposable Paper 26.2-129 / Java 26.0.1 fixtures using FancyNpcs 2.12.1 and two connected protocol clients:
+
+- [#30](https://github.com/wsg138/PieCloak/issues/30): a main-thread FancyNpcs hot-disable triggered Paper async command-tree `ConcurrentModificationException` errors. This also occurred when FancyNpcs was the only optional plugin installed.
+- [#31](https://github.com/wsg138/PieCloak/issues/31): same-JVM disable/re-enable failed inside FancyLib translation initialization with `Could not find default language file`; FancyNpcs remained disabled.
+
+These observations apply to the pinned versions tested and do not establish the exact upstream cause of #30 or imply that all versions fail. Do not add PieCloak workarounds for these external failures without new evidence. For release acceptance:
+
+- Start a clean server with the supported exact Paper/Java/PacketEvents combination, and repeat with the selected FancyNpcs and FancyHolograms versions, recording all version/build identifiers.
+- Verify startup backfill, late spawn/show, removal, numeric ID reuse and owner-specific bypass cleanup, including idle weak-owner cleanup.
+- Repeat after full process restart; verify unaffected entities remain unaffected and normal visibility resumes after removal.
+- Test optional integrations absent, separately present, and jointly present. Distinguish natural numeric ID reuse from synthetic event replay in the report.
+- Treat hot-disable/re-enable as a separate diagnostic, not evidence of supported operation; if it still fails without PieCloak, record that external limitation. Any new failure with PieCloak alone remains a release blocker.
