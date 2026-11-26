@@ -41,7 +41,8 @@ dependencies {
 
     compileOnly("de.oliver:FancyHolograms:2.9.1")
     compileOnly("de.oliver:FancyNpcs:2.9.2")
-    compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.16")
+    val worldGuardVersion = if (minecraftVersionProvider.get() == "26.3") "7.0.21" else "7.0.16"
+    compileOnly("com.sk89q.worldguard:worldguard-bukkit:$worldGuardVersion")
 
     compileOnly("net.strokkur.commands:annotations-paper:2.3.0")
     annotationProcessor("net.strokkur.commands:processor-paper:2.3.0")
