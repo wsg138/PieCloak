@@ -19,9 +19,9 @@ It keeps the upstream packet, async-engine, chunk-processing, compatibility, and
 
 ## Download & installation
 
-**[Download the published release candidate (.jar)](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-26-6566f9e/PieCloak-1.21.11-2026-11-26-6566f9e.jar)** · [Release notes and SHA-256](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-26-6566f9e)
+**[Download the published release candidate (.jar)](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-26-upstream-373343e/PieCloak-1.21.11-2026-11-26-upstream-373343e.jar)** · [Release notes and SHA-256](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-26-upstream-373343e)
 
-The November 26 maintenance candidate includes the merged FancyNpcs lifecycle fix. Its exact JAR passed compilation, unit tests and the expanded two-client Paper runtime suite before publication. [Build and runtime evidence](https://github.com/wsg138/PieCloak/actions/runs/45772052384). The complete upstream migration is not part of this release.
+The November 26 upstream integration build contains RaycastedAntiESP through `373343e` plus PieCloak-specific fixes. Its exact merged JAR passed compilation, unit tests, legacy configuration migration, and the two-client Paper runtime matrix before publication. [Build and runtime evidence](https://github.com/wsg138/PieCloak/actions/runs/45778483197). The release is marked prerelease pending broader platform and live-production qualification.
 
 1. Install a compatible [PacketEvents](https://modrinth.com/plugin/packetevents) JAR.
 2. Stop the server and back up your existing PieCloak configuration.
@@ -42,7 +42,7 @@ Use a full server restart when updating PieCloak or Fancy integrations.
 | Leaf / Folia / Geyser | Existing integrations retained; this candidate's full platform-specific acceptance remains pending |
 | Hot disable / re-enable | Not a supported FancyNpcs upgrade path; use a full process restart |
 
-The published FancyNpcs fix was merged in [PR #35](https://github.com/wsg138/PieCloak/pull/35). [Exact release runtime results](https://github.com/wsg138/PieCloak/actions/runs/45772052384) cover the configurations above, not every platform or optional integration.
+The published FancyNpcs fix from [PR #35](https://github.com/wsg138/PieCloak/pull/35) is retained in the upstream integration. [Exact release runtime results](https://github.com/wsg138/PieCloak/actions/runs/45778483197) cover the configurations above, not every platform or optional integration.
 
 ## What players should know
 
@@ -196,7 +196,7 @@ The `runServer` and `runPaper` tasks use Minecraft 1.21.11 on Java 21. They are 
 
 See [TESTING.md](TESTING.md) for the server test checklist and [MAINTAINING.md](MAINTAINING.md) before integrating later upstream changes.
 
-This fork's documented upstream baseline is commit `853fa1531acbbb1458f776bbe2dc637fd0d40b7c` from August 5, 2026.
+This fork includes upstream commit [`373343e96706885c057bb00613dd113d68ec9f33`](https://github.com/Cubicake/RaycastedAntiESP/commit/373343e96706885c057bb00613dd113d68ec9f33), integrated in [PR #36](https://github.com/wsg138/PieCloak/pull/36). Schema 2.1 automatically backs up the original 2.0 file as `config.yml.pre-2.1.bak`; retain that backup.
 
 ## License and credits
 
