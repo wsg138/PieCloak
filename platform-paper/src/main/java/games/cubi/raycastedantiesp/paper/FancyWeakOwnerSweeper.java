@@ -21,10 +21,13 @@ final class FancyWeakOwnerSweeper implements AutoCloseable {
     private final ScheduledTask scheduledTask;
 
     FancyWeakOwnerSweeper(WeakIdentityRetirementGuard<?> guard) {
-        Objects.requireNonNull(guard, "guard");
+        this(Objects.requireNonNull(guard, "guard")::sweepCollected, SWEEP_PERIOD_TICKS);
+    }
+
+    FancyWeakOwnerSweeper(Runnable sweep, long periodTicks) {
+        Objects.requireNonNull(sweep, "sweep");
         scheduledTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(
-                RaycastedAntiESP.get(), ignored -> guard.sweepCollected(),
-                SWEEP_PERIOD_TICKS, SWEEP_PERIOD_TICKS);
+                RaycastedAntiESP.get(), ignored -> sweep.run(), periodTicks, periodTicks);
     }
 
     @Override

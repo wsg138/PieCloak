@@ -21,6 +21,7 @@ import org.bukkit.event.EventPriority;
 final class FancyNpcsCompatibility extends PaperListener {
     private final EntityBypassRegistry.BypassScope bypassScope = EntityBypassRegistry.openFancyNpcScope();
     private final WeakIdentityRetirementGuard<Npc> retiredNpcs = new WeakIdentityRetirementGuard<>(bypassScope);
+    private static final long MANAGER_SWEEP_PERIOD_TICKS = 40L;
     private FancyWeakOwnerSweeper weakOwnerSweeper;
     FancyNpcsCompatibility() {
         try {
@@ -39,7 +40,9 @@ final class FancyNpcsCompatibility extends PaperListener {
                     }
                 }
             }
-            weakOwnerSweeper = new FancyWeakOwnerSweeper(retiredNpcs);
+            weakOwnerSweeper = new FancyWeakOwnerSweeper(
+                    () -> retiredNpcs.sweepManagedOwners(FancyNpcsCompatibility::managedOwner),
+                    MANAGER_SWEEP_PERIOD_TICKS);
         } catch (RuntimeException | Error failure) {
             try {
                 close();
@@ -73,7 +76,14 @@ final class FancyNpcsCompatibility extends PaperListener {
     private void add(Npc npc) {
         // Remove and spawn callbacks may race across the main and async threads.
         // The owner-specific guard and its retirement are one atomic decision.
-        retiredNpcs.registerCurrent(npc, FancyNpcsCompatibility::nativeEntityId);
+        retiredNpcs.registerManagedCurrent(npc, FancyNpcsCompatibility::nativeEntityId,
+                FancyNpcsCompatibility::managedOwner);
+    }
+
+    private static Npc managedOwner(Npc npc) {
+        var plugin = FancyNpcsPlugin.get();
+        var manager = plugin == null ? null : plugin.getNpcManager();
+        return manager == null ? null : manager.getNpcById(npc.getData().getId());
     }
 
     private static Integer nativeEntityId(Npc npc) {

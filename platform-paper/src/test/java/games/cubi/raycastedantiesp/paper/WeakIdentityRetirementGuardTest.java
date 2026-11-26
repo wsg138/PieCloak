@@ -366,4 +366,65 @@ class WeakIdentityRetirementGuardTest {
             }
         }
     }
+
+    @Test
+    void observedManagerRemovalReleasesRetainedOwnerAndFencesLateCallbacks() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        var current = new java.util.concurrent.atomic.AtomicReference<>(owner);
+        assertTrue(guard.registerManagedCurrent(owner, ignored -> 1500, ignored -> current.get()));
+        current.set(null);
+        guard.sweepManagedOwners(ignored -> current.get());
+        assertFalse(EntityBypassRegistry.isBypassed(1500));
+        assertFalse(guard.registerManagedCurrent(owner, ignored -> 1501, ignored -> current.get()));
+        assertFalse(EntityBypassRegistry.isBypassed(1501));
+        current.set(owner);
+        assertTrue(guard.registerManagedCurrent(owner, ignored -> 1500, ignored -> current.get()));
+        assertTrue(EntityBypassRegistry.isBypassed(1500));
+    }
+
+    @Test
+    void detachedOwnerCannotClearReplacementClaimAndCommandDeletionRemainsPermanent() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object old = new Object();
+        Object replacement = new Object();
+        var current = new java.util.concurrent.atomic.AtomicReference<>(old);
+        assertTrue(guard.registerManagedCurrent(old, ignored -> 1510, ignored -> current.get()));
+        current.set(replacement);
+        assertTrue(guard.registerManagedCurrent(replacement, ignored -> 1510, ignored -> current.get()));
+        guard.sweepManagedOwners(ignored -> current.get());
+        assertTrue(EntityBypassRegistry.isBypassed(1510));
+        assertFalse(guard.registerManagedCurrent(old, ignored -> 1511, ignored -> current.get()));
+        guard.retireOwner(replacement);
+        assertFalse(guard.registerManagedCurrent(replacement, ignored -> 1510, ignored -> current.get()));
+        assertFalse(EntityBypassRegistry.isBypassed(1510));
+    }
+
+    @Test
+    void unmanagedApiOwnerRemainsSupportedUntilManagerMembershipIsObserved() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        var current = new java.util.concurrent.atomic.AtomicReference<Object>();
+        assertTrue(guard.registerManagedCurrent(owner, ignored -> 1520, ignored -> current.get()));
+        guard.sweepManagedOwners(ignored -> current.get());
+        assertTrue(EntityBypassRegistry.isBypassed(1520));
+        current.set(owner);
+        guard.sweepManagedOwners(ignored -> current.get());
+        current.set(null);
+        assertFalse(guard.registerManagedCurrent(owner, ignored -> 1521, ignored -> current.get()));
+        assertFalse(EntityBypassRegistry.isBypassed(1520));
+        assertFalse(EntityBypassRegistry.isBypassed(1521));
+    }
+
+    @Test
+    void replacedStableManagerIdentityCannotAcquireFirstClaim() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object old = new Object();
+        Object replacement = new Object();
+        assertFalse(guard.registerManagedCurrent(old, ignored -> 1530, ignored -> replacement));
+        assertTrue(guard.registerManagedCurrent(replacement, ignored -> 1530, ignored -> replacement));
+        assertFalse(guard.registerManagedCurrent(old, ignored -> 1531, ignored -> null));
+        assertTrue(EntityBypassRegistry.isBypassed(1530));
+        assertFalse(EntityBypassRegistry.isBypassed(1531));
+    }
 }
