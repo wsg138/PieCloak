@@ -39,7 +39,8 @@ plugins=OUT/"plugins"
 plugins.mkdir()
 for src in [candidate,packets,probe]:shutil.copy2(src,plugins/src.name)
 (OUT/"eula.txt").write_text("eula=true\n")
-(OUT/"server.properties").write_text(f"server-ip=127.0.0.1\nserver-port={PORT}\nonline-mode=false\nenforce-secure-profile=false\nlevel-type=minecraft:flat\nview-distance=6\nsimulation-distance=6\nmax-players=2\nspawn-protection=0\nspawn-monsters=false\n")
+(OUT / "whitelist.json").write_text('[{"uuid":"9e59c098-9ee1-3ee8-85c6-9da2f43d00f0","name":"FancyQaA"},{"uuid":"2f58034d-7407-3509-9fa0-a874bd73e356","name":"FancyQaB"}]')
+(OUT/"server.properties").write_text(f"server-ip=127.0.0.1\nserver-port={PORT}\nonline-mode=false\nwhite-list=true\nenforce-whitelist=true\nenforce-secure-profile=false\nlevel-type=minecraft:flat\nview-distance=6\nsimulation-distance=6\nmax-players=2\nspawn-protection=0\nspawn-monsters=false\n")
 slog,clog=OUT/"server.log",OUT/"clients.jsonl"
 server=clients=None
 def await_marker(marker,seconds=180):
