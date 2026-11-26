@@ -3,6 +3,7 @@ package games.cubi.raycastedantiesp.paper;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.RepeatedTest;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -255,33 +256,33 @@ class WeakIdentityRetirementGuardTest {
         assertTrue(EntityBypassRegistry.isBypassed(931));
     }
 
-    @Test
+    @RepeatedTest(100)
+    // Intentional multithreaded JUnit test, not a J2EE web application.
+    @SuppressWarnings("PMD.DoNotUseThreads")
     void permanentlyRetiredOwnerCannotRaceUnknownIdsBackIntoScope() throws Exception {
-        for (int attempt = 0; attempt < 100; attempt++) {
-            var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
-            Object owner = new Object();
-            assertTrue(guard.registerIfActive(owner, 1000));
-            var start = new CountDownLatch(1);
-            try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
-                var spawn = executor.submit(() -> {
-                    start.await();
-                    for (int id = 1001; id < 1060; id++) {
-                        guard.registerIfActive(owner, id);
-                    }
-                    return null;
-                });
-                var remove = executor.submit(() -> {
-                    start.await();
-                    guard.retireOwner(owner);
-                    return null;
-                });
-                start.countDown();
-                spawn.get(5, TimeUnit.SECONDS);
-                remove.get(5, TimeUnit.SECONDS);
-                for (int id = 1000; id < 1060; id++) {
-                    assertFalse(guard.registerIfActive(owner, id));
-                    assertFalse(EntityBypassRegistry.isBypassed(id));
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        assertTrue(guard.registerIfActive(owner, 1000));
+        var start = new CountDownLatch(1);
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var spawn = executor.submit(() -> {
+                start.await();
+                for (int id = 1001; id < 1060; id++) {
+                    guard.registerIfActive(owner, id);
                 }
+                return null;
+            });
+            var remove = executor.submit(() -> {
+                start.await();
+                guard.retireOwner(owner);
+                return null;
+            });
+            start.countDown();
+            spawn.get(5, TimeUnit.SECONDS);
+            remove.get(5, TimeUnit.SECONDS);
+            for (int id = 1000; id < 1060; id++) {
+                assertFalse(guard.registerIfActive(owner, id));
+                assertFalse(EntityBypassRegistry.isBypassed(id));
             }
         }
     }
@@ -323,6 +324,8 @@ class WeakIdentityRetirementGuardTest {
     }
 
     @Test
+    // Explicitly exercising concurrent callbacks, outside J2EE.
+    @SuppressWarnings("PMD.DoNotUseThreads")
     void nativeIdReadAndRegistrationAreOrderedAcrossCallbacks() throws Exception {
         var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
         Object owner = new Object();
