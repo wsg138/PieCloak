@@ -229,7 +229,7 @@ class PacketEventsEntityViewTest {
         assertNull(self.leashedEntityIDsOrNull());
         assertEquals(-2, self.leashingEntity());
         assertSame(replay, self.packetReplayData());
-        assertTrue(replay.getPackets().isEmpty());
+        assertTrue(replay.snapshotPackets(1).isEmpty());
     }
 
     @Test

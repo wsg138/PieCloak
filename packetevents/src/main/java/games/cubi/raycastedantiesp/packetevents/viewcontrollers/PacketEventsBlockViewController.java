@@ -560,9 +560,13 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
         }
     }
 
+    static boolean transitionMatchesCurrentVisibility(TransitionType.Tile transition, boolean visible) {
+        return (transition == TransitionType.Tile.SHOW) == visible;
+    }
+
     private void hideTileEntity(User viewer, BlockView blockView,
             TrackedTileEntity<PacketEventsTileEntityReplayData> state, long modeToken, Stage stage) {
-        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || state.visible()) {
+        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !transitionMatchesCurrentVisibility(TransitionType.Tile.HIDE, state.visible())) {
             return;
         }
         executeTransitionWrites(Operation.HIDE, stage,
@@ -575,7 +579,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     private void showTileEntity(User viewer, BlockView blockView,
             TrackedTileEntity<PacketEventsTileEntityReplayData> state, long modeToken,
             Operation operation, Stage stage) {
-        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !state.visible()) {
+        if (!blockView.isCurrentEnabledTileEntityMode(modeToken) || !transitionMatchesCurrentVisibility(TransitionType.Tile.SHOW, state.visible())) {
             return;
         }
         sendTileEntityFromStage(viewer, state, operation, stage);

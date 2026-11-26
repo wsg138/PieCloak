@@ -97,6 +97,25 @@ class NettyEntityTrackedStateTest {
         });
     }
 
+    @Test
+    void relationshipSnapshotsRemainDefensiveWhileInternalAccessorsDoNotCopy() {
+        TestEntity entity = new TestEntity();
+        entity.setPassengerIDs(new int[]{2, 3});
+        entity.addLeashedEntity(4);
+        int[] passengers = entity.passengerIDs();
+        int[] internalPassengers = entity.passengerIDsNoAlloc();
+        org.junit.jupiter.api.Assertions.assertNotSame(passengers, internalPassengers);
+        passengers[0] = 99;
+        assertEquals(2, internalPassengers[0]);
+        org.junit.jupiter.api.Assertions.assertSame(internalPassengers, entity.passengerIDsNoAlloc());
+        int[] leashes = entity.leashedEntityIDsOrNull();
+        int[] internalLeashes = entity.leashedEntityIDsOrNullNoAlloc();
+        org.junit.jupiter.api.Assertions.assertNotSame(leashes, internalLeashes);
+        leashes[0] = 99;
+        assertEquals(4, internalLeashes[0]);
+        org.junit.jupiter.api.Assertions.assertSame(internalLeashes, entity.leashedEntityIDsOrNullNoAlloc());
+    }
+
     private static final class TestEntity extends NettyEntity<Clearable> {
         private TestEntity() {
             this(1);
