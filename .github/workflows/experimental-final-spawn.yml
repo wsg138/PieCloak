@@ -1,0 +1,44 @@
+name: Experimental final-spawn cancellation regression
+on:
+  push:
+    branches: [experiment/packet-final-spawn-23]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Compile and test candidate
+        run: |
+          set -euo pipefail
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install clients
+        run: |
+          npm install --prefix "$RUNNER_TEMP/cancelqa-node" --ignore-scripts --no-audit --no-fund mineflayer@4.39.0
+          echo "NODE_PATH=$RUNNER_TEMP/cancelqa-node/node_modules" >> "$GITHUB_ENV"
+      - name: Test external cancellation ordering and legitimate reveal
+        run: python3 qa/cancel/run.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: issue23-experiment-logs
+          path: ${{ runner.temp }}/cancel-qa/*.log
+          if-no-files-found: warn

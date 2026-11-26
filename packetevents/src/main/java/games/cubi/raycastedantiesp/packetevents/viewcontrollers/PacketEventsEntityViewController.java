@@ -12,6 +12,7 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListener;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.event.UserDisconnectEvent;
+import com.github.retrooper.packetevents.netty.buffer.ByteBufHelper;
 import com.github.retrooper.packetevents.protocol.entity.EntityPositionData;
 import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
@@ -103,6 +104,41 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
+        if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY) {
+            // PacketEvents 2.12.0 runs post tasks after final listener cancellation
+            // and serialization, but before the Spigot encoder writes the buffer.
+            // Do not claim a spawn cancelled by another listener, even at the
+            // same priority or MONITOR. This is an experimental transport adapter.
+            event.getPostTasks().add(() -> processFinalSpawn(event));
+            return;
+        }
+        processPacketSend(event);
+    }
+
+    private void processFinalSpawn(PacketSendEvent event) {
+        if (event.isCancelled()) {
+            return;
+        }
+        Object buffer = event.getByteBuf();
+        int start = ByteBufHelper.readerIndex(buffer);
+        try {
+            if (ByteBufHelper.readVarInt(buffer) != event.getPacketId()) {
+                throw new IllegalStateException("Unexpected serialized spawn packet ID");
+            }
+            // Restore the body reader position expected by PacketWrapper.
+            processPacketSend(event);
+        } catch (RuntimeException failure) {
+            Logger.error(failure, 2, PacketEventsEntityViewController.class);
+        } finally {
+            if (event.isCancelled()) {
+                ByteBufHelper.clear(buffer);
+            } else {
+                ByteBufHelper.readerIndex(buffer, start);
+            }
+        }
+    }
+
+    private void processPacketSend(PacketSendEvent event) {
         User viewer = event.getUser();
         UUID viewerUUID = viewer.getUUID();
         if (viewerUUID == null) {
