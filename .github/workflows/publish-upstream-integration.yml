@@ -1,0 +1,189 @@
+name: Merge and publish verified upstream integration
+on:
+  push:
+    branches: [maintenance/publish-upstream-20261126]
+    paths: ['.github/workflows/publish-upstream-integration.yml']
+permissions:
+  contents: read
+concurrency:
+  group: publish-upstream-20261126
+  cancel-in-progress: false
+env:
+  CANDIDATE: 'aacf3527e9a2ce8641d898e5ed40b432cd42d421'
+  BASE: 'd535948e203754e7c57c386e03360c050757bda4'
+  UPSTREAM: '373343e96706885c057bb00613dd113d68ec9f33'
+  RELEASE_TAG: 'piecloak-1.21.11-2026-11-26-upstream-373343e'
+  ASSET: 'PieCloak-1.21.11-2026-11-26-upstream-373343e.jar'
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    outputs:
+      merged_sha: ${{ steps.merge.outputs.sha }}
+    steps:
+      - name: Wait for exact candidate gates and merge without overrides
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          required='["build","paper-fixture","PMD report","Semgrep CE report","Trivy report","Semgrep OSS","Trivy","Codacy Static Code Analysis"]'
+          for attempt in $(seq 1 100); do
+            pr="$(gh api "repos/$GH_REPO/pulls/36")"
+            test "$(jq -r .head.sha <<<"$pr")" = "$CANDIDATE"
+            test "$(jq -r .base.ref <<<"$pr")" = main
+            test "$(jq -r .draft <<<"$pr")" = false
+            if [[ "$(jq -r .merged <<<"$pr")" == true ]]; then
+              break
+            fi
+            test "$(jq -r .state <<<"$pr")" = open
+            test "$(gh api "repos/$GH_REPO/branches/main" --jq .commit.sha)" = "$BASE"
+            checks="$(gh api "repos/$GH_REPO/commits/$CANDIDATE/check-runs?per_page=100&filter=latest" --jq .check_runs)"
+            jq -r --argjson required "$required" '.[] | select(.name as $n | $required | index($n)) | [.name,.status,.conclusion] | @tsv' <<<"$checks"
+            if jq -e --argjson required "$required" 'any(.[]; (.name as $n | $required | index($n)) != null and .status == "completed" and .conclusion != "success")' <<<"$checks" >/dev/null; then
+              echo "A required check did not pass; refusing merge."
+              exit 1
+            fi
+            if jq -e --argjson required "$required" '([.[] | select(.status=="completed" and .conclusion=="success") | .name]) as $passed | all($required[]; . as $n | $passed | index($n) != null)' <<<"$checks" >/dev/null; then
+              gh pr merge 36 --repo "$GH_REPO" --merge --match-head-commit "$CANDIDATE"
+              break
+            fi
+            sleep 15
+          done
+          pr="$(gh api "repos/$GH_REPO/pulls/36")"
+          test "$(jq -r .merged <<<"$pr")" = true
+          test "$(jq -r .head.sha <<<"$pr")" = "$CANDIDATE"
+          sha="$(jq -r .merge_commit_sha <<<"$pr")"
+          test "$(gh api "repos/$GH_REPO/branches/main" --jq .commit.sha)" = "$sha"
+          test "$(gh api "repos/$GH_REPO/git/commits/$sha" --jq .tree.sha)" = "$(gh api "repos/$GH_REPO/git/commits/$CANDIDATE" --jq .tree.sha)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+  verify:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: ${{ needs.gate.outputs.merged_sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.gate.outputs.merged_sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Verify upstream history and compile exact merged main
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$UPSTREAM" HEAD
+          git merge-base --is-ancestor "$CANDIDATE" HEAD
+          cd leafpile/templates
+          javac --release 21 GenerateSources.java Preprocessor.java
+          java GenerateSources . ..
+          cd ../..
+          ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:compileJava test :platform-paper:build :platform-paper:buildSnapshot --no-daemon
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: '64e007d950113ef0858fb65e0c0338e6ac9338b1'
+          path: .fixture-source
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: '70ae666f1bfeb880e94e1405a3fcfb782e7d9694'
+          path: .cancel-fixture
+          persist-credentials: false
+      - name: Copy pinned test fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          cp -R .fixture-source/qa/fancy qa/
+          cp -R .cancel-fixture/qa/cancel qa/
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install isolated protocol clients
+        run: |
+          npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund mineflayer@4.39.0
+          echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
+      - name: Test merged JAR on real Paper with migration and optional plugins
+        run: python3 qa/fancy/run.py
+      - name: Verify external spawn cancellation and ordinary reveal
+        run: python3 qa/cancel/run.py
+      - name: Package the exact tested JAR
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          jars=(platform-paper/build/libs/RaycastedAntiESP-*.jar)
+          test "${#jars[@]}" = 1
+          jar_path="${jars[0]}"
+          unzip -p "$jar_path" plugin.yml | grep -Fx 'name: PieCloak'
+          unzip -p "$jar_path" plugin.yml | grep -Fx "api-version: '1.21.11'"
+          unzip -p "$jar_path" build-properties/platform.yml | grep -Fx 'java-version: 21'
+          mkdir -p release-package
+          cp "$jar_path" "release-package/$ASSET"
+          cd release-package
+          sha256sum "$ASSET" | tee "$ASSET.sha256"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: upstream-runtime-logs
+          path: |
+            ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
+            ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
+            ${{ runner.temp }}/piecloak-cancel-qa/**/server*.log
+            ${{ runner.temp }}/piecloak-cancel-qa/**/clients*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-upstream-release-package
+          path: release-package/
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: [gate, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_SHA: ${{ needs.gate.outputs.merged_sha }}
+    steps:
+      - name: Publish only verified merged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/branches/main" --jq .commit.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GH_REPO/pulls/36" --jq .merge_commit_sha)" = "$SOURCE_SHA"
+          gh run download "$GITHUB_RUN_ID" --name verified-upstream-release-package --dir release-package
+          cd release-package
+          sha256sum -c "$ASSET.sha256"
+          cat > notes.md <<'EOF'
+          ## Upstream integration
+          
+          Integrates RaycastedAntiESP upstream through `373343e96706885c057bb00613dd113d68ec9f33` (core 0.7.2, Paper 0.10.2). Retains PieCloak's selective allowlist, no-player-hiding defaults, exact voxel traversal, staged packet repairs, optional-plugin ownership tracking and Minecraft 1.21.11 platform baseline.
+          
+          Includes configuration schema 2.1, typed block selectors, updated submodules and command APIs, optimized chunk lookup, cached player snapshots, client tile visibility tracking and final PacketEvents spawn-cancellation handling. Legacy 2.0 config is backed up as `config.yml.pre-2.1.bak`.
+          
+          **Verified:** exact merged-source Gradle compile/test/build, JAR metadata, real Paper with two Java protocol clients, fresh and legacy configuration migration, FancyNpcs 2.12.1 with/without FancyHolograms 2.12.0 and process restart, PacketEvents 2.12.0 external cancellation and normal reveal.
+          
+          Requires PacketEvents. Java 21 compile target; hosted server fixture uses Java 25. Stop the server and back up config before upgrading; use a full restart. This is not a claim of production, Geyser/Floodgate, Leaf/Folia, or hot-reload acceptance. No production deployment performed.
+          EOF
+          printf '\nSource: https://github.com/%s/commit/%s\nBuild and runtime evidence: https://github.com/%s/actions/runs/%s\n' "$GH_REPO" "$SOURCE_SHA" "$GH_REPO" "$GITHUB_RUN_ID" >> notes.md
+          gh release create "$RELEASE_TAG" "$ASSET" "$ASSET.sha256" --target "$SOURCE_SHA" --title 'PieCloak 1.21.11 — upstream integration (2026-11-26)' --prerelease --notes-file notes.md
+          echo "Published $(gh release view "$RELEASE_TAG" --json url --jq .url)"
