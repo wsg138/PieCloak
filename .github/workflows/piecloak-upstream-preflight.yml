@@ -1,0 +1,48 @@
+name: PieCloak upstream preflight
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/piecloak-upstream-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compare pinned fork and upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          fork="$(git rev-parse HEAD)"
+          base=853fa1531acbbb1458f776bbe2dc637fd0d40b7c
+          upstream=373343e96706885c057bb00613dd113d68ec9f33
+          git fetch --no-tags https://github.com/Cubicake/RaycastedAntiESP.git main
+          git cat-file -e "$upstream^{commit}"
+          git cat-file -e "$fork^{commit}"
+          mkdir -p preflight
+          git merge-base "$fork" "$upstream" | tee preflight/merge-base.txt
+          git log --format='%h %s' "$base..$upstream" > preflight/upstream-commits.txt
+          git diff --name-status "$base" "$upstream" > preflight/upstream-files.txt
+          git diff --name-status "$base" "$fork" > preflight/fork-files.txt
+          rc=0
+          git merge-tree --write-tree --name-only "$fork" "$upstream" > preflight/merge-tree.txt 2>&1 || rc=$?
+          echo "Merge-tree exit: $rc" | tee preflight/status.txt
+          cat preflight/merge-tree.txt
+          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+          # The historical content baseline is distinct from the graph merge base.
+          content_rc=0
+          git merge-tree --write-tree --name-only --merge-base="$base" "$fork" "$upstream" > preflight/content-baseline-merge-tree.txt 2>&1 || content_rc=$?
+          echo "Content-baseline merge-tree exit: $content_rc" | tee preflight/content-baseline-status.txt
+          cat preflight/content-baseline-merge-tree.txt
+          if [ "$content_rc" -gt 1 ]; then exit "$content_rc"; fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: upstream-preflight
+          path: preflight/
+          retention-days: 7
