@@ -179,8 +179,9 @@ def scenario(label, paper, candidate, fancy, packets, holograms, probe):
         shutil.copy2(src, plugins / src.name)
     shutil.copy2(paper, folder / "paper.jar")
     (folder / "eula.txt").write_text("eula=true\n")
+    (folder / "whitelist.json").write_text('[{"uuid":"9e59c098-9ee1-3ee8-85c6-9da2f43d00f0","name":"FancyQaA"},{"uuid":"2f58034d-7407-3509-9fa0-a874bd73e356","name":"FancyQaB"}]')
     (folder / "server.properties").write_text(
-        f"server-ip=127.0.0.1\nserver-port={PORT}\nonline-mode=false\n"
+        f"server-ip=127.0.0.1\nserver-port={PORT}\nonline-mode=false\nwhite-list=true\nenforce-whitelist=true\n"
         "enforce-secure-profile=false\nlevel-type=minecraft:flat\n"
         "view-distance=3\nsimulation-distance=3\nmax-players=2\nspawn-protection=0\n"
         "spawn-monsters=false\n")
