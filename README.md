@@ -19,9 +19,9 @@ It keeps the upstream packet, async-engine, chunk-processing, compatibility, and
 
 ## Download & installation
 
-**[Download the published release candidate (.jar)](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-01-bd6f034/PieCloak-1.21.11-2026-11-01-bd6f034.jar)** · [Release notes and SHA-256](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-01-bd6f034)
+**[Download the published release candidate (.jar)](https://github.com/wsg138/PieCloak/releases/download/piecloak-1.21.11-2026-11-26-6566f9e/PieCloak-1.21.11-2026-11-26-6566f9e.jar)** · [Release notes and SHA-256](https://github.com/wsg138/PieCloak/releases/tag/piecloak-1.21.11-2026-11-26-6566f9e)
 
-The November 1 published candidate predates the newer FancyNpcs lifecycle fix. For newer development builds, see [GitHub Actions](https://github.com/wsg138/PieCloak/actions/workflows/build.yml); successful runs contain a shaded JAR artifact. Actions artifacts are temporary and may require a GitHub sign-in. The complete upstream update is not released yet.
+The November 26 maintenance candidate includes the merged FancyNpcs lifecycle fix. Its exact JAR passed compilation, unit tests and the expanded two-client Paper runtime suite before publication. [Build and runtime evidence](https://github.com/wsg138/PieCloak/actions/runs/45772052384). The complete upstream migration is not part of this release.
 
 1. Install a compatible [PacketEvents](https://modrinth.com/plugin/packetevents) JAR.
 2. Stop the server and back up your existing PieCloak configuration.
@@ -42,7 +42,7 @@ Use a full server restart when updating PieCloak or Fancy integrations.
 | Leaf / Folia / Geyser | Existing integrations retained; this candidate's full platform-specific acceptance remains pending |
 | Hot disable / re-enable | Not a supported FancyNpcs upgrade path; use a full process restart |
 
-The newer FancyNpcs checks are on [PR #34](https://github.com/wsg138/PieCloak/pull/34), with [hosted runtime test results](https://github.com/wsg138/PieCloak/actions/runs/45768946135). These results do not imply the older published JAR includes the fix or that every platform or optional integration has been fully validated.
+The published FancyNpcs fix was merged in [PR #35](https://github.com/wsg138/PieCloak/pull/35). [Exact release runtime results](https://github.com/wsg138/PieCloak/actions/runs/45772052384) cover the configurations above, not every platform or optional integration.
 
 ## What players should know
 
