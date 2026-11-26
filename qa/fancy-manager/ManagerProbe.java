@@ -56,7 +56,22 @@ public final class ManagerProbe extends JavaPlugin {
             npc.create();
             modify(npc);
             marker("DIRECT_LATE "+bypassed(npc.getEntityId()));
-            reload(loc);
+            manager.registerNpc(npc);
+            modify(npc);
+            marker("REREGISTERED "+bypassed(npc.getEntityId()));
+            npc.removeForAll();
+            manager.removeNpc(npc);
+            NpcData data=new NpcData("qa_unmanaged",UUID.randomUUID(),loc);
+            data.setType(EntityType.VILLAGER);
+            Npc unmanaged=FancyNpcsPlugin.get().getNpcAdapter().apply(data);
+            unmanaged.create();
+            retained.add(unmanaged);
+            modify(unmanaged);
+            later(100,()->{
+                marker("UNMANAGED "+bypassed(unmanaged.getEntityId()));
+                new de.oliver.fancynpcs.api.events.NpcRemoveEvent(unmanaged,Bukkit.getConsoleSender()).callEvent();
+                reload(loc);
+            });
         });
     }
     private void reload(Location loc) {

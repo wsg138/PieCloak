@@ -43,8 +43,8 @@ OUT=Path(os.environ["RUNNER_TEMP"])/"fancy-manager-qa"
 OUT.mkdir()
 PORT=25750
 candidate=OUT/"PieCloak.jar"
-download("https://github.com/wsg138/PieCloak/releases/download/piecloak-26.3-2026-11-26-5895780/PieCloak-26.3-2026-11-26-5895780.jar",candidate,"c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038")
-assert hashlib.sha256(candidate.read_bytes()).hexdigest()=="c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038"
+shutil.copy2(Path(os.environ["PIECLOAK_CANDIDATE"]),candidate)
+assert hashlib.sha256(candidate.read_bytes()).hexdigest()==os.environ["PIECLOAK_SHA256"]
 versions=metadata("https://fill.papermc.io/v3/projects/paper/versions/26.3/builds")
 stable=next(v for v in versions if v["id"]==263)
 print("Paper 26.3",stable["id"],flush=True)
@@ -95,8 +95,8 @@ try:
         await_marker("MGR_QA READY",300)
         clients=subprocess.Popen(["node",str(ROOT/"qa/fancy-manager/clients.cjs"),str(PORT)],stdout=c,stderr=subprocess.STDOUT)
         logs=await_marker("MGR_QA DONE",180)
-        records=dict(re.findall(r"MGR_QA (DIRECT_STALE|DIRECT_LATE|RELOAD_STALE|RELOAD_LATE|RELOAD_NEW|LIVE_STALE) (true|false)",logs))
-        expected={"DIRECT_STALE":"false","DIRECT_LATE":"false","RELOAD_STALE":"false","RELOAD_LATE":"false","RELOAD_NEW":"true","LIVE_STALE":"false"}
+        records=dict(re.findall(r"MGR_QA (DIRECT_STALE|DIRECT_LATE|RELOAD_STALE|RELOAD_LATE|RELOAD_NEW|LIVE_STALE|REREGISTERED|UNMANAGED) (true|false)",logs))
+        expected={"DIRECT_STALE":"false","DIRECT_LATE":"false","RELOAD_STALE":"false","RELOAD_LATE":"false","RELOAD_NEW":"true","LIVE_STALE":"false","REREGISTERED":"true","UNMANAGED":"true"}
         old=int(re.search(r"MGR_QA LIVE_ID (\d+)",logs).group(1))
         final=events()
         for name in ("FancyQaA","FancyQaB"):

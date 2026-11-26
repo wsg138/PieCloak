@@ -1,0 +1,62 @@
+name: Exact candidate FancyNpcs manager and lifecycle acceptance
+on:
+  push:
+    branches: [qa/fancy-managed-owner-candidate-26.3]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [manager, lifecycle]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - name: Download exact independent PR matrix artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/actions/runs/45881005658" --jq .head_sha)" = "1188e464852dbccd07bfe85209600c8b5a1de5c7"
+          timeout 420 gh run watch 45881005658 --exit-status --interval 10
+          gh run download 45881005658 --name PieCloak-explicit-26.3 --dir "$RUNNER_TEMP/candidate"
+          shopt -s nullglob
+          jars=("$RUNNER_TEMP/candidate"/RaycastedAntiESP-*.jar)
+          test "${#jars[@]}" = 1
+          unzip -p "${jars[0]}" build-properties/platform.yml | grep -Ex 'long-git: (1188e464852dbccd07bfe85209600c8b5a1de5c7|ade8f10d735021cf81816a26ea62ccc42c96bc5c)'
+          unzip -p "${jars[0]}" build-properties/platform.yml | grep -Fx 'minecraft-version: 26.3'
+          sha=$(sha256sum "${jars[0]}" | cut -d' ' -f1)
+          echo "PIECLOAK_CANDIDATE=${jars[0]}" >> "$GITHUB_ENV"
+          echo "PIECLOAK_SHA256=$sha" >> "$GITHUB_ENV"
+          echo "Exact candidate SHA256 $sha"
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install pinned native protocol clients
+        run: |
+          npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund @wp2508/mineflayer@4.42.9
+          echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
+      - name: Direct manager lifecycle
+        if: matrix.suite == 'manager'
+        run: python3 qa/fancy-manager/run.py
+      - name: Standard Fancy lifecycle and restart
+        if: matrix.suite == 'lifecycle'
+        run: python3 qa/fancy/run.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: manager-candidate-${{ matrix.suite }}-logs
+          path: |
+            ${{ runner.temp }}/fancy-manager-qa/server.log
+            ${{ runner.temp }}/fancy-manager-qa/clients.jsonl
+            ${{ runner.temp }}/piecloak-fancy-qa/*/server*.log
+            ${{ runner.temp }}/piecloak-fancy-qa/*/clients*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
