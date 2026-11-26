@@ -631,7 +631,7 @@ class PacketEntityViewControllerTest {
         }
 
         private HarnessEntity(PlayerData owningPlayer, int entityID, UUID entityUUID, boolean visible) {
-            super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible, () -> {});
+            super(owningPlayer, new InitialPosition(0, 0, 0), entityID, entityUUID, false, 0, visible, () -> {});
         }
 
         private static HarnessEntity createSelf(PlayerData owningPlayer, int entityID, UUID playerUUID) {

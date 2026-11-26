@@ -122,7 +122,7 @@ class NettyEntityTrackedStateTest {
         }
 
         private TestEntity(int entityID) {
-            super(null, 0, 0, 0, entityID, UUID.randomUUID(), false, 0, true, () -> {});
+            super(null, new InitialPosition(0, 0, 0), entityID, UUID.randomUUID(), false, 0, true, () -> {});
         }
     }
 }

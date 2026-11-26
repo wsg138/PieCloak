@@ -24,6 +24,7 @@ import java.util.Objects;
 public final class PackedEntityTransitionQueue { //todo: potentially merge this with PackedBlockTransitionQueue, and add a mode token to entities
     private static final int BATCH_MIN_SIZE = 3;
     private static final int BATCH_SIZE = 8;
+    private static final int HALF_BATCH_SIZE = BATCH_SIZE / 2;
 
     private final IntrusiveSPSCQueue<QueueEntry> publishedEntries = new IntrusiveSPSCQueue<>();
     private final PendingBatch pending = new PendingBatch();
@@ -119,7 +120,8 @@ public final class PackedEntityTransitionQueue { //todo: potentially merge this 
 
         // Eight fixed slots avoid per-transition allocations in the packet hot path.
         private void add(TransitionType.Entity type, TrackedEntity<?> entity) {
-            if (++count <= 4) {
+            count++;
+            if (count <= HALF_BATCH_SIZE) {
                 addFirst(type, entity);
             } else {
                 addLast(type, entity);

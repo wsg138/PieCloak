@@ -134,7 +134,7 @@ class RespawnEpochBoundaryTest {
 
         private EntityStub(PlayerData owningPlayer, int entityID, UUID entityUUID,
                 boolean visible) {
-            super(owningPlayer, 0, 0, 0, entityID, entityUUID, false, 0, visible, () -> {});
+            super(owningPlayer, new InitialPosition(0, 0, 0), entityID, entityUUID, false, 0, visible, () -> {});
         }
 
         private static EntityStub createSelf(PlayerData owningPlayer, int entityID,

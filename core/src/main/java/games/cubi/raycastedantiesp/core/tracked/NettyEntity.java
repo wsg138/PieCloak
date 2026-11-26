@@ -77,10 +77,10 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     public static final int NO_LEASHER = -2;
     public static final int SELF_ENTITY_TYPE = -29;
 
-    // Keep the complete spawn state together; changing this constructor would break the tracked entity API.
-    @SuppressWarnings("PMD.ExcessiveParameterList")
-    public NettyEntity(PlayerData owningPlayer, double x, double y, double z, int entityID, UUID entityUUID, boolean isSelfEntity, int entityType, boolean visible, PacketReplayData packetReplayData) {
-        X.set(this, x); Y.set(this, y); Z.set(this, z);
+    protected record InitialPosition(double x, double y, double z) {}
+
+    protected NettyEntity(PlayerData owningPlayer, InitialPosition position, int entityID, UUID entityUUID, boolean isSelfEntity, int entityType, boolean visible, PacketReplayData packetReplayData) {
+        X.set(this, position.x()); Y.set(this, position.y()); Z.set(this, position.z());
 
         this.entityID = entityID;
         this.entityUUID = entityUUID;
