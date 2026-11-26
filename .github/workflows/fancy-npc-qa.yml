@@ -41,7 +41,7 @@ jobs:
           ./gradlew clean verifyCurrentPlatformBaseline :platform-paper:buildSnapshot --no-daemon
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
-          ref: 'e59026ae5dca26c7cf64733d1c3e93f03b2c19d1'
+          ref: '64e007d950113ef0858fb65e0c0338e6ac9338b1'
           path: .fixture-source
           persist-credentials: false
       - name: Copy pinned standalone fixture
