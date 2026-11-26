@@ -53,6 +53,62 @@ final class WeakIdentityRetirementGuard<T> {
         }
     }
 
+    /**
+     * Manager membership is authoritative for objects observed in a manager.
+     * Never-managed API NPCs retain the existing callback-based behavior.
+     */
+    boolean registerManagedCurrent(T owner, Function<? super T, Integer> resolver,
+                                   Function<? super T, ? extends T> managerLookup) {
+        Objects.requireNonNull(owner, OWNER_PARAM);
+        Objects.requireNonNull(managerLookup, "managerLookup");
+        synchronized (this) {
+            discardCollected();
+            OwnerState state = getOrCreate(owner);
+            return !state.permanentlyRetired && checkMembership(owner, state, managerLookup)
+                    && registerCurrent(owner, resolver);
+        }
+    }
+
+    /** Reconcile quiet removals even while external plugins retain NPC objects. */
+    void sweepManagedOwners(Function<? super T, ? extends T> managerLookup) {
+        Objects.requireNonNull(managerLookup, "managerLookup");
+        synchronized (this) {
+            discardCollected();
+            for (var entry : owners.entrySet()) {
+                T owner = entry.getKey().get();
+                OwnerState state = entry.getValue();
+                if (owner != null && !state.permanentlyRetired && !state.activeIds.isEmpty()) {
+                    checkMembership(owner, state, managerLookup);
+                }
+            }
+        }
+    }
+
+    private boolean checkMembership(T owner, OwnerState state,
+                                    Function<? super T, ? extends T> managerLookup) {
+        T current = managerLookup.apply(owner);
+        if (current == owner) {
+            state.managerObserved = true;
+            return true;
+        }
+        if (current != null || state.managerObserved) {
+            // A replacement at the same stable ID also proves this owner is stale.
+            // Unlike explicit command deletion, direct removal permits legitimate
+            // re-registration of the very same object in the manager.
+            state.managerObserved = true;
+            releaseActiveIds(state);
+            return false;
+        }
+        return true;
+    }
+
+    private void releaseActiveIds(OwnerState state) {
+        for (int activeId : state.activeIds) {
+            releaseOwner(activeId);
+        }
+        state.activeIds.clear();
+    }
+
     boolean registerIfActive(T owner, int entityId) {
         Objects.requireNonNull(owner, OWNER_PARAM);
         synchronized (this) {
@@ -108,10 +164,7 @@ final class WeakIdentityRetirementGuard<T> {
             discardCollected();
             OwnerState state = getOrCreate(owner);
             state.permanentlyRetired = true;
-            for (int activeId : state.activeIds) {
-                releaseOwner(activeId);
-            }
-            state.activeIds.clear();
+            releaseActiveIds(state);
             state.retiredIds.clear();
         }
     }
@@ -158,6 +211,7 @@ final class WeakIdentityRetirementGuard<T> {
         final Set<Integer> activeIds = new HashSet<>();
         final Set<Integer> retiredIds = new HashSet<>();
         boolean permanentlyRetired;
+        boolean managerObserved;
     }
 
     private static final class IdentityReference<T> extends WeakReference<T> {
