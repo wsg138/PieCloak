@@ -17,4 +17,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/$GH_REPO/check-runs/139745546745/annotations" --paginate --jq '.[] | {path,start_line,title,message,annotation_level}'
+          gh api "repos/$GH_REPO/check-runs/139764012510/annotations" --paginate --jq '.[] | {path,start_line,title,message,annotation_level}'
