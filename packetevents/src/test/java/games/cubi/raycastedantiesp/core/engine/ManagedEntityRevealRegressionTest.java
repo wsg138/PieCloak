@@ -5,7 +5,7 @@ import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.view.PacketEventsBlockView;
@@ -45,7 +45,7 @@ class ManagedEntityRevealRegressionTest {
 
     @AfterEach
     void resetState() {
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         ViewRegistry.reset();
     }
 
@@ -76,7 +76,7 @@ class ManagedEntityRevealRegressionTest {
         assertFalse(target.clientVisible(), "the packet thread has not reconciled the SHOW transition yet");
 
         entityView.flushPendingTransitions();
-        AtomicReference<EntityViewTransition.Type> transitionType = new AtomicReference<>();
+        AtomicReference<TransitionType.Entity> transitionType = new AtomicReference<>();
         AtomicReference<PacketEventsEntity> transitionedEntity = new AtomicReference<>();
         AtomicInteger transitionEpoch = new AtomicInteger();
         entityView.drainTransitions((type, entity, epoch) -> {
@@ -85,7 +85,7 @@ class ManagedEntityRevealRegressionTest {
             transitionEpoch.set(epoch);
         });
 
-        assertEquals(EntityViewTransition.Type.SHOW, transitionType.get());
+        assertEquals(TransitionType.Entity.SHOW, transitionType.get());
         assertSame(target, transitionedEntity.get());
         assertEquals(worldEpoch, transitionEpoch.get());
     }
@@ -119,7 +119,7 @@ class ManagedEntityRevealRegressionTest {
     }
 
     private static PlayerData registerViewer(UUID world) {
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData playerData = PlayerRegistry.get().registerAndGetPlayer(
                 UUID.randomUUID(), 0, 1, PacketEventsEntity::createSelfEntity);
         playerData.beginWorldTransition();
         playerData.completeWorldTransition(world);

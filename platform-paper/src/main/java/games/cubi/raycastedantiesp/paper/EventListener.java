@@ -55,7 +55,8 @@ public final class EventListener extends PaperListener {
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerJoin(PlayerClientLoadedWorldEvent event) {
         Player player = event.getPlayer();
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+        if (player.hasMetadata("NPC")) return;
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
         if (playerData == null) {
             Logger.error("Player joined before packet state was registered. Kicking player=" + player.getName() + " uuid=" + player.getUniqueId(), 1, EventListener.class);
             player.kick(MiniMessage.miniMessage().deserialize("RaycastedAntiESP failed to initialise your packet state. Please reconnect. Report this issue to the server you are playing on if you are still unable to join."));
@@ -79,7 +80,7 @@ public final class EventListener extends PaperListener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(event.getPlayer().getUniqueId());
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(event.getPlayer().getUniqueId());
         if (playerData != null) {
             updateOwnLocation(playerData, event.getPlayer().getEyeLocation());
         }
@@ -116,7 +117,7 @@ public final class EventListener extends PaperListener {
     }
 
     private void updateOwnLocation(Player player, Location location) {
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(player.getUniqueId());
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(player.getUniqueId());
         if (playerData == null || location == null) {
             return;
         }

@@ -27,7 +27,7 @@ import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
 import games.cubi.raycastedantiesp.core.tracked.NettyTileEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.BlockView;
-import games.cubi.raycastedantiesp.core.view.BlockViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsTileEntityReplayData;
 import games.cubi.raycastedantiesp.packetevents.target.PacketEventsTargetFilter;
 import games.cubi.raycastedantiesp.packetevents.viewcontrollers.BlockTransitionRetryQueue.Operation;
@@ -114,7 +114,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
             hideOnSpawnDistanceSquared = tileEntityConfig.hideOnSpawnDistance() * tileEntityConfig.hideOnSpawnDistance();
         }
 
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(viewerUUID);
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(viewerUUID);
         if (playerData == null) {
             transitionRetries.clear(viewerUUID);
             return;
@@ -429,7 +429,7 @@ public abstract class PacketEventsBlockViewController implements PacketListener 
     private void processTileEntityTransitions(User viewer, PlayerData playerData, int currentTick) {
         BlockView blockView = playerData.blockView();
         blockView.drainTransitions((type, tileEntity, modeToken, transitionWorldEpoch) -> {
-            Operation operation = type == BlockViewTransition.Type.HIDE ? Operation.HIDE : Operation.SHOW;
+            Operation operation = type == TransitionType.Tile.HIDE ? Operation.HIDE : Operation.SHOW;
             processInitialTileEntityOperationSafely(playerData, viewer, operation, tileEntity,
                     modeToken, currentTick, Stage.BLOCK, transitionWorldEpoch);
         });

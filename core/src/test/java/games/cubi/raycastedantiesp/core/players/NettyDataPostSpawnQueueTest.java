@@ -1,8 +1,8 @@
 package games.cubi.raycastedantiesp.core.players;
 
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.BaseEntitySpawnTask;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.raycastedantiesp.core.tracked.BaseEntitySpawnTask;
+import games.cubi.utils.Clearable;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;

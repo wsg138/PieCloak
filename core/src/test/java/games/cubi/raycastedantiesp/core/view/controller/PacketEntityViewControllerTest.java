@@ -10,7 +10,7 @@ import games.cubi.raycastedantiesp.core.raycast.RaycastUtil;
 import games.cubi.locatables.implementations.ImmutableLocatableImpl;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
 import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
@@ -74,7 +74,7 @@ class PacketEntityViewControllerTest {
     @AfterEach
     void unregisterPlayers() {
         for (UUID player : registeredPlayers) {
-            PlayerRegistry.getInstance().unregisterPlayer(player);
+            PlayerRegistry.get().unregisterPlayer(player);
         }
         registeredPlayers.clear();
         EntityBypassRegistry.reset();
@@ -391,7 +391,7 @@ class PacketEntityViewControllerTest {
     private PlayerData registerPlayer(UUID world) {
         UUID playerUUID = UUID.randomUUID();
         registeredPlayers.add(playerUUID);
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData playerData = PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID,
                 0,
                 1,

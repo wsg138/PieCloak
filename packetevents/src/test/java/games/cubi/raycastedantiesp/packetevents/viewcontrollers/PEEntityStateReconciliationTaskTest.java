@@ -1,9 +1,17 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.packetevents.viewcontrollers;
 
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.entity.EntityBypassRegistry;
-import games.cubi.raycastedantiesp.core.utils.EntitySpawnTask;
+import games.cubi.raycastedantiesp.core.tracked.EntitySpawnTask;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
@@ -36,7 +44,7 @@ class PEEntityStateReconciliationTaskTest {
     @AfterEach
     void unregisterPlayers() {
         for (UUID player : registeredPlayers) {
-            PlayerRegistry.getInstance().unregisterPlayer(player);
+            PlayerRegistry.get().unregisterPlayer(player);
         }
         registeredPlayers.clear();
     }
@@ -236,7 +244,7 @@ class PEEntityStateReconciliationTaskTest {
     private PlayerData playerData() {
         UUID playerUUID = UUID.randomUUID();
         registeredPlayers.add(playerUUID);
-        return PlayerRegistry.getInstance().registerAndGetPlayer(
+        return PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID,
                 0,
                 1,

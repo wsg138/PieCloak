@@ -1,14 +1,14 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-only
  * Copyright © 2026 Cubicake.
- * This file is part of RaycastedAntiESP.
- * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
- * See README.md for warranty disclaimer and further information.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
  */
 
 package games.cubi.raycastedantiesp.packetevents.view;
 
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
 import org.junit.jupiter.api.Test;
@@ -154,7 +154,7 @@ class PacketEventsEntityViewTest {
 
         view.setVisibility(entity, false, 1, epoch);
         view.flushPendingTransitions();
-        AtomicReference<EntityViewTransition.Type> transitionType = new AtomicReference<>();
+        AtomicReference<TransitionType.Entity> transitionType = new AtomicReference<>();
         AtomicReference<PacketEventsEntity> transitionEntity = new AtomicReference<>();
         AtomicInteger transitionWorldEpoch = new AtomicInteger();
         view.drainTransitions((type, queuedEntity, queuedWorldEpoch) -> {
@@ -165,7 +165,7 @@ class PacketEventsEntityViewTest {
 
         assertSame(entity, transitionEntity.get());
         assertEquals(epoch, transitionWorldEpoch.get());
-        assertEquals(EntityViewTransition.Type.HIDE, transitionType.get());
+        assertEquals(TransitionType.Entity.HIDE, transitionType.get());
         assertFalse(entity.visible());
         assertEquals(1, entity.lastChecked());
     }
@@ -191,7 +191,7 @@ class PacketEventsEntityViewTest {
                 }
             });
 
-            AtomicReference<EntityViewTransition.Type> transitionType = new AtomicReference<>();
+            AtomicReference<TransitionType.Entity> transitionType = new AtomicReference<>();
             boolean[] drained = {false};
             for (int tick = 1; tick <= transitions; tick++) {
                 do {
@@ -204,7 +204,7 @@ class PacketEventsEntityViewTest {
                 } while (!drained[0]);
 
                 boolean expectedVisible = (tick & 1) == 0;
-                assertEquals(expectedVisible ? EntityViewTransition.Type.SHOW : EntityViewTransition.Type.HIDE, transitionType.get());
+                assertEquals(expectedVisible ? TransitionType.Entity.SHOW : TransitionType.Entity.HIDE, transitionType.get());
                 assertEquals(expectedVisible, entity.visible());
                 assertEquals(tick, entity.lastChecked());
                 acknowledgedTick.setRelease(tick);
@@ -220,7 +220,7 @@ class PacketEventsEntityViewTest {
         self.setVehicleID(3);
         self.addLeashedEntity(4);
         self.setLeashingEntity(5);
-        self.setPacketReplayData(PacketEventsEntityReplayData.create());
+        PacketEventsEntityReplayData replay = self.packetReplayData();
 
         self.clear();
 
@@ -228,7 +228,8 @@ class PacketEventsEntityViewTest {
         assertEquals(-1, self.vehicleID());
         assertNull(self.leashedEntityIDsOrNull());
         assertEquals(-2, self.leashingEntity());
-        assertNull(self.packetReplayData());
+        assertSame(replay, self.packetReplayData());
+        assertTrue(replay.getPackets().isEmpty());
     }
 
     @Test

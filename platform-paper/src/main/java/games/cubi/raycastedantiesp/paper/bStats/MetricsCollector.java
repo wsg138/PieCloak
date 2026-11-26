@@ -1,11 +1,14 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.paper.bStats;
 
 import games.cubi.raycastedantiesp.core.config.ConfigManager;
-import games.cubi.raycastedantiesp.core.config.raycast.ChunkSectionConfig;
-import games.cubi.raycastedantiesp.core.config.raycast.EntityConfig;
-import games.cubi.raycastedantiesp.core.config.raycast.PlayerConfig;
-import games.cubi.raycastedantiesp.core.config.raycast.SoundEffectsConfig;
-import games.cubi.raycastedantiesp.core.config.raycast.TileEntityConfig;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
@@ -100,12 +103,12 @@ public class MetricsCollector {
     }
 
     private String getPlayerCount() {
-        return bucketPlayerCount(PlayerRegistry.getInstance().getAllPlayerData().size());
+        return bucketPlayerCount(PlayerRegistry.get().getPlayerCount());
     }
 
     private String getMedianEntityCount() {
         return bucketMedianEntityCounts(
-                PlayerRegistry.getInstance().getAllPlayerData(),
+                PlayerRegistry.get().getAllPlayerData(),
                 PlayerData::isConnected,
                 playerData -> playerData.entityView().size()
         );

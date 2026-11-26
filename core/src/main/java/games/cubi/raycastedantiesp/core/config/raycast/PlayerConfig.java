@@ -1,26 +1,32 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.core.config.raycast;
 
-import games.cubi.raycastedantiesp.core.config.ConfigReader;
-import org.spongepowered.configurate.ConfigurationNode;
+import org.spongepowered.configurate.objectmapping.ConfigSerializable;
+import org.spongepowered.configurate.objectmapping.meta.Comment;
+import org.spongepowered.configurate.objectmapping.meta.Setting;
 
-public class PlayerConfig extends RaycastConfig {
-    private final boolean onlyCheckSneaking;
-
-    private PlayerConfig(RaycastConfig config, boolean onlyCheckSneaking) {
-        super(config.enabled(), config.hideSoundsWhenHidden(), config.getMaxOccludingCount(), config.getAlwaysShowRadius(),
-                config.getRaycastRadius(), config.hideOnSpawnDistance(), config.getVisibleRecheckIntervalTicks(),
-                config.keepClientEntityWhenHidden());
-        this.onlyCheckSneaking = onlyCheckSneaking;
-    }
-
-    public static PlayerConfig load(ConfigurationNode node, String path) {
-        return new PlayerConfig(
-                RaycastConfig.load(node, path, true, true),
-                ConfigReader.bool(ConfigReader.node(node, "only-check-sneaking"), path + ".only-check-sneaking")
-        );
-    }
-
-    public boolean onlyCheckSneaking() {
-        return onlyCheckSneaking;
-    }
+@ConfigSerializable
+public record PlayerConfig(
+        @Setting(nodeFromParent = true)
+        RaycastSettings raycastSettings,
+        @Comment("Suppress sounds produced by hidden players.")
+        boolean hideSoundsWhenHidden,
+        @Comment("Retain hidden players client-side instead of destroying their entities. This will cause a non-moving \"ghost player\" to persist until the real player is visible again.")
+        boolean keepClientEntityWhenHidden,
+        @Comment("Only raycast other players while the viewing player is sneaking.")
+        boolean onlyCheckSneaking
+) implements RaycastConfig {
+    public static final PlayerConfig DEFAULT = new PlayerConfig(
+            new RaycastSettings(false, (byte) 3, (short) 24, (short) 48, (short) 0, (short) 10),
+            false,
+            false,
+            false
+    );
 }

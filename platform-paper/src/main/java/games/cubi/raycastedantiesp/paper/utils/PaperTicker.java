@@ -12,7 +12,7 @@ import com.destroystokyo.paper.event.server.ServerTickStartEvent;
 import games.cubi.logs.Logger;
 import games.cubi.raycastedantiesp.core.Ticker;
 import games.cubi.raycastedantiesp.core.engine.AsyncEngine;
-import games.cubi.raycastedantiesp.core.utils.VarHandler;
+import games.cubi.utils.VarHandler;
 import games.cubi.raycastedantiesp.paper.EventListener;
 import games.cubi.raycastedantiesp.paper.RaycastedAntiESP;
 import games.cubi.raycastedantiesp.paper.internals.HackyEntityIDGuard;

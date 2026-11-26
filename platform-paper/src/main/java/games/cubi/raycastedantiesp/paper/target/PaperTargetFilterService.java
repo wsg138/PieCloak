@@ -63,11 +63,11 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
 
     public PaperTargetFilterService(ConfigManager configManager) {
         this.configManager = configManager;
-        refresh(configManager.getExtensionConfig(TargetFilterConfig.class));
+        refresh(configManager.getTargetFilterConfig());
     }
 
     public void refresh() {
-        refresh(configManager.getExtensionConfig(TargetFilterConfig.class));
+        refresh(configManager.getTargetFilterConfig());
     }
 
     @Override
@@ -112,7 +112,7 @@ public class PaperTargetFilterService implements PacketEventsTargetFilter {
     }
 
     private ResolvedTargetFilter current() {
-        TargetFilterConfig config = configManager.getExtensionConfig(TargetFilterConfig.class);
+        TargetFilterConfig config = configManager.getTargetFilterConfig();
         if (config != loadedConfig) {
             refresh(config);
         }

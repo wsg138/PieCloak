@@ -1,6 +1,6 @@
 package games.cubi.raycastedantiesp.core.tracked;
 
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

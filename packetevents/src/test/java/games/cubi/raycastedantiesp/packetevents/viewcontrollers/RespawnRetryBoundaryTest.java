@@ -4,7 +4,7 @@ import games.cubi.raycastedantiesp.packetevents.testsupport.TestProxySupport;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import games.cubi.raycastedantiesp.core.tracked.TrackedTileEntity;
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import org.junit.jupiter.api.Test;
 
@@ -32,7 +32,7 @@ class RespawnRetryBoundaryTest {
         EntityTransitionWork<String> queuedShow = new EntityTransitionWork<>(
                 viewer,
                 view,
-                EntityViewTransition.Type.SHOW,
+                TransitionType.Entity.SHOW,
                 oldEntity,
                 2,
                 EntityTransitionPlan.show(

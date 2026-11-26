@@ -30,7 +30,7 @@ public final class PacketEventsRespawnStateInvalidator {
         if (playerUUID == null) {
             return false;
         }
-        PlayerData playerData = PlayerRegistry.getInstance().getPlayerData(playerUUID);
+        PlayerData playerData = PlayerRegistry.get().getPlayerData(playerUUID);
         if (playerData == null) {
             return false;
         }

@@ -3,7 +3,7 @@ package games.cubi.raycastedantiesp.core.players;
 import games.cubi.raycastedantiesp.core.testsupport.TestEntityViewProxy;
 import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
@@ -39,7 +39,7 @@ class RespawnEpochBoundaryTest {
 
     @AfterEach
     void resetRegistries() {
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         ViewRegistry.reset();
     }
 
@@ -47,7 +47,7 @@ class RespawnEpochBoundaryTest {
     void preRespawnShowRelationshipAndBlockCallbacksCannotCrossSameWorldBoundary() {
         UUID playerUUID = UUID.randomUUID();
         UUID worldUUID = UUID.randomUUID();
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData playerData = PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID, 0, 1, EntityStub::createSelf);
         establishWorld(playerData, "world", worldUUID);
 

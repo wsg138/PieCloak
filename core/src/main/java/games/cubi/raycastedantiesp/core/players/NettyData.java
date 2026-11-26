@@ -1,17 +1,21 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-only
  * Copyright © 2026 Cubicake.
- * This file is part of RaycastedAntiESP.
- * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
- * See README.md for warranty disclaimer and further information.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
  */
 
 package games.cubi.raycastedantiesp.core.players;
 
 import games.cubi.logs.Logger;
+import games.cubi.raycastedantiesp.core.tracked.EntitySpawnTask;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.*;
 import games.cubi.raycastedantiesp.core.utils.Packet.Packets;
+import games.cubi.utils.Clearable;
+import games.cubi.utils.VarHandler;
+import games.cubi.utils.lists.IntArrayListMarker;
+import games.cubi.utils.lists.PrimitiveIntArrayList;
 import it.unimi.dsi.fastutil.ints.Int2IntArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
@@ -29,6 +33,9 @@ import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_VEHICLE;
  * Per-player mutable state intended for Netty-side packet tracking and deferred reconciliation.
  */
 public class NettyData implements Clearable {
+    //
+    public boolean packetsAreWithinBundle = false;
+    //
     private static final int DEFAULT_MAP_SIZE = 16;
     private static final int[] EMPTY_ENTITY_IDS = new int[0];
 
@@ -103,6 +110,14 @@ public class NettyData implements Clearable {
         return PrimitiveIntArrayList.getCopyOrNull(unresolvedLeashedEntityIDsByHolderID.get(holderEntityID));
     }
 
+    /**
+     * Returns internal Netty-thread reconciliation state without copying it.
+     * Callers must not mutate the returned array.
+     */
+    public int[] getUnresolvedLeashesNoAlloc(int holderEntityID) {
+        return unresolvedLeashedEntityIDsByHolderID.get(holderEntityID);
+    }
+
     public int[] consumeUnresolvedLeashes(int holderEntityID) {
         int[] existing = unresolvedLeashedEntityIDsByHolderID.remove(holderEntityID);
         if (PrimitiveIntArrayList.isEmpty(existing)) {
@@ -161,6 +176,14 @@ public class NettyData implements Clearable {
 
     public int[] getUnresolvedPassengers(int vehicleEntityID) {
         return PrimitiveIntArrayList.getCopyOrNull(unresolvedPassengerIDsByVehicleID.get(vehicleEntityID));
+    }
+
+    /**
+     * Returns internal Netty-thread reconciliation state without copying it.
+     * Callers must not mutate the returned array.
+     */
+    public int[] getUnresolvedPassengersNoAlloc(int vehicleEntityID) {
+        return unresolvedPassengerIDsByVehicleID.get(vehicleEntityID);
     }
 
     /**

@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP. RaycastedAntiESP is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at
+ * https://www.gnu.org/licenses/agpl-3.0.html. See README.md for warranty disclaimer and further information.
+ */
+
 package games.cubi.raycastedantiesp.core.chunks.blocks;
 
 import games.cubi.raycastedantiesp.core.chunks.BlockChunkData;
@@ -5,7 +13,7 @@ import games.cubi.raycastedantiesp.core.chunks.BlockInfoResolver;
 import games.cubi.raycastedantiesp.core.chunks.ChunkData;
 import java.util.function.IntUnaryOperator;
 
-import static games.cubi.raycastedantiesp.core.utils.VarHandler.BYTE_ARRAY_HANDLE;
+import static games.cubi.utils.VarHandler.BYTE_ARRAY_HANDLE;
 
 public class FourBlockChunkData extends AbstractPalettedBlockChunkData {
     private static final int ENTRIES_PER_BYTE = 4;

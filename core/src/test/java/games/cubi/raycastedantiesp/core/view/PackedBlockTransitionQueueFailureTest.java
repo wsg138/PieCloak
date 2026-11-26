@@ -20,7 +20,7 @@ class PackedBlockTransitionQueueFailureTest {
         for (int index = 0; index < 5; index++) {
             TrackedTileEntity<?> tile = tileEntity();
             tiles.add(tile);
-            queue.add(BlockViewTransition.Type.SHOW, tile, 9L, 2);
+            queue.add(TransitionType.Tile.SHOW, tile, 9L, 2);
         }
         queue.flushPendingTransitions();
 

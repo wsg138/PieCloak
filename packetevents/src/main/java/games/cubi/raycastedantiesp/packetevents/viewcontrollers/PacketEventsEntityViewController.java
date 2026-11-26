@@ -34,9 +34,9 @@ import games.cubi.raycastedantiesp.core.tracked.TrackedEntity;
 import games.cubi.raycastedantiesp.core.players.PlayerData;
 import games.cubi.raycastedantiesp.core.players.PlayerRegistry;
 import games.cubi.raycastedantiesp.core.policy.VisibilityExemptionPolicy;
-import games.cubi.raycastedantiesp.core.utils.PrimitiveIntArrayList;
+import games.cubi.utils.lists.PrimitiveIntArrayList;
 import games.cubi.raycastedantiesp.core.view.EntityView;
-import games.cubi.raycastedantiesp.core.view.EntityViewTransition;
+import games.cubi.raycastedantiesp.core.view.TransitionType;
 import games.cubi.raycastedantiesp.core.view.controller.PacketEntityViewController;
 import games.cubi.raycastedantiesp.packetevents.tracked.PacketEventsEntity;
 import games.cubi.raycastedantiesp.packetevents.replaydata.PacketEventsEntityReplayData;
@@ -131,7 +131,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     private PlayerData resolvePlayerData(PacketSendEvent event, UUID viewerUUID) {
         if (event.getPacketType() != PacketType.Play.Server.JOIN_GAME) {
-            return PlayerRegistry.getInstance().getPlayerData(viewerUUID);
+            return PlayerRegistry.get().getPlayerData(viewerUUID);
         }
         transitionRetries.clear(viewerUUID);
         WrapperPlayServerJoinGame packet = new WrapperPlayServerJoinGame(event);
@@ -217,7 +217,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 view,
                 entity,
                 worldEpoch,
-                entity.visible() ? EntityViewTransition.Type.SHOW : EntityViewTransition.Type.HIDE);
+                entity.visible() ? TransitionType.Entity.SHOW : TransitionType.Entity.HIDE);
     }
 
     private EntityView<?> deferredDirectVisibilityView(PlayerData playerData, int entityID) {
@@ -491,17 +491,17 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     @Override
     protected void processDirectEntityShow(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
-        processDirectEntityVisibility(playerData, view, entity, worldEpoch, EntityViewTransition.Type.SHOW);
+        processDirectEntityVisibility(playerData, view, entity, worldEpoch, TransitionType.Entity.SHOW);
     }
 
     @Override
     protected void processDirectEntityHide(PlayerData playerData, EntityView<?> view, NettyEntity<?> entity, int worldEpoch) {
-        processDirectEntityVisibility(playerData, view, entity, worldEpoch, EntityViewTransition.Type.HIDE);
+        processDirectEntityVisibility(playerData, view, entity, worldEpoch, TransitionType.Entity.HIDE);
     }
 
     private void processDirectEntityVisibility(
             PlayerData playerData, EntityView<?> view, NettyEntity<?> entity,
-            int worldEpoch, EntityViewTransition.Type type) {
+            int worldEpoch, TransitionType.Entity type) {
         if (playerData.nettyData().packetsAreWithinBundle()) {
             playerData.nettyData().deferDirectVisibilityEntity(entity.entityID());
             return;
@@ -511,7 +511,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
 
     private void processDirectEntityVisibilityNow(
             PlayerData playerData, EntityView<?> view, NettyEntity<?> entity,
-            int worldEpoch, EntityViewTransition.Type type) {
+            int worldEpoch, TransitionType.Entity type) {
         Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(playerData.getPlayerUUID());
         if (channel == null) {
             return;
@@ -812,7 +812,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
             PlayerData data,
             User viewer,
             EntityView<PacketEventsEntity> entityView,
-            EntityViewTransition.Type type,
+            TransitionType.Entity type,
             TrackedEntity<?> transitionEntity,
             int transitionWorldEpoch,
             int currentTick
@@ -836,7 +836,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     private @Nullable EntityTransitionWork<PacketWrapper<?>> createEntityTransitionWork(
             PlayerData data,
             EntityView<PacketEventsEntity> entityView,
-            EntityViewTransition.Type type,
+            TransitionType.Entity type,
             TrackedEntity<?> transitionEntity,
             int transitionWorldEpoch,
             @Nullable Boolean confirmedClientVisibility
@@ -892,7 +892,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     private EntityTransitionPlan<PacketWrapper<?>> buildTransitionPlan(
             PlayerData data,
             EntityView<PacketEventsEntity> entityView,
-            EntityViewTransition.Type type,
+            TransitionType.Entity type,
             PacketEventsEntity entity) {
         ClientTransitionAction action = resolveClientTransitionAction(
                 type,
@@ -980,7 +980,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
                 + " failures=" + work.failures(), exception, 1, PacketEventsEntityViewController.class);
     }
 
-    static boolean transitionMatchesCurrentVisibility(EntityViewTransition.Type type, boolean visible) {
+    static boolean transitionMatchesCurrentVisibility(TransitionType.Entity type, boolean visible) {
         return switch (type) {
             case SHOW -> visible;
             case HIDE -> !visible;
@@ -988,7 +988,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
         };
     }
 
-    static ClientTransitionAction resolveClientTransitionAction(EntityViewTransition.Type type, boolean clientVisible,
+    static ClientTransitionAction resolveClientTransitionAction(TransitionType.Entity type, boolean clientVisible,
                                                                   boolean keepClientEntityWhenHidden) {
         return switch (type) {
             case HIDE -> clientVisible && !keepClientEntityWhenHidden ? ClientTransitionAction.DESTROY : ClientTransitionAction.NONE;
@@ -1245,12 +1245,7 @@ public abstract class PacketEventsEntityViewController extends PacketEntityViewC
     }
 
     PacketEventsEntityReplayData ensureReplayData(PacketEventsEntity entity) {
-        PacketEventsEntityReplayData replayData = entity.packetReplayData();
-        if (replayData == null) {
-            replayData = PacketEventsEntityReplayData.create();
-            entity.setPacketReplayData(replayData);
-        }
-        return replayData;
+        return entity.packetReplayData();
     }
 
     @SuppressWarnings("PMD.NullAssignment") // Null means an existing client entity needs no spawn packet.

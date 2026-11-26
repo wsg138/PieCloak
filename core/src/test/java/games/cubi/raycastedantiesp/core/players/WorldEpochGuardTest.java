@@ -3,7 +3,7 @@ package games.cubi.raycastedantiesp.core.players;
 import games.cubi.raycastedantiesp.core.testsupport.TestEntityViewProxy;
 import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -30,13 +30,13 @@ class WorldEpochGuardTest {
 
     @AfterEach
     void resetState() {
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         ViewRegistry.reset();
     }
 
     @Test
     void deferredWorkCannotRunDuringUnstableWorldTransitionEpoch() {
-        PlayerData playerData = PlayerRegistry.getInstance().registerAndGetPlayer(
+        PlayerData playerData = PlayerRegistry.get().registerAndGetPlayer(
                 UUID.randomUUID(), 0, 1, EntityStub::createSelf);
         playerData.beginWorldTransition();
         int unstableEpoch = playerData.acquireWorldEpoch();

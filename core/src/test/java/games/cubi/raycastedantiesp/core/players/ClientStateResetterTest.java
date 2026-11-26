@@ -3,7 +3,7 @@ package games.cubi.raycastedantiesp.core.players;
 import games.cubi.raycastedantiesp.core.testsupport.TestEntityViewProxy;
 import games.cubi.raycastedantiesp.core.testsupport.TestProxySupport;
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.raycastedantiesp.core.utils.Clearable;
+import games.cubi.utils.Clearable;
 import games.cubi.raycastedantiesp.core.view.BlockView;
 import games.cubi.raycastedantiesp.core.view.EntityView;
 import games.cubi.raycastedantiesp.core.view.ViewRegistry;
@@ -38,7 +38,7 @@ class ClientStateResetterTest {
 
     @AfterEach
     void resetRegistries() {
-        PlayerRegistry.getInstance().clear();
+        PlayerRegistry.get().clear();
         ViewRegistry.reset();
     }
 
@@ -116,13 +116,13 @@ class ClientStateResetterTest {
         PlayerData oldGeneration = register(playerUUID);
         PlayerData newGeneration = register(playerUUID);
 
-        assertFalse(PlayerRegistry.getInstance().unregisterPlayer(playerUUID, oldGeneration));
-        assertSame(newGeneration, PlayerRegistry.getInstance().getPlayerData(playerUUID));
+        assertFalse(PlayerRegistry.get().unregisterPlayer(playerUUID, oldGeneration));
+        assertSame(newGeneration, PlayerRegistry.get().getPlayerData(playerUUID));
         assertTrue(newGeneration.isConnected());
     }
 
     private PlayerData register(UUID playerUUID) {
-        return PlayerRegistry.getInstance().registerAndGetPlayer(
+        return PlayerRegistry.get().registerAndGetPlayer(
                 playerUUID, 0, 1, EntityStub::createSelf);
     }
 
