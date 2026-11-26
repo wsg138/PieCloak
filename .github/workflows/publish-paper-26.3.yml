@@ -1,0 +1,103 @@
+name: Publish exact verified Paper 26.3 artifact
+on:
+  push:
+    branches: [maintenance/publish-paper-26.3-20261126]
+    paths: ['.github/workflows/publish-paper-26.3.yml']
+permissions:
+  contents: read
+concurrency:
+  group: publish-paper-26.3-20261126
+  cancel-in-progress: false
+env:
+  CANDIDATE: '58957803209e9c28f7c7799b4d81be8dc2569a48'
+  EXPECTED_BASE: 'ba898af3560b2cd03f60f1a19d98f6db82e7b7f9'
+  EXPECTED_SHA256: 'c1761468c1695a7cc7ef18134fdc33ddac87d91efa2d513fcc3beb8a4e225038'
+  TAG: 'piecloak-26.3-2026-11-26-5895780'
+  ASSET: 'PieCloak-26.3-2026-11-26-5895780.jar'
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify exact prior native and compile results
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in 45876151727 45876783247; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq .conclusion)" = success
+          done
+          test "$(gh api "repos/$GH_REPO/actions/runs/45876151727" --jq .head_sha)" = "$CANDIDATE"
+          test "$(gh api "repos/$GH_REPO/actions/runs/45876783247" --jq .head_sha)" = ac36cc0b16c6babbc55303acbbff2bd5021a6172
+          test "$(gh api "repos/$GH_REPO/actions/runs/45876482741" --jq .head_sha)" = 232e0101ba6dbc65ca22caddff548bfe4a5394b7
+          jobs="$(gh api "repos/$GH_REPO/actions/runs/45876482741/jobs" --jq .jobs)"
+          for step in 'Download exact independently compiled candidate' 'Fancy integrations and legacy migration' 'Native and synthetic cancellation'; do
+            jq -e --arg step "$step" 'any(.[].steps[]; .name == $step and .conclusion == "success")' <<<"$jobs" >/dev/null
+          done
+          # The combined job's visibility probe was invalid (cross-thread read).
+          # The corrected exact-artifact visibility test is independently green above.
+          gh run download 45876151727 --name PieCloak-explicit-26.3 --dir "$RUNNER_TEMP/artifact"
+          shopt -s nullglob
+          jars=("$RUNNER_TEMP/artifact"/RaycastedAntiESP-*.jar)
+          test "${#jars[@]}" = 1
+          echo "$EXPECTED_SHA256  ${jars[0]}" | sha256sum -c -
+          unzip -p "${jars[0]}" plugin.yml | grep -Fx "api-version: '26.3'"
+          unzip -p "${jars[0]}" build-properties/platform.yml | grep -Fx 'java-version: 25'
+          mkdir -p "$RUNNER_TEMP/release"
+          cp "${jars[0]}" "$RUNNER_TEMP/release/$ASSET"
+      - name: Require all exact PR checks and merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          required='["build","paper-fixture","PMD report","Semgrep CE report","Trivy report","Semgrep OSS","Trivy","Codacy Static Code Analysis","build (1.21.11, 21, 1.21.11-R0.1-SNAPSHOT, 2.12.0)","build (26.3, 25, 26.3.build.262-stable, 2.14.0)"]'
+          for attempt in $(seq 1 50); do
+            pr="$(gh api "repos/$GH_REPO/pulls/37")"
+            test "$(jq -r .head.sha <<<"$pr")" = "$CANDIDATE"
+            test "$(jq -r .draft <<<"$pr")" = false
+            if [[ "$(jq -r .merged <<<"$pr")" == true ]]; then break; fi
+            test "$(jq -r .state <<<"$pr")" = open
+            test "$(gh api "repos/$GH_REPO/branches/main" --jq .commit.sha)" = "$EXPECTED_BASE"
+            checks="$(gh api "repos/$GH_REPO/commits/$CANDIDATE/check-runs?per_page=100&filter=latest" --jq .check_runs)"
+            if jq -e --argjson required "$required" 'any(.[]; (.name as $n | $required | index($n)) != null and .status == "completed" and .conclusion != "success")' <<<"$checks" >/dev/null; then
+              echo "Required check failed"; exit 1
+            fi
+            if jq -e --argjson required "$required" '([.[] | select(.status=="completed" and .conclusion=="success") | .name]) as $passed | all($required[]; . as $n | $passed | index($n) != null)' <<<"$checks" >/dev/null; then
+              gh pr merge 37 --merge --match-head-commit "$CANDIDATE"
+              break
+            fi
+            sleep 10
+          done
+          pr="$(gh api "repos/$GH_REPO/pulls/37")"
+          test "$(jq -r .merged <<<"$pr")" = true
+          merge="$(jq -r .merge_commit_sha <<<"$pr")"
+          test "$(gh api "repos/$GH_REPO/branches/main" --jq .commit.sha)" = "$merge"
+          diff="$(gh api "repos/$GH_REPO/compare/$CANDIDATE...$merge")"
+          test "$(jq -r .behind_by <<<"$diff")" = 0
+          jq -e 'all(.files[]; .filename == "README.md")' <<<"$diff" >/dev/null
+      - name: Publish the exact tested native artifact, not a rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/release"
+          sha256sum "$ASSET" | tee "$ASSET.sha256"
+          cat > notes.md <<'EOF'
+          ## Minecraft 26.3 dedicated build
+          
+          Java 25 target, Paper 26.3 API, PacketEvents 2.14.0, and compile-time WorldGuard 7.0.21. The existing 1.21.11 download remains available and also passed the native 26.3 runtime tests. This native build is optional for 26.3 servers.
+          
+          Exact published binary passed the full Gradle regression suite, native Paper 26.3 build 263 with two isolated protocol clients, FancyNpcs 2.12.1 with and without FancyHolograms 2.12.0, config migration and full restart, native/synthetic cancellation, managed villager and shulker occlusion/reveal, and ordinary cow/chest controls.
+          
+          [Build evidence](https://github.com/wsg138/PieCloak/actions/runs/45876151727) · [Fancy and cancellation steps](https://github.com/wsg138/PieCloak/actions/runs/45876482741) · [Corrected exact visibility test](https://github.com/wsg138/PieCloak/actions/runs/45876783247).
+          
+          The combined runtime job's visibility probe initially called a thread-confined API on the wrong thread; the corrected separate test passed against the identical checksum. ViaBackwards-translated clients, WorldGuard runtime behavior, Leaf/Folia/Geyser and production deployment are not certified. Use Java 25+, PacketEvents 2.14.0 and a full server restart. Review legacy numeric block-state overrides after updating Minecraft.
+          
+          Source revision: 58957803209e9c28f7c7799b4d81be8dc2569a48 (merged into main by PR #37).
+          EOF
+          gh release create "$TAG" "$ASSET" "$ASSET.sha256" --target "$CANDIDATE" --prerelease --title 'PieCloak 26.3 — dedicated verified build (2026-11-26)' --notes-file notes.md
