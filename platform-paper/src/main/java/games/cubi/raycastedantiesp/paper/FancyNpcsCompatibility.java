@@ -73,10 +73,7 @@ final class FancyNpcsCompatibility extends PaperListener {
     private void add(Npc npc) {
         // Remove and spawn callbacks may race across the main and async threads.
         // The owner-specific guard and its retirement are one atomic decision.
-        Integer entityId = nativeEntityId(npc);
-        if (entityId != null) {
-            retiredNpcs.registerIfActive(npc, entityId);
-        }
+        retiredNpcs.registerCurrent(npc, FancyNpcsCompatibility::nativeEntityId);
     }
 
     private static Integer nativeEntityId(Npc npc) {

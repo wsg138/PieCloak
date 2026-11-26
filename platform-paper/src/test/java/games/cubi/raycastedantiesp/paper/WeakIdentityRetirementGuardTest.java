@@ -304,4 +304,65 @@ class WeakIdentityRetirementGuardTest {
         assertTrue(EntityBypassRegistry.isBypassed(1100));
         assertFalse(EntityBypassRegistry.isBypassed(1101));
     }
+
+    @Test
+    void deletedOwnerNeverDereferencesNativeHandleAgain() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        guard.retireOwner(owner);
+        assertFalse(guard.registerCurrent(owner, ignored -> {
+            fail("deleted object must not be dereferenced");
+            return 100;
+        }));
+    }
+
+    @Test
+    void uncreatedOwnerCanRegisterAfterNativeHandleAppears() {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        assertFalse(guard.registerCurrent(owner, ignored -> null));
+        assertTrue(guard.registerCurrent(owner, ignored -> 1200));
+        assertTrue(EntityBypassRegistry.isBypassed(1200));
+    }
+
+    @Test
+    void nativeIdReadAndRegistrationAreOrderedAcrossCallbacks() throws Exception {
+        var guard = new WeakIdentityRetirementGuard<Object>(EntityBypassRegistry.openFancyNpcScope());
+        Object owner = new Object();
+        var nativeId = new java.util.concurrent.atomic.AtomicInteger(1201);
+        var firstRead = new CountDownLatch(1);
+        var secondStarted = new CountDownLatch(1);
+        var allowFirst = new CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> guard.registerCurrent(owner, ignored -> {
+                int captured = nativeId.get();
+                firstRead.countDown();
+                try {
+                    if (!allowFirst.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("first callback was not released");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+                return captured;
+            }));
+            assertTrue(firstRead.await(5, TimeUnit.SECONDS));
+            nativeId.set(1202);
+            var second = executor.submit(() -> {
+                secondStarted.countDown();
+                return guard.registerCurrent(owner, ignored -> nativeId.get());
+            });
+            assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
+            allowFirst.countDown();
+            assertTrue(first.get(5, TimeUnit.SECONDS));
+            assertTrue(second.get(5, TimeUnit.SECONDS));
+            assertFalse(EntityBypassRegistry.isBypassed(1201));
+            assertTrue(EntityBypassRegistry.isBypassed(1202));
+        } finally {
+            allowFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
 }

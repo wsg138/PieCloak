@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Tracks optional-integration bypass ownership by object identity and native
@@ -30,6 +31,23 @@ final class WeakIdentityRetirementGuard<T> {
 
     WeakIdentityRetirementGuard(EntityBypassRegistry.BypassScope bypassScope) {
         this.bypassScope = Objects.requireNonNull(bypassScope, "bypassScope");
+    }
+
+    /**
+     * Resolve the native ID under the same monitor as retirement and registration.
+     * Concurrent callbacks cannot publish a previously captured ID after a newer
+     * callback has already registered its replacement.
+     */
+    synchronized boolean registerCurrent(T owner, Function<? super T, Integer> resolver) {
+        Objects.requireNonNull(owner, "owner");
+        Objects.requireNonNull(resolver, "resolver");
+        discardCollected();
+        OwnerState state = getOrCreate(owner);
+        if (state.permanentlyRetired) {
+            return false;
+        }
+        Integer entityId = resolver.apply(owner);
+        return entityId != null && registerIfActive(owner, entityId);
     }
 
     boolean registerIfActive(T owner, int entityId) {
