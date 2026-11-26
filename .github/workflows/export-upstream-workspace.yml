@@ -1,0 +1,32 @@
+name: Export upstream integration workspace
+on:
+  push:
+    branches: [maintenance/codacy-diagnostics]
+    paths: ['.github/workflows/export-upstream-workspace.yml']
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export public source history only
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git fetch --no-tags https://github.com/Cubicake/RaycastedAntiESP.git main
+          git branch -f integration-fork origin/main
+          git branch -f integration-upstream FETCH_HEAD
+          git rev-parse integration-fork integration-upstream
+          git bundle create "$RUNNER_TEMP/piecloak-upstream.bundle" integration-fork integration-upstream
+          git bundle verify "$RUNNER_TEMP/piecloak-upstream.bundle"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: public-upstream-integration-bundle
+          path: ${{ runner.temp }}/piecloak-upstream.bundle
+          retention-days: 3
+          if-no-files-found: error
