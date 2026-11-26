@@ -58,6 +58,10 @@ public record BlockSelector(String value) {
         }
 
         validateBlockKey(input.substring(0, openingBracket));
+        validateProperties(propertyText);
+    }
+
+    private static void validateProperties(String propertyText) {
         Set<String> properties = new HashSet<>();
         for (String assignment : propertyText.split(",", -1)) {
             int equals = assignment.indexOf('=');

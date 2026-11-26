@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigMappingTest {
+    private static final String VALUES = "values";
+
     @Test
     void codeDefaultsRoundTripThroughObjectMapper() throws SerializationException {
         CommentedConfigurationNode node = mappedDefaults();
@@ -75,7 +77,7 @@ class ConfigMappingTest {
         CommentedList value = new CommentedList(List.of("second", "custom", "first"));
         node.set(CommentedList.class, value);
 
-        CommentedConfigurationNode list = node.node("values");
+        CommentedConfigurationNode list = node.node(VALUES);
         assertEquals(value.values(), list.getList(String.class));
         assertEquals("Second entry", list.node(0).comment());
         assertNull(list.node(1).comment());
@@ -86,9 +88,9 @@ class ConfigMappingTest {
         CommentedConfigurationNode loaded = loader.load();
 
         assertEquals(value, loaded.get(CommentedList.class));
-        assertEquals("Second entry", loaded.node("values", 0).comment());
-        assertEquals("User-authored entry comment", loaded.node("values", 1).comment());
-        assertEquals("First entry", loaded.node("values", 2).comment());
+        assertEquals("Second entry", loaded.node(VALUES, 0).comment());
+        assertEquals("User-authored entry comment", loaded.node(VALUES, 1).comment());
+        assertEquals("First entry", loaded.node(VALUES, 2).comment());
     }
 
     @Test

@@ -9,9 +9,7 @@
 package games.cubi.raycastedantiesp.core.players;
 
 import games.cubi.raycastedantiesp.core.tracked.NettyEntity;
-import games.cubi.utils.VarHandler;
 
-import java.lang.invoke.VarHandle;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.UUID;
@@ -35,43 +33,51 @@ public final class PlayerRegistry {
 
     private final ConcurrentHashMap<UUID, PlayerData> playerDataMap = new ConcurrentHashMap<>();
     private final Collection<PlayerData> unmodifiablePlayerData = Collections.unmodifiableCollection(playerDataMap.values());
-    private volatile PlayerData[] playerDataArray = new PlayerData[0]; private static final VarHandle PLAYER_DATA_ARRAY = VarHandler.get(PlayerRegistry.class, "playerDataArray", PlayerData[].class);
+    private volatile PlayerData[] playerDataArray = new PlayerData[0];
 
     /** Forcefully registers a player and returns the new PlayerData, even if they were already registered.**/
-    public synchronized PlayerData registerAndGetPlayer(UUID playerUUID, int joinTick, int selfEntityID, SelfEntityCreator selfEntityCreator) {
-        PlayerData newData = new PlayerData(playerUUID, false, joinTick, selfEntityID, selfEntityCreator);
-        PlayerData old = playerDataMap.put(playerUUID, newData);
-        if (old != null) old.markDisconnected();
-        updatePlayerDataArray();
-        return newData;
+    public PlayerData registerAndGetPlayer(UUID playerUUID, int joinTick, int selfEntityID, SelfEntityCreator selfEntityCreator) {
+        synchronized (this) {
+            PlayerData newData = new PlayerData(playerUUID, false, joinTick, selfEntityID, selfEntityCreator);
+            PlayerData old = playerDataMap.put(playerUUID, newData);
+            if (old != null) old.markDisconnected();
+            updatePlayerDataArray();
+            return newData;
+        }
     }
 
-    public synchronized void unregisterPlayer(UUID playerUUID) {
-        PlayerData unregisteredPlayer = playerDataMap.remove(playerUUID);
-        if (unregisteredPlayer == null) {
-            return;
+    public void unregisterPlayer(UUID playerUUID) {
+        synchronized (this) {
+            PlayerData unregisteredPlayer = playerDataMap.remove(playerUUID);
+            if (unregisteredPlayer == null) {
+                return;
+            }
+            unregisteredPlayer.markDisconnected();
+            updatePlayerDataArray();
         }
-        unregisteredPlayer.markDisconnected();
-        updatePlayerDataArray();
     }
 
     /**
      * Removes a player only when the registry still owns the expected generation.
      * This prevents cleanup for an obsolete PlayerData instance from unregistering a later login.
      */
-    public synchronized boolean unregisterPlayer(UUID playerUUID, PlayerData expectedPlayerData) {
-        if (expectedPlayerData == null || !playerDataMap.remove(playerUUID, expectedPlayerData)) {
-            return false;
+    public boolean unregisterPlayer(UUID playerUUID, PlayerData expectedPlayerData) {
+        synchronized (this) {
+            if (expectedPlayerData == null || !playerDataMap.remove(playerUUID, expectedPlayerData)) {
+                return false;
+            }
+            expectedPlayerData.markDisconnected();
+            updatePlayerDataArray();
+            return true;
         }
-        expectedPlayerData.markDisconnected();
-        updatePlayerDataArray();
-        return true;
     }
 
-    public synchronized void clear() {
-        playerDataMap.values().forEach(PlayerData::markDisconnected);
-        playerDataMap.clear();
-        updatePlayerDataArray();
+    public void clear() {
+        synchronized (this) {
+            playerDataMap.values().forEach(PlayerData::markDisconnected);
+            playerDataMap.clear();
+            updatePlayerDataArray();
+        }
     }
 
     public PlayerData getPlayerData(UUID playerUUID) {
@@ -90,7 +96,7 @@ public final class PlayerRegistry {
     }
 
     private void updatePlayerDataArray() {
-        PLAYER_DATA_ARRAY.setRelease(this, playerDataMap.values().toArray(PlayerData[]::new));
+        playerDataArray = playerDataMap.values().toArray(PlayerData[]::new);
     }
 
     /**
@@ -100,7 +106,7 @@ public final class PlayerRegistry {
      * Changes to this array will be lost on next player join/leave, and will not apply everywhere.
      */
     public PlayerData[] getPlayerDataArray() {
-        return (PlayerData[]) PLAYER_DATA_ARRAY.getAcquire(this);
+        return playerDataArray;
     }
 
     public void forEachPlayer(Consumer<PlayerData> consumer) {

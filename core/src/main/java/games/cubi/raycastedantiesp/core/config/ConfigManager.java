@@ -38,11 +38,13 @@ import java.util.Set;
  * ConfigCandidate prepares values and repairs; ConfigFile handles persistence.
  */
 public class ConfigManager {
+    @SuppressWarnings("PMD.UnusedPrivateField") // Accessed through INSTANCE.
     private static volatile ConfigManager instance;
     private static final VarHandle INSTANCE = VarHandler.$tatic(ConfigManager.class, "instance", ConfigManager.class);
 
     private final ConfigFile configFile;
 
+    @SuppressWarnings("PMD.UnusedPrivateField") // Accessed through ACTIVE_STATE.
     private volatile ActiveState activeState = new ActiveState(LoggingConfig.DEFAULT, null);
     private static final VarHandle ACTIVE_STATE = VarHandler.get(ConfigManager.class, "activeState", ActiveState.class);
     private RootConfig startupConfig;
@@ -52,20 +54,22 @@ public class ConfigManager {
         configFile = new ConfigFile(dataFolder);
     }
 
-    public static synchronized ConfigManager initialiseConfigManager(Path dataFolder) {
-        ConfigManager current = (ConfigManager) INSTANCE.getAcquire();
-        if (current == null) {
-            ConfigManager manager = new ConfigManager(dataFolder);
-            INSTANCE.setRelease(manager);
-            try {
-                manager.loadLoggingConfig();
-            } catch (RuntimeException exception) {
-                INSTANCE.setRelease(null);
-                throw exception;
+    public static ConfigManager initialiseConfigManager(Path dataFolder) {
+        synchronized (ConfigManager.class) {
+            ConfigManager current = (ConfigManager) INSTANCE.getAcquire();
+            if (current == null) {
+                ConfigManager manager = new ConfigManager(dataFolder);
+                INSTANCE.setRelease(manager);
+                try {
+                    manager.loadLoggingConfig();
+                } catch (RuntimeException exception) {
+                    INSTANCE.setRelease(null);
+                    throw exception;
+                }
+                current = manager;
             }
-            current = manager;
+            return current;
         }
-        return current;
     }
 
     public static ConfigManager get() {
@@ -81,70 +85,80 @@ public class ConfigManager {
         return current == null ? LoggingConfig.DEFAULT : current.getLoggingConfig();
     }
 
-    public synchronized void completeInitialLoad() {
-        if (startupConfig != null) {
-            throw new IllegalStateException("Configuration loading has already been completed");
+    public void completeInitialLoad() {
+        synchronized (this) {
+            if (startupConfig != null) {
+                throw new IllegalStateException("Configuration loading has already been completed");
+            }
+
+            ConfigCandidate candidate = prepare();
+            RootConfig ready = candidate.parseReadyConfig();
+            saveIfChanged(candidate);
+
+            startupConfig = ready;
+            configNode = candidate.candidateNode();
+            ACTIVE_STATE.setRelease(this, new ActiveState(ready.loggingConfig(), ready));
+            logRepairs(candidate.repairList());
         }
-
-        ConfigCandidate candidate = prepare();
-        RootConfig ready = candidate.parseReadyConfig();
-        saveIfChanged(candidate);
-
-        startupConfig = ready;
-        configNode = candidate.node();
-        ACTIVE_STATE.setRelease(this, new ActiveState(ready.loggingConfig(), ready));
-        logRepairs(candidate.repairs());
     }
 
     /**
      * Reloads the complete configuration. The active snapshot is replaced only after parsing and validation succeed.
      */
-    public synchronized void load() {
-        requireReady();
-        ConfigCandidate candidate = prepare();
-        RootConfig ready = candidate.parseReadyConfig();
-        saveIfChanged(candidate);
-        configNode = candidate.node();
-        logRepairs(candidate.repairs());
-        validateReload(ready);
-        ACTIVE_STATE.setRelease(this, new ActiveState(ready.loggingConfig(), ready));
+    public void load() {
+        synchronized (this) {
+            requireReady();
+            ConfigCandidate candidate = prepare();
+            RootConfig ready = candidate.parseReadyConfig();
+            saveIfChanged(candidate);
+            configNode = candidate.candidateNode();
+            logRepairs(candidate.repairList());
+            validateReload(ready);
+            ACTIVE_STATE.setRelease(this, new ActiveState(ready.loggingConfig(), ready));
+        }
     }
 
-    public synchronized SetConfigResult setConfigValue(String path, String rawValue) {
-        requireReady();
-        ConfigCandidate candidate = prepare();
-        ConfigurationNode target = node(candidate.node(), path);
-        if (target.virtual()) {
-            return SetConfigResult.invalid("Unknown config path: " + path);
-        }
-
-        try {
-            Object parsedValue = parseRawValue(rawValue);
-            target.set(parsedValue);
-            candidate.markDirty();
-            NodePath targetPath = NodePath.path((Object[]) path.split("\\."));
-            if (parsedValue == null && candidate.hasDefault(targetPath)) {
-                candidate.repair(targetPath, "value cannot be null");
+    public SetConfigResult setConfigValue(String path, String rawValue) {
+        synchronized (this) {
+            requireReady();
+            ConfigCandidate candidate = prepare();
+            ConfigurationNode target = node(candidate.candidateNode(), path);
+            if (target.virtual()) {
+                return SetConfigResult.invalid("Unknown config path: " + path);
             }
-        } catch (ConfigurateException e) {
-            return SetConfigResult.invalid("Invalid YAML value: " + rawValue);
+
+            try {
+                Object parsedValue = parseRawValue(rawValue);
+                target.set(parsedValue);
+                candidate.markDirty();
+                NodePath targetPath = NodePath.path((Object[]) path.split("\\."));
+                if (parsedValue == null && candidate.hasDefault(targetPath)) {
+                    candidate.repair(targetPath, "value cannot be null");
+                }
+            } catch (ConfigurateException e) {
+                return SetConfigResult.invalid("Invalid YAML value: " + rawValue);
+            }
+            return applyCandidate(candidate, false);
         }
-        return applyCandidate(candidate, false);
     }
 
-    public synchronized SetConfigResult addConfigListValue(String path, String rawValue) {
-        requireReady();
-        return mutateConfigListValue(path, rawValue, ListMutation.ADD);
+    public SetConfigResult addConfigListValue(String path, String rawValue) {
+        synchronized (this) {
+            requireReady();
+            return mutateConfigListValue(path, rawValue, ListMutation.ADD);
+        }
     }
 
-    public synchronized SetConfigResult removeConfigListValue(String path, String rawValue) {
-        requireReady();
-        return mutateConfigListValue(path, rawValue, ListMutation.REMOVE);
+    public SetConfigResult removeConfigListValue(String path, String rawValue) {
+        synchronized (this) {
+            requireReady();
+            return mutateConfigListValue(path, rawValue, ListMutation.REMOVE);
+        }
     }
 
     private SetConfigResult mutateConfigListValue(String path, String rawValue, ListMutation mutation) {
         ConfigCandidate candidate = prepare();
-        ConfigurationNode target = node(candidate.node(), path);
+        ConfigurationNode target = node(candidate.candidateNode(), path);
         if (target.virtual()) {
             return SetConfigResult.invalid("Unknown config path: " + path);
         }
@@ -198,18 +212,18 @@ public class ConfigManager {
                 return SetConfigResult.invalid(e.getMessage());
             }
             saveIfChanged(candidate);
-            configNode = candidate.node();
-            logRepairs(candidate.repairs());
-            return SetConfigResult.restartRequired(e.getMessage(), candidate.repairs());
+            configNode = candidate.candidateNode();
+            logRepairs(candidate.repairList());
+            return SetConfigResult.restartRequired(e.getMessage(), candidate.repairList());
         } catch (ConfigLoadException e) {
             return SetConfigResult.invalid(e.getMessage());
         }
 
         saveIfChanged(candidate);
-        configNode = candidate.node();
+        configNode = candidate.candidateNode();
         ACTIVE_STATE.setRelease(this, new ActiveState(ready.loggingConfig(), ready));
-        logRepairs(candidate.repairs());
-        return SetConfigResult.ok(candidate.repairs());
+        logRepairs(candidate.repairList());
+        return SetConfigResult.ok(candidate.repairList());
     }
 
     public LoggingConfig getLoggingConfig() {
@@ -256,20 +270,22 @@ public class ConfigManager {
         return requireReady().blockProcessorConfig();
     }
 
-    public synchronized Map<String, Object> getConfigValues() {
-        requireReady();
-        Map<String, Object> values = new LinkedHashMap<>();
-        collectConfigValues(configNode, "", values);
-        return Collections.unmodifiableMap(values);
+    public Map<String, Object> getConfigValues() {
+        synchronized (this) {
+            requireReady();
+            Map<String, Object> values = new LinkedHashMap<>();
+            collectConfigValues(configNode, "", values);
+            return Collections.unmodifiableMap(values);
+        }
     }
 
     void loadLoggingConfig() {
         ConfigCandidate candidate = prepare();
         LoggingConfig logging = candidate.parseLoggingConfig();
         saveIfChanged(candidate);
-        configNode = candidate.node();
+        configNode = candidate.candidateNode();
         ACTIVE_STATE.setRelease(this, new ActiveState(logging, null));
-        logRepairs(candidate.repairs());
+        logRepairs(candidate.repairList());
     }
 
     private ConfigCandidate prepare() {
@@ -278,7 +294,7 @@ public class ConfigManager {
 
     private void saveIfChanged(ConfigCandidate candidate) {
         if (candidate.isDirty()) {
-            configFile.save(candidate.node());
+            configFile.save(candidate.candidateNode());
         }
     }
 

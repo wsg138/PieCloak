@@ -52,8 +52,8 @@ final class ConfigMapping {
         return true;
     }
 
-    private static ConfigurationOptions createOptions() {
-        ObjectMapper.Factory mapper = ObjectMapper.factoryBuilder()
+    private static ObjectMapper.Factory createMapper() {
+        return ObjectMapper.factoryBuilder()
                 .defaultNamingScheme(NamingSchemes.LOWER_CASE_DASHED)
                 .addProcessor(ListEntryComments.class, (annotation, type) -> {
                     Map<String, String> comments = new HashMap<>();
@@ -81,7 +81,10 @@ final class ConfigMapping {
                     }
                 })
                 .build();
+    }
 
+    private static ConfigurationOptions createOptions() {
+        ObjectMapper.Factory mapper = createMapper();
         TypeSerializer<String> stringSerializer = strictScalarSerializer(
                 String.class,
                 "a string",

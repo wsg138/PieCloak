@@ -75,7 +75,6 @@ final class ConfigFile {
             } catch (AtomicMoveNotSupportedException exception) {
                 Files.move(temporaryPath, configPath, StandardCopyOption.REPLACE_EXISTING);
             }
-            temporaryPath = null;
         } catch (IOException e) {
             throw new ConfigLoadException("Failed to save config.yml", e);
         } finally {

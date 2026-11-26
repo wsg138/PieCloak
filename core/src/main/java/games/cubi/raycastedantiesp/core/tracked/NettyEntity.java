@@ -62,7 +62,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
 
 
     private int entityData;
-    private final PacketReplayData packetReplayData;
+    private final PacketReplayData replayData;
 
     // Mutable by the engine and packet threads.
     private volatile int lastChecked; private static final VarHandle LAST_CHECKED = VarHandler.get(NettyEntity.class, "lastChecked", int.class);
@@ -77,6 +77,8 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
     public static final int NO_LEASHER = -2;
     public static final int SELF_ENTITY_TYPE = -29;
 
+    // Keep the complete spawn state together; changing this constructor would break the tracked entity API.
+    @SuppressWarnings("PMD.ExcessiveParameterList")
     public NettyEntity(PlayerData owningPlayer, double x, double y, double z, int entityID, UUID entityUUID, boolean isSelfEntity, int entityType, boolean visible, PacketReplayData packetReplayData) {
         X.set(this, x); Y.set(this, y); Z.set(this, z);
 
@@ -88,7 +90,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
         this.visible = visible;
 
         this.owningPlayer = owningPlayer;
-        this.packetReplayData = Objects.requireNonNull(packetReplayData, "packetReplayData");
+        this.replayData = Objects.requireNonNull(packetReplayData, "packetReplayData");
     }
 
     // For creating the self entity, where we don't have access to its position. Always visible.
@@ -99,7 +101,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
         isSelfEntity = true;
         entityType = SELF_ENTITY_TYPE;
         visible = true;
-        this.packetReplayData = Objects.requireNonNull(packetReplayData, "packetReplayData");
+        this.replayData = Objects.requireNonNull(packetReplayData, "packetReplayData");
     }
 
     @Override
@@ -383,7 +385,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
 
     @Override
     public PacketReplayData packetReplayData() {
-        return packetReplayData;
+        return replayData;
     }
 
     @Override
@@ -463,7 +465,7 @@ public abstract class NettyEntity<PacketReplayData extends Clearable> implements
 
     @Override
     public void clear() {
-        packetReplayData.clear();
+        replayData.clear();
 
         TRACKED_FLAGS.setOpaque(this, (byte) 0);
         VEHICLE_ID.setOpaque(this, NO_VEHICLE);

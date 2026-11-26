@@ -117,6 +117,8 @@ public final class PackedEntityTransitionQueue { //todo: potentially merge this 
         private int worldEpoch;
         private int count;
 
+        // Eight fixed slots avoid per-transition allocations in the packet hot path.
+        @SuppressWarnings("PMD.CyclomaticComplexity")
         private void add(TransitionType.Entity type, TrackedEntity<?> entity) {
             switch (++count) {
                 case 1 -> { t1 = type; e1 = entity; }
@@ -131,6 +133,7 @@ public final class PackedEntityTransitionQueue { //todo: potentially merge this 
             }
         }
 
+        @SuppressWarnings("PMD.NullAssignment") // Release references to consumed entities.
         public void clear() {
             t1 = null; t2 = null; t3 = null; t4 = null;
             t5 = null; t6 = null; t7 = null; t8 = null;

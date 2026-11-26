@@ -34,7 +34,6 @@ import static games.cubi.raycastedantiesp.core.tracked.NettyEntity.NO_VEHICLE;
  */
 public class NettyData implements Clearable {
     //
-    public boolean packetsAreWithinBundle = false;
     //
     private static final int DEFAULT_MAP_SIZE = 16;
     private static final int[] EMPTY_ENTITY_IDS = new int[0];

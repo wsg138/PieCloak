@@ -8,13 +8,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BlockSelectorTest {
+    private static final String EXAMPLE_BLOCK = "example:block";
+
     @Test
     void blockKeySelectsAllStates() {
-        BlockSelector selector = BlockSelector.parse("example:block");
+        BlockSelector selector = BlockSelector.parse(EXAMPLE_BLOCK);
 
-        assertEquals("example:block", selector.blockKey());
+        assertEquals(EXAMPLE_BLOCK, selector.blockKey());
         assertTrue(selector.matchesAllStates());
-        assertEquals("example:block", selector.toString());
+        assertEquals(EXAMPLE_BLOCK, selector.toString());
     }
 
     @Test
@@ -22,7 +24,7 @@ class BlockSelectorTest {
         BlockSelector selector = BlockSelector.parse("example:block[type=left,facing=north]");
 
         assertFalse(selector.matchesAllStates());
-        assertEquals("example:block", selector.blockKey());
+        assertEquals(EXAMPLE_BLOCK, selector.blockKey());
         assertEquals("example:block[type=left,facing=north]", selector.toString());
     }
 

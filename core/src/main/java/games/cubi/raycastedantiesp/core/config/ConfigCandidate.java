@@ -31,11 +31,11 @@ final class ConfigCandidate {
         mergeDefaults();
     }
 
-    CommentedConfigurationNode node() {
+    CommentedConfigurationNode candidateNode() {
         return node;
     }
 
-    List<Repair> repairs() {
+    List<Repair> repairList() {
         return repairs;
     }
 
@@ -65,7 +65,8 @@ final class ConfigCandidate {
             repair(NodePath.path("checks", section, "hide-sounds-when-hidden"), "hiding sounds from hidden entities is currently unsupported");
         }
         int attemptsRemaining = Math.max(2, countLeaves(defaults) + 1);
-        while (attemptsRemaining-- > 0) {
+        while (attemptsRemaining > 0) {
+            attemptsRemaining--;
             RootConfig root = deserializeWithRepairs(NodePath.path(), RootConfig.class);
             if (!RootConfig.CURRENT_VERSION.equals(root.configVersion())) {
                 throw ConfigMigration.unsupportedVersion(root.configVersion());
@@ -102,7 +103,8 @@ final class ConfigCandidate {
 
     private <T> T deserializeWithRepairs(NodePath mappingPath, Class<T> type) {
         int attemptsRemaining = Math.max(1, countLeaves(defaults.node(mappingPath.array())) + 1);
-        while (attemptsRemaining-- > 0) {
+        while (attemptsRemaining > 0) {
+            attemptsRemaining--;
             try {
                 T value = node.node(mappingPath.array()).get(type);
                 if (value == null) {
@@ -233,27 +235,40 @@ final class ConfigCandidate {
 
         boolean changed = mergeComment(defaults, target);
         if (!defaults.childrenMap().isEmpty()) {
-            Object raw = target.raw();
-            if (target.childrenMap().isEmpty() && !(raw instanceof Map<?, ?>)) {
-                return repair(target.path(), "expected a mapping");
+            return mergeMissingMap(defaults, target) | changed;
+        }
+        if (!defaults.childrenList().isEmpty() && target.isList()) {
+            return mergeListComments(defaults, target) | changed;
+        }
+        return changed;
+    }
+
+    private boolean mergeMissingMap(ConfigurationNode defaults, ConfigurationNode target) {
+        if (target.childrenMap().isEmpty() && !(target.raw() instanceof Map<?, ?>)) {
+            return repair(target.path(), "expected a mapping");
+        }
+        boolean changed = false;
+        for (Map.Entry<Object, ? extends ConfigurationNode> entry : defaults.childrenMap().entrySet()) {
+            changed |= mergeMissing(entry.getValue(), target.node(entry.getKey()));
+        }
+        return changed;
+    }
+
+    // The temporary map is confined to the current configuration transaction.
+    private boolean mergeListComments(ConfigurationNode defaults, ConfigurationNode target) {
+        Map<String, ConfigurationNode> commentedDefaults = new LinkedHashMap<>();
+        for (ConfigurationNode child : defaults.childrenList()) {
+            if (child.rawScalar() instanceof String value
+                    && child instanceof CommentedConfigurationNode commented && commented.comment() != null) {
+                commentedDefaults.put(value, child);
             }
-            for (Map.Entry<Object, ? extends ConfigurationNode> entry : defaults.childrenMap().entrySet()) {
-                changed |= mergeMissing(entry.getValue(), target.node(entry.getKey()));
-            }
-        } else if (!defaults.childrenList().isEmpty() && target.isList()) {
-            // Entries can be reordered or removed, so default comments must follow values rather than indices.
-            Map<String, ConfigurationNode> commentedDefaults = new LinkedHashMap<>();
-            for (ConfigurationNode child : defaults.childrenList()) {
-                if (child.rawScalar() instanceof String value && child instanceof CommentedConfigurationNode commented && commented.comment() != null) {
-                    commentedDefaults.put(value, child);
-                }
-            }
-            for (ConfigurationNode child : target.childrenList()) {
-                if (child.rawScalar() instanceof String value) {
-                    ConfigurationNode defaultChild = commentedDefaults.get(value);
-                    if (defaultChild != null) {
-                        changed |= mergeComment(defaultChild, child);
-                    }
+        }
+        boolean changed = false;
+        for (ConfigurationNode child : target.childrenList()) {
+            if (child.rawScalar() instanceof String value) {
+                ConfigurationNode defaultChild = commentedDefaults.get(value);
+                if (defaultChild != null) {
+                    changed |= mergeComment(defaultChild, child);
                 }
             }
         }
