@@ -21,8 +21,36 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/fancyqa-node" --ignore-scripts --no-audit --no-fund @wp2508/mineflayer@4.42.9
           echo "NODE_PATH=$RUNNER_TEMP/fancyqa-node/node_modules" >> "$GITHUB_ENV"
+      - name: Retrieve exact PR 39 Paper 26.3 candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/wsg138/PieCloak/actions/artifacts/15146654063/zip > "$RUNNER_TEMP/candidate.zip"
+          echo "2597dc00c60554654366484c819aa2dd09959e70f425e171ab155c7aa31bd027  $RUNNER_TEMP/candidate.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/candidate"
+          unzip -q "$RUNNER_TEMP/candidate.zip" -d "$RUNNER_TEMP/candidate"
+          mapfile -t jars < <(find "$RUNNER_TEMP/candidate" -type f -name '*.jar')
+          test "${#jars[@]}" -eq 1
+          cp "${jars[0]}" "$RUNNER_TEMP/PieCloak-candidate.jar"
+          echo "abd8a3bef425ea74d657cb92f68ecfd950f78a97cb894b50676da8eed7c07c0a  $RUNNER_TEMP/PieCloak-candidate.jar" | sha256sum -c -
       - name: Check direct manager removal and reload with retained NPC references
-        run: python3 qa/fancy-manager/run.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('qa/fancy-manager/run.py')
+          s = p.read_text()
+          lines = s.splitlines()
+          start = next(i for i, line in enumerate(lines) if line.startswith('download("https://github.com/wsg138/PieCloak/releases/'))
+          assert lines[start+1].startswith('assert hashlib.sha256(candidate.read_bytes())')
+          lines[start:start+2] = [
+              'shutil.copy2(Path(os.environ["RUNNER_TEMP"])/"PieCloak-candidate.jar",candidate)',
+              'assert hashlib.sha256(candidate.read_bytes()).hexdigest()=="abd8a3bef425ea74d657cb92f68ecfd950f78a97cb894b50676da8eed7c07c0a"',
+              'print("PR 39 candidate",hashlib.sha256(candidate.read_bytes()).hexdigest(),flush=True)'
+          ]
+          p.write_text('\n'.join(lines)+'\n')
+          PY
+          python3 qa/fancy-manager/run.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
